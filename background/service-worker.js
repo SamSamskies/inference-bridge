@@ -268,6 +268,12 @@ async function handleStart(port, msg, onStreamId) {
       throwInference("unavailable", "No model selected for this provider.");
     }
 
+    // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
+    port.postMessage({
+      type: "chunk",
+      chunk: { type: "accepted" },
+    });
+
     const result = await provider.streamChat({
       apiKey: settings.openaiApiKey,
       model,

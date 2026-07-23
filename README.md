@@ -55,7 +55,9 @@ for await (const chunk of window.inference.request({
   method: "chat",
   messages: [{ role: "user", content: "Say hello in one short sentence." }],
 })) {
-  if (chunk.type === "delta") {
+  if (chunk.type === "accepted") {
+    console.log("accepted");
+  } else if (chunk.type === "delta") {
     console.log("delta", chunk.content);
   } else if (chunk.type === "done") {
     console.log("done", chunk.model, chunk.message, chunk.usage);
@@ -183,7 +185,8 @@ npm run package
 - [ ] Remember + Deny blocks the origin; later requests fail with `permission_denied` without prompting
 - [ ] Unblock in Options restores the permission prompt
 - [ ] Allow once works without persisting; Remember + Allow appears under Options with provider + model
-- [ ] Streaming yields `delta` chunks then a single `done`
+- [ ] Streaming yields one `accepted` chunk, then `delta` chunks, then a single `done`
+- [ ] `accepted` arrives after Allow (or silent persistent grant), before the first `delta`/`done`
 - [ ] `done.message.content` matches concatenated deltas
 - [ ] AbortSignal / tab close produces `aborted`
 - [ ] Empty OpenAI API key (OpenAI selected) yields `unavailable` with a setup hint
