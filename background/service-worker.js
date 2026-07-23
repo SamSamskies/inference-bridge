@@ -243,14 +243,14 @@ async function handleStart(port, msg, onStreamId) {
     if (!provider) {
       throwInference(
         "unavailable",
-        `Unknown provider "${permission.providerId}". Open the IPA Demo extension options and update this site's grant.`
+        `Unknown provider "${permission.providerId}". Open the Inference Bridge options and update this site's grant.`
       );
     }
 
     if (provider.requiresApiKey && !settings.openaiApiKey) {
       throwInference(
         "unavailable",
-        "OpenAI API key not configured. Open the IPA Demo extension options to add your key."
+        "OpenAI API key not configured. Open the Inference Bridge options to add your key."
       );
     }
 

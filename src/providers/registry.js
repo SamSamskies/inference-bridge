@@ -29,7 +29,7 @@ export function getProvider(id) {
 }
 
 /**
- * Default provider for this demo build (OpenAI).
+ * Default provider for this reference build (OpenAI).
  * @returns {Provider}
  */
 export function getDefaultProvider() {

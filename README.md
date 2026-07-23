@@ -1,45 +1,54 @@
-# IPA Demo Extension
+# Inference Bridge
 
-Minimal Manifest V3 Chrome extension that implements [`SPEC.md`](../../SPEC.md) by injecting `window.inference` and routing chat requests to a user-chosen provider (**OpenAI** or local **Ollama**).
+Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI** or local **Ollama**). API keys stay in the extension. Page scripts never see them.
 
-## Load the extension
+The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select this folder: `examples/extension`
-5. Open the extension **Options** page (or click the toolbar icon)
-6. Choose a default provider:
+## Features
+
+- `window.inference.request()` for streaming text chat
+- Per-origin Allow / Deny / Remember permission flow
+- User-controlled provider and model selection
+- OpenAI (BYOK) and local Ollama support
+- Origin/Referer stripping for local Ollama (no `OLLAMA_ORIGINS` required in the common case)
+- Secure-context injection only (`https:` or loopback `http:`)
+
+## Installation
+
+### Chrome Web Store (recommended)
+
+Chrome Web Store listing is not published yet. Until it is, use the development install below.
+
+### Development (Load unpacked)
+
+1. Clone this repository
+2. Open `chrome://extensions`
+3. Enable **Developer mode**
+4. Click **Load unpacked**
+5. Select this repository root
+6. Open the extension **Options** page (or click the toolbar icon)
+7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
    - **Ollama** — no API key; models are listed from your local Ollama install
-7. Click **Save**
+8. Click **Save**
 
-## Try it with OpenAI
+## Supported Providers
+
+| Provider | Auth | Notes |
+| --- | --- | --- |
+| OpenAI | API key in Options | Curated chat model list in the UI |
+| Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
+
+To add another provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options/approval UI if it needs extra credentials.
+
+## Try it
+
+### OpenAI
 
 1. Set **Default provider** to OpenAI and save an API key
-2. On any top-level HTTPS page (or `http://localhost`), open DevTools and run the snippet below
-
-## Try it with Ollama (no API key)
-
-1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
-2. Pull at least one chat model, for example:
-
-   ```bash
-   ollama pull gemma4
-   ```
-
-3. In extension Options, set **Default provider** to **Ollama** (enabled only when Ollama is reachable and has at least one model)
-4. Confirm the model dropdown populates from `GET /api/tags` (installed models only)
-5. Click **Save**
-6. Run the snippet below on an HTTPS or localhost page
-
-If Ollama is not installed or not running, the **Ollama** option stays disabled with help text under the provider selector. Start Ollama, pull a model, then click **Check again** in Options.
-
-This demo strips the `chrome-extension://` `Origin` header on requests to local Ollama (see root [SPEC.md](../../SPEC.md) / [README.md](../../README.md)). After updating the extension, use **Reload** on `chrome://extensions` so that rule is installed. If you still see HTTP 403, you can fall back to restarting Ollama with `OLLAMA_ORIGINS=chrome-extension://*`, but origin stripping is the preferred approach.
-
-## Example request
+2. On any top-level HTTPS page (or `http://localhost`), open DevTools and run:
 
 ```js
 for await (const chunk of window.inference.request({
@@ -54,7 +63,21 @@ for await (const chunk of window.inference.request({
 }
 ```
 
-The extension prompts for permission (**Allow** / **Deny**, with optional **Remember for this site**) unless the origin was previously always-allowed or blocked. The approval UI lets you choose **provider and model** for that grant.
+### Ollama (no API key)
+
+1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
+2. Pull at least one chat model, for example:
+
+   ```bash
+   ollama pull gemma4
+   ```
+
+3. In Options, set **Default provider** to **Ollama** (enabled only when Ollama is reachable and has at least one model)
+4. Confirm the model dropdown populates from installed models
+5. Click **Save**
+6. Run the snippet above on an HTTPS or localhost page
+
+Inference Bridge strips the `chrome-extension://` `Origin` header on requests to local Ollama (see the [spec README](https://github.com/SamSamskies/inference-provider-api/blob/main/README.md) “Local providers” section). After updating the extension, use **Reload** on `chrome://extensions` so that rule is installed. If you still see HTTP 403, you can fall back to restarting Ollama with `OLLAMA_ORIGINS=chrome-extension://*`, but origin stripping is preferred.
 
 Abort example:
 
@@ -77,12 +100,27 @@ try {
 }
 ```
 
-## Layout
+Example app: the [chat demo](https://github.com/SamSamskies/inference-provider-api/tree/main/examples/webapp) in the specification repository.
+
+## Security
+
+- Injects only into top-level frames
+- Requires a secure context (`https:` or `localhost` / loopback `http:`)
+- Does not inject into `file:` pages
+- Permission is per HTTP(S) origin and records the chosen provider + model
+- Request validation happens in the extension before any provider call
+- OpenAI credentials are read only inside the service worker
+- Ollama traffic stays on `http://localhost:11434` / `http://127.0.0.1:11434`
+- Local Ollama requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped to the Ollama port)
+
+If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in the [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js). Keep host permissions and DNR rules tight; do not apply header stripping to remote APIs.
+
+## Architecture
 
 ```text
-examples/extension/
+.
   manifest.json
-  package.json                 # vitest for focused unit tests
+  package.json                 # vitest + packaging scripts
   icons/                       # toolbar / extension management PNGs (16, 48, 128)
   test/                        # validate / storage / permissions / registry
   background/service-worker.js   # permissions + orchestration
@@ -102,34 +140,41 @@ examples/extension/
     options.html|.js             # provider + model + API key
     approval.html|.js            # origin permission prompt
     shared.css
+  scripts/
+    package.mjs                  # Chrome Web Store ZIP packaging
 ```
 
-To add another provider later: implement the same provider shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options/approval UI if it needs credentials beyond the shared provider selector.
+## Standards Compatibility
 
-If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in root [SPEC.md](../../SPEC.md) / [README.md](../../README.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js). That approach needs the Chrome permission `declarativeNetRequestWithHostAccess` plus loopback `host_permissions`. DNR can only rewrite traffic for those hosts; keep both the permission’s host scope and the rules tight (prefer `http://localhost:11434/*`, and do not apply header stripping to remote APIs). See the root README “Local providers” section for the security tradeoff versus `OLLAMA_ORIGINS`.
+| Area | Status |
+| --- | --- |
+| Spec contract (`window.inference.request`, streaming, abort, errors) | Implemented |
+| Text chat | Implemented |
+| Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
+| Tools / vision / audio / embeddings | Not implemented; treat as future experimental candidates |
 
-## Security behavior
+The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
-- Injects only into top-level frames
-- Requires a secure context (`https:` or `localhost` / loopback `http:`)
-- Does not inject into `file:` pages
-- Permission is per HTTP(S) origin and records the chosen provider + model
-- Request validation happens in the extension before any provider call
-- OpenAI credentials are read only inside the service worker
-- Ollama traffic stays on `http://localhost:11434` (fixed for this demo)
-- Local Ollama requests drop the extension `Origin` header (avoids Ollama's default 403 for `chrome-extension://`)
+## Experimental Features
 
-## Unit tests
+None currently. When this extension adds capabilities outside the current specification (for example tool calling, vision, or provider-specific APIs), they will be documented in this section and clearly labeled in the UI and docs. Experimental features must not silently change the meaning of the core IPA contract.
 
-Focused Node tests cover request validation, storage/grants, permission decisions, and the provider registry (no full MV3 e2e).
+## Development
 
 ```bash
-cd examples/extension
 npm install
 npm test
 ```
 
-## Manual checks
+Focused Node tests cover request validation, storage/grants, permission decisions, and the provider registry (no full MV3 e2e).
+
+Package a release ZIP (runtime files only):
+
+```bash
+npm run package
+```
+
+### Manual checks
 
 - [ ] `window.inference` exists on `https://example.com` after install
 - [ ] Missing on an `http://` non-localhost page (or request fails with `unavailable`)
@@ -148,10 +193,24 @@ npm test
 - [ ] Ollama chat from the webapp succeeds after approving (no HTTP 403)
 - [ ] Switching default provider does not rewrite existing origin grants
 
-## Demo limitations
+### Current limitations
 
 - OpenAI and local Ollama only (Ollama fixed at `http://localhost:11434`)
 - Text chat only (no tools, images, embeddings, speech)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+- Keep the core IPA surface aligned with [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md)
+- Prefer experimental, clearly labeled features over expanding the normative API prematurely
+- Add unit tests for non-UI logic where practical
+
+See also [Chrome Web Store release checklist](./docs/chrome-web-store.md) and the [privacy policy](./PRIVACY.md).
+
+## License
+
+MIT. See [LICENSE](./LICENSE).

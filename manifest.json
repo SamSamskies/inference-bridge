@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "IPA Demo",
+  "name": "Inference Bridge",
   "version": "0.1.0",
-  "description": "Minimal demo of the Inference Provider API.",
+  "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
   "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "https://api.openai.com/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://localhost:11434/*",
+    "http://127.0.0.1:11434/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -23,7 +23,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "IPA Demo — open settings",
+    "default_title": "Inference Bridge — open settings",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png"
