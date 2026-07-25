@@ -51,7 +51,7 @@ Content scripts inject `window.inference` into top-level HTTP(S) pages so web ap
 
 ## Changes
 
-Material changes to this policy will be reflected in this file and the extension version changelog.
+Material changes to this policy will be reflected in this file and in [GitHub Releases](https://github.com/SamSamskies/inference-bridge/releases).
 
 ## Contact
 
