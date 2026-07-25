@@ -10,7 +10,7 @@
 const DEFAULTS = Object.freeze({
   openaiApiKey: "",
   defaultProviderId: "openai",
-  defaultModel: "gpt-4o-mini",
+  defaultModel: "gpt-5.6-luna",
   /** @type {Record<string, OriginGrant>} */
   allowedOrigins: {},
   /** @type {Record<string, OriginBlock>} */

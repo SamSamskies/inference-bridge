@@ -13,8 +13,11 @@ export const OPENAI_MODELS = Object.freeze([
   "gpt-5.4-nano",
   "gpt-5.4-mini",
   "gpt-5.4",
+  "gpt-5-nano",
   "gpt-5-mini",
+  "gpt-4.1-nano",
   "gpt-4.1-mini",
+  "gpt-4.1",
   "gpt-4o-mini",
   "gpt-4o",
 ]);
@@ -43,7 +46,7 @@ export const openaiProvider = {
   label: "OpenAI",
   requiresApiKey: true,
   models: OPENAI_MODELS,
-  defaultModel: "gpt-4o-mini",
+  defaultModel: "gpt-5.6-luna",
 
   async streamChat({ apiKey, model, messages, signal, onDelta }) {
     let response;

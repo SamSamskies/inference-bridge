@@ -36,7 +36,7 @@ describe("getSettings", () => {
     await expect(getSettings()).resolves.toMatchObject({
       openaiApiKey: "",
       defaultProviderId: "openai",
-      defaultModel: "gpt-4o-mini",
+      defaultModel: "gpt-5.6-luna",
       allowedOrigins: {},
       blockedOrigins: {},
     });

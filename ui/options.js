@@ -264,7 +264,7 @@ async function refreshDefaultModels(providerId, preferredModel) {
 
 /** Last saved defaults — restored when switching back to the saved provider. */
 let savedDefaultProviderId = "openai";
-let savedDefaultModel = "gpt-4o-mini";
+let savedDefaultModel = "gpt-5.6-luna";
 
 /**
  * @param {string} providerId
