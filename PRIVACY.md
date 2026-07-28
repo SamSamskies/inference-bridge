@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-07-23
+**Last updated:** 2026-07-28
 
 Inference Bridge is a Chrome extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles.
 
@@ -35,7 +35,6 @@ The extension does not receive or relay responses through any Inference Bridge s
 | Permission / host | Why it is needed |
 | --- | --- |
 | `storage` | Save settings, API keys, and origin grants |
-| `tabs` | Open the approval UI and associate requests with the requesting tab |
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on local Ollama requests so Ollama does not reject `chrome-extension://` origins |
 | `https://api.openai.com/*` | Call the OpenAI Chat Completions API |
 | `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |

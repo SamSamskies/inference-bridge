@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Inference Bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
-  "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "https://api.openai.com/*",
     "http://localhost:11434/*",

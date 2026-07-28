@@ -53,7 +53,6 @@ unzip -l dist/inference-bridge-*.zip
 ## Permission justifications (paste into store form)
 
 - **storage** — Store provider settings, API keys, and per-origin grants locally.
-- **tabs** — Open the approval window and bind inference requests to the requesting tab.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for local Ollama so loopback inference works without widening `OLLAMA_ORIGINS`.
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
