@@ -6,6 +6,7 @@
   "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "https://api.openai.com/*",
+    "https://openrouter.ai/*",
     "http://localhost:11434/*",
     "http://127.0.0.1:11434/*"
   ],

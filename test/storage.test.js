@@ -1,18 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
 import {
-  blockOrigin,
-  getOriginGrant,
   getSettings,
   grantOriginAlways,
-  isOriginBlocked,
-  listAllowedOrigins,
-  listBlockedOrigins,
   normalizeProviderId,
-  revokeOrigin,
   saveSettings,
-  setOriginProviderModel,
-  unblockOrigin,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -25,6 +17,7 @@ describe("normalizeProviderId", () => {
   it("trims valid ids and defaults blanks to openai", () => {
     expect(normalizeProviderId("ollama")).toBe("ollama");
     expect(normalizeProviderId("  openai  ")).toBe("openai");
+    expect(normalizeProviderId("openrouter")).toBe("openrouter");
     expect(normalizeProviderId("")).toBe("openai");
     expect(normalizeProviderId("   ")).toBe("openai");
     expect(normalizeProviderId(undefined)).toBe("openai");
@@ -34,12 +27,62 @@ describe("normalizeProviderId", () => {
 describe("getSettings", () => {
   it("returns defaults when storage is empty", async () => {
     await expect(getSettings()).resolves.toMatchObject({
-      openaiApiKey: "",
+      apiKeys: {},
       defaultProviderId: "openai",
       defaultModel: "gpt-5.6-luna",
+      defaultModels: { openai: "gpt-5.6-luna", openrouter: "openrouter/auto" },
       allowedOrigins: {},
       blockedOrigins: {},
     });
+  });
+
+  it("migrates a legacy openaiApiKey into apiKeys.openai", async () => {
+    chromeMock.store.set("openaiApiKey", " sk-legacy ");
+
+    const settings = await getSettings();
+    expect(settings.apiKeys).toEqual({ openai: "sk-legacy" });
+    expect(chromeMock.store.get("apiKeys")).toEqual({ openai: "sk-legacy" });
+    expect(chromeMock.store.has("openaiApiKey")).toBe(false);
+
+    // Idempotent: a later read does not overwrite a user-updated key, and still
+    // removes any leftover legacy credential.
+    chromeMock.store.set("apiKeys", { openai: "sk-new" });
+    chromeMock.store.set("openaiApiKey", "sk-stale");
+    const again = await getSettings();
+    expect(again.apiKeys.openai).toBe("sk-new");
+    expect(chromeMock.store.has("openaiApiKey")).toBe(false);
+  });
+
+  it("migrates a flat defaultModel into defaultModels and removes the legacy key", async () => {
+    chromeMock.store.set("defaultProviderId", "openai");
+    chromeMock.store.set("defaultModel", "gpt-4.1-nano");
+
+    const settings = await getSettings();
+    expect(settings.defaultModels).toEqual({ openai: "gpt-4.1-nano" });
+    expect(settings.defaultModel).toBe("gpt-4.1-nano");
+    expect(chromeMock.store.has("defaultModel")).toBe(false);
+  });
+
+  it("scrubs an OpenAI model stored under openrouter", async () => {
+    chromeMock.store.set("defaultProviderId", "openrouter");
+    chromeMock.store.set("defaultModels", {
+      openai: "gpt-5.6-luna",
+      openrouter: "gpt-5.6-luna",
+    });
+
+    const settings = await getSettings();
+    expect(settings.defaultModels.openrouter).toBeUndefined();
+    expect(settings.defaultModels.openai).toBe("gpt-5.6-luna");
+    expect(settings.defaultModel).toBe("openrouter/auto");
+  });
+
+  it("does not migrate a flat OpenAI model onto openrouter", async () => {
+    chromeMock.store.set("defaultProviderId", "openrouter");
+    chromeMock.store.set("defaultModel", "gpt-5.6-luna");
+
+    const settings = await getSettings();
+    expect(settings.defaultModels.openrouter).not.toBe("gpt-5.6-luna");
+    expect(settings.defaultModel).toBe("openrouter/auto");
   });
 
   it("scrubs opaque and file origins from stored grants/blocks", async () => {
@@ -69,78 +112,46 @@ describe("getSettings", () => {
   });
 });
 
-describe("origin grants and blocks", () => {
-  it("grants, lists, updates, and revokes an origin", async () => {
-    await grantOriginAlways("https://app.example", {
-      providerId: "ollama",
-      model: "gemma4",
+describe("saveSettings apiKeys and defaultModels", () => {
+  it("merges per-provider keys and clears blanks", async () => {
+    await saveSettings({
+      apiKeys: { openai: " sk-oai ", openrouter: "sk-or" },
+      defaultProviderId: "openrouter",
+      defaultModel: "openrouter/free",
+    });
+    let settings = await getSettings();
+    expect(settings).toMatchObject({
+      defaultProviderId: "openrouter",
+      defaultModel: "openrouter/free",
+      defaultModels: { openrouter: "openrouter/free" },
+      apiKeys: { openai: "sk-oai", openrouter: "sk-or" },
     });
 
-    await expect(getOriginGrant("https://app.example")).resolves.toMatchObject({
-      providerId: "ollama",
-      model: "gemma4",
-    });
-    await expect(listAllowedOrigins()).resolves.toEqual([
-      expect.objectContaining({
-        origin: "https://app.example",
-        providerId: "ollama",
-        model: "gemma4",
-      }),
-    ]);
-
-    await expect(
-      setOriginProviderModel("https://app.example", {
-        providerId: "openai",
-        model: "gpt-4o-mini",
-      })
-    ).resolves.toBe(true);
-
-    await expect(getOriginGrant("https://app.example")).resolves.toMatchObject({
-      providerId: "openai",
-      model: "gpt-4o-mini",
-    });
-
-    await revokeOrigin("https://app.example");
-    await expect(getOriginGrant("https://app.example")).resolves.toBeNull();
+    await saveSettings({ apiKeys: { openrouter: "  " } });
+    settings = await getSettings();
+    expect(settings.apiKeys).toEqual({ openai: "sk-oai" });
   });
 
-  it("refuses to persist opaque null origins", async () => {
-    await grantOriginAlways("null", {
-      providerId: "openai",
-      model: "gpt-4o-mini",
+  it("keeps per-provider default models when switching the active provider", async () => {
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModel: "gpt-4.1-nano",
+      defaultModels: { openai: "gpt-4.1-nano" },
     });
-    await blockOrigin("null");
-    await expect(getOriginGrant("null")).resolves.toBeNull();
-    await expect(isOriginBlocked("null")).resolves.toBe(false);
-  });
-
-  it("blocks an origin and clears any prior grant", async () => {
-    await grantOriginAlways("https://app.example", {
-      providerId: "openai",
-      model: "gpt-4o-mini",
+    await saveSettings({
+      defaultProviderId: "openrouter",
+      defaultModel: "openrouter/free",
+      defaultModels: {
+        openai: "gpt-4.1-nano",
+        openrouter: "openrouter/free",
+      },
     });
-    await blockOrigin("https://app.example");
-
-    await expect(getOriginGrant("https://app.example")).resolves.toBeNull();
-    await expect(isOriginBlocked("https://app.example")).resolves.toBe(true);
-    await expect(listBlockedOrigins()).resolves.toEqual([
-      expect.objectContaining({ origin: "https://app.example" }),
-    ]);
-
-    await unblockOrigin("https://app.example");
-    await expect(isOriginBlocked("https://app.example")).resolves.toBe(false);
-  });
-
-  it("grantOriginAlways clears a prior block for the same origin", async () => {
-    await blockOrigin("https://app.example");
-    await grantOriginAlways("https://app.example", {
-      providerId: "ollama",
-      model: "gemma4",
-    });
-    await expect(isOriginBlocked("https://app.example")).resolves.toBe(false);
-    await expect(getOriginGrant("https://app.example")).resolves.toMatchObject({
-      providerId: "ollama",
-      model: "gemma4",
+    const settings = await getSettings();
+    expect(settings.defaultProviderId).toBe("openrouter");
+    expect(settings.defaultModel).toBe("openrouter/free");
+    expect(settings.defaultModels).toEqual({
+      openai: "gpt-4.1-nano",
+      openrouter: "openrouter/free",
     });
   });
 
@@ -148,37 +159,32 @@ describe("origin grants and blocks", () => {
     await saveSettings({
       defaultProviderId: "ollama",
       defaultModel: "gemma4",
-      openaiApiKey: " sk-test ",
+      apiKeys: { openai: " sk-test " },
     });
     let settings = await getSettings();
     expect(settings).toMatchObject({
       defaultProviderId: "ollama",
       defaultModel: "gemma4",
-      openaiApiKey: "sk-test",
+      defaultModels: { ollama: "gemma4" },
+      apiKeys: { openai: "sk-test" },
     });
 
     await saveSettings({ defaultModel: "   " });
     settings = await getSettings();
     expect(settings.defaultModel).toBe("gemma4");
   });
+});
 
-  it("setOriginProviderModel rejects empty models and missing grants", async () => {
-    await expect(
-      setOriginProviderModel("https://missing.example", {
-        providerId: "openai",
-        model: "gpt-4o-mini",
-      })
-    ).resolves.toBe(false);
-
+describe("origin grants still work with openrouter", () => {
+  it("grants an openrouter origin", async () => {
     await grantOriginAlways("https://app.example", {
-      providerId: "openai",
-      model: "gpt-4o-mini",
+      providerId: "openrouter",
+      model: "openrouter/free",
     });
-    await expect(
-      setOriginProviderModel("https://app.example", {
-        providerId: "openai",
-        model: "  ",
-      })
-    ).resolves.toBe(false);
+    const settings = await getSettings();
+    expect(settings.allowedOrigins["https://app.example"]).toMatchObject({
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
   });
 });

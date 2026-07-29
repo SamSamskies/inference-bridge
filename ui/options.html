@@ -27,8 +27,33 @@
           <p class="hint" id="ollamaHint"></p>
           <button type="button" class="ghost" id="checkOllama">Check again</button>
         </div>
-        <div class="field" id="apiKeyField">
-          <span id="apiKeyLabel">OpenAI API key</span>
+        <label class="field">
+          <span>Default model</span>
+          <select id="modelSelect"></select>
+          <div class="model-input-row" id="modelInputRow" hidden>
+            <input
+              id="modelInput"
+              type="text"
+              list="modelList"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Type to search models…"
+            />
+            <button
+              type="button"
+              id="clearModel"
+              class="ghost"
+              hidden
+              aria-label="Clear model"
+            >
+              Clear
+            </button>
+          </div>
+          <datalist id="modelList"></datalist>
+        </label>
+        <p class="hint" id="modelHint" hidden></p>
+        <div class="field" id="apiKeyField" hidden>
+          <span id="apiKeyLabel">API key</span>
           <div class="secret-input">
             <input
               id="apiKey"
@@ -49,15 +74,10 @@
             </button>
           </div>
         </div>
-        <label class="field">
-          <span>Default model</span>
-          <select id="model"></select>
-        </label>
-        <p class="hint" id="modelHint" hidden></p>
-        <div class="actions">
+        <div class="actions actions-end">
           <button type="button" class="primary" id="save">Save</button>
         </div>
-        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <div class="status status-end" id="status" role="status" aria-live="polite"></div>
       </section>
 
       <section class="panel stack">

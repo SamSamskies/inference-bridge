@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI or local Ollama). Keep listing copy focused on that purpose.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, OpenRouter, or local Ollama). Keep listing copy focused on that purpose.
 
 ## Versioning
 
@@ -55,6 +55,7 @@ unzip -l dist/inference-bridge-*.zip
 - **storage** — Store provider settings, API keys, and per-origin grants locally.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for local Ollama so loopback inference works without widening `OLLAMA_ORIGINS`.
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
+- **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
 
 ## Data safety / privacy disclosures
@@ -80,7 +81,7 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the README manual checklist on a clean profile:
 
 1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
-2. Confirm OpenAI and Ollama flows.
+2. Confirm OpenAI, OpenRouter, and Ollama flows.
 3. Confirm permission Allow / Deny / Remember behavior.
 4. Confirm no unexpected host permissions beyond the tightened Ollama port scope.
 

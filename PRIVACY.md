@@ -1,13 +1,13 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-29
 
 Inference Bridge is a Chrome extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles.
 
 ## Summary
 
 - API keys and provider settings are stored locally in the browser via `chrome.storage.local`.
-- Inference request content is sent only to the provider the user selects (for example OpenAI or a local Ollama instance).
+- Inference request content is sent only to the provider the user selects (for example OpenAI, OpenRouter, or a local Ollama instance).
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
 
@@ -15,7 +15,7 @@ Inference Bridge is a Chrome extension that implements the experimental [Inferen
 
 | Data | Purpose | Where |
 | --- | --- | --- |
-| OpenAI API key (if configured) | Authenticate requests to OpenAI | `chrome.storage.local` |
+| Provider API keys (OpenAI, OpenRouter, if configured) | Authenticate requests to the selected remote provider | `chrome.storage.local` |
 | Default provider and model | Pre-fill Options and approval UI | `chrome.storage.local` |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | `chrome.storage.local` |
 
@@ -25,7 +25,8 @@ This data stays on the device unless the user clears extension storage or uninst
 
 When the user allows a site to use inference:
 
-- **OpenAI:** chat messages and the stored API key are sent to `https://api.openai.com` for the selected model.
+- **OpenAI:** chat messages and the stored OpenAI API key are sent to `https://api.openai.com` for the selected model.
+- **OpenRouter:** chat messages and the stored OpenRouter API key are sent to `https://openrouter.ai` for the selected model. The public model catalog (`GET /api/v1/models`) is fetched without an API key to populate the Options UI.
 - **Ollama:** chat messages are sent to the local Ollama endpoint (`http://localhost:11434` / `http://127.0.0.1:11434`). No remote third party is contacted for Ollama traffic.
 
 The extension does not receive or relay responses through any Inference Bridge server.
@@ -37,6 +38,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `storage` | Save settings, API keys, and origin grants |
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on local Ollama requests so Ollama does not reject `chrome-extension://` origins |
 | `https://api.openai.com/*` | Call the OpenAI Chat Completions API |
+| `https://openrouter.ai/*` | Call the OpenRouter models catalog and Chat Completions API |
 | `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |
 
 Content scripts inject `window.inference` into top-level HTTP(S) pages so web apps can request inference. Injection is limited to secure contexts (`https:` or loopback `http:`).

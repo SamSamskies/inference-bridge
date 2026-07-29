@@ -132,6 +132,17 @@ textarea {
   font-size: 0.9rem;
 }
 
+.model-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.model-input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 button.ghost {
   flex: 0 0 auto;
   min-width: 4.5rem;
@@ -157,6 +168,10 @@ button:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.actions-end {
+  justify-content: flex-end;
 }
 
 button {
@@ -191,6 +206,10 @@ button:disabled {
 .status {
   min-height: 1.2em;
   font-size: 0.9rem;
+}
+
+.status-end {
+  text-align: end;
 }
 
 .status.ok {
@@ -241,7 +260,9 @@ button:disabled {
   color: var(--muted);
 }
 
-.origin-model select {
+.origin-model select,
+.origin-model input[type="text"],
+.origin-model .model-input-row {
   max-width: 280px;
 }
 

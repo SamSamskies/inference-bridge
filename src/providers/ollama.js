@@ -39,7 +39,7 @@ function rethrowNetwork(err, signal) {
 /**
  * List locally installed Ollama models.
  * @param {{ signal?: AbortSignal }} [args]
- * @returns {Promise<string[]>}
+ * @returns {Promise<import("./types.js").ModelInfo[]>}
  */
 export async function listOllamaModels({ signal } = {}) {
   await ensureOllamaOriginBypass();
@@ -74,7 +74,7 @@ export async function listOllamaModels({ signal } = {}) {
   }
 
   const models = Array.isArray(body?.models) ? body.models : [];
-  /** @type {string[]} */
+  /** @type {import("./types.js").ModelInfo[]} */
   const names = [];
   for (const entry of models) {
     const name =
@@ -83,29 +83,13 @@ export async function listOllamaModels({ signal } = {}) {
         : typeof entry?.model === "string"
           ? entry.model
           : "";
-    if (name) names.push(name);
+    if (name) names.push({ id: name });
   }
-  names.sort((a, b) => a.localeCompare(b));
+  names.sort((a, b) => a.id.localeCompare(b.id));
   return names;
 }
 
-/**
- * @typedef {{
- *   id: string,
- *   label: string,
- *   requiresApiKey: boolean,
- *   defaultModel: string,
- *   models?: readonly string[],
- *   listModels?: (args?: { signal?: AbortSignal }) => Promise<string[]>,
- *   streamChat: (args: {
- *     apiKey?: string,
- *     model: string,
- *     messages: Array<{ role: string, content: string }>,
- *     signal: AbortSignal,
- *     onDelta: (content: string) => void,
- *   }) => Promise<{ model: string, message: { role: "assistant", content: string }, usage?: { inputTokens?: number, outputTokens?: number } }>
- * }} Provider
- */
+/** @typedef {import("./types.js").Provider} Provider */
 
 /** @type {Provider} */
 export const ollamaProvider = {

@@ -27,6 +27,12 @@ export function installChromeMock() {
         store.set(key, structuredClone(value));
       }
     },
+    async remove(keys) {
+      const keyList = Array.isArray(keys) ? keys : [keys];
+      for (const key of keyList) {
+        store.delete(key);
+      }
+    },
   };
 
   const chrome = {

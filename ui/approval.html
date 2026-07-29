@@ -32,7 +32,27 @@
           <p class="hint" id="ollamaHint" hidden></p>
           <label class="field">
             <span>Model</span>
-            <select id="model"></select>
+            <select id="modelSelect"></select>
+            <div class="model-input-row" id="modelInputRow" hidden>
+              <input
+                id="modelInput"
+                type="text"
+                list="modelList"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Type to search models…"
+              />
+              <button
+                type="button"
+                id="clearModel"
+                class="ghost"
+                hidden
+                aria-label="Clear model"
+              >
+                Clear
+              </button>
+            </div>
+            <datalist id="modelList"></datalist>
           </label>
           <p class="hint" id="modelHint" hidden></p>
         </section>

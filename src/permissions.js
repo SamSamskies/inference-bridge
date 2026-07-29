@@ -9,6 +9,7 @@ import {
   isOriginBlocked,
   blockOrigin,
   normalizeProviderId,
+  isPlausibleModelForProvider,
 } from "./storage.js";
 import { getDefaultProvider, getProvider } from "./providers/registry.js";
 
@@ -50,16 +51,22 @@ export async function ensurePermission(args) {
     args.preferredProviderId || settings.defaultProviderId || defaultProvider.id
   );
   const provider = getProvider(providerId) || defaultProvider;
-  // Only reuse settings.defaultModel when it belongs to this provider.
-  // Otherwise the approval UI can pre-select (and OpenAI can persist) a name
-  // from another catalog — e.g. an Ollama tag after switching defaults, or
-  // when preferredProviderId differs from settings.defaultProviderId.
-  const settingsModelForProvider =
-    normalizeProviderId(settings.defaultProviderId) === provider.id
-      ? settings.defaultModel
+  // Prefer the per-provider remembered default from defaultModels.
+  const remembered =
+    typeof settings.defaultModels?.[provider.id] === "string"
+      ? settings.defaultModels[provider.id]
       : "";
+  const settingsModelForProvider = isPlausibleModelForProvider(
+    provider.id,
+    remembered
+  )
+    ? remembered
+    : "";
   const globalDefaultModel =
-    (typeof args.preferredModel === "string" && args.preferredModel) ||
+    (typeof args.preferredModel === "string" &&
+    isPlausibleModelForProvider(provider.id, args.preferredModel)
+      ? args.preferredModel
+      : "") ||
     settingsModelForProvider ||
     provider.defaultModel ||
     "";
@@ -102,8 +109,13 @@ export async function ensurePermission(args) {
   const chosenProvider = getProvider(chosenProviderId) || provider;
   // If the user picked a different provider in the approval UI, do not fall
   // back to globalDefaultModel (it was resolved for the prompt's provider).
+  const decisionModel =
+    typeof decision.model === "string" &&
+    isPlausibleModelForProvider(chosenProviderId, decision.model)
+      ? decision.model.trim()
+      : "";
   const chosenModel =
-    decision.model ||
+    decisionModel ||
     (chosenProviderId === provider.id ? globalDefaultModel : "") ||
     chosenProvider.defaultModel ||
     "";

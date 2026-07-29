@@ -96,7 +96,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  if (message?.type === "list-providers") {
+    if (message?.type === "list-providers") {
     sendResponse({
       providers: listProviders().map((p) => ({
         id: p.id,
@@ -104,7 +104,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         requiresApiKey: Boolean(p.requiresApiKey),
         defaultModel: p.defaultModel,
         // Static catalogs only; dynamic providers omit models here.
-        models: p.models ? [...p.models] : undefined,
+        // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
+        models: p.models
+          ? p.models.map((entry) =>
+              typeof entry === "string" ? { id: entry } : entry
+            )
+          : undefined,
       })),
     });
     return false;
@@ -247,10 +252,10 @@ async function handleStart(port, msg, onStreamId) {
       );
     }
 
-    if (provider.requiresApiKey && !settings.openaiApiKey) {
+    if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
       throwInference(
         "unavailable",
-        "OpenAI API key not configured. Open the Inference Bridge options to add your key."
+        `${provider.label} API key not configured. Open the Inference Bridge options to add your key.`
       );
     }
 
@@ -265,6 +270,12 @@ async function handleStart(port, msg, onStreamId) {
           "No Ollama model selected. Start Ollama, pull a model (e.g. ollama pull gemma4), then choose it in the extension."
         );
       }
+      if (provider.id === "openrouter") {
+        throwInference(
+          "unavailable",
+          "No OpenRouter model selected. Choose a model in the extension Options or approval dialog."
+        );
+      }
       throwInference("unavailable", "No model selected for this provider.");
     }
 
@@ -275,7 +286,7 @@ async function handleStart(port, msg, onStreamId) {
     });
 
     const result = await provider.streamChat({
-      apiKey: settings.openaiApiKey,
+      apiKey: settings.apiKeys[provider.id],
       model,
       messages: validated.value.messages,
       signal: controller.signal,
