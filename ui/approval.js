@@ -316,8 +316,14 @@ async function loadModelsForProvider(providerId, preferredModel) {
   if (!response?.ok) {
     setModelHint(response?.error?.message || "Failed to list models.");
     currentModels = [];
-    populateModelControl(providerId, [], undefined, { disabled: true });
-    modelsReady = false;
+    // OpenAI / OpenRouter still accept free-typed slugs when the catalog
+    // request fails — same as an empty successful catalog.
+    const allowUnknown = allowUnknownFor(providerId);
+    populateModelControl(providerId, [], preferredModel, {
+      allowUnknown,
+      disabled: !allowUnknown,
+    });
+    modelsReady = allowUnknown;
     updateAllowEnabled();
     return;
   }
