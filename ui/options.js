@@ -517,8 +517,28 @@ checkOllamaButton.addEventListener("click", async () => {
   }
 });
 
+/**
+ * Commit callbacks for in-progress OpenRouter origin model inputs.
+ * Text <input> only fires `change` after blur; flushing on page hide covers
+ * closing the Options tab while the field is still focused.
+ * @type {Array<() => void>}
+ */
+let originModelCommitters = [];
+
+function flushOriginModelEdits() {
+  for (const commit of originModelCommitters) {
+    commit();
+  }
+}
+
+window.addEventListener("pagehide", flushOriginModelEdits);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushOriginModelEdits();
+});
+
 async function renderOrigins() {
   const grants = await listAllowedOrigins();
+  originModelCommitters = [];
   originsEl.replaceChildren();
   originsEmpty.hidden = grants.length > 0;
 
@@ -674,6 +694,10 @@ async function renderOrigins() {
       return true;
     }
 
+    /** Last provider/model written for this row — skip no-op rewrites. */
+    let persistedProviderId = grant.providerId;
+    let persistedModel = typeof grant.model === "string" ? grant.model.trim() : "";
+
     /**
      * @returns {Promise<boolean>}
      */
@@ -698,11 +722,16 @@ async function renderOrigins() {
         setStatus(`Choose a valid model for ${grant.origin}`, "err");
         return false;
       }
+      if (providerId === persistedProviderId && model === persistedModel) {
+        return true;
+      }
       const ok = await setOriginProviderModel(grant.origin, {
         providerId,
         model,
       });
       if (ok) {
+        persistedProviderId = providerId;
+        persistedModel = model;
         setStatus(`Updated ${grant.origin}`, "ok");
         return true;
       }
@@ -759,8 +788,18 @@ async function renderOrigins() {
     originModelSelect.addEventListener("change", () => {
       void persistGrant();
     });
-    originModelInput.addEventListener("change", () => {
+    // Autosuggest <input>: `change` alone waits for blur, so also commit on
+    // blur and when the Options page is hidden (see flushOriginModelEdits).
+    const commitOriginModelInput = () => {
       void persistGrant();
+    };
+    originModelInput.addEventListener("change", commitOriginModelInput);
+    originModelInput.addEventListener("blur", commitOriginModelInput);
+    originModelCommitters.push(() => {
+      // Blur already commits when focus moves within the page; only flush here
+      // when the field is still focused (e.g. Options tab closed mid-edit).
+      if (document.activeElement !== originModelInput) return;
+      commitOriginModelInput();
     });
 
     const button = document.createElement("button");
