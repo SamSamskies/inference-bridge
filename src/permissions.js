@@ -107,11 +107,14 @@ export async function ensurePermission(args) {
     decision.providerId || provider.id
   );
   const chosenProvider = getProvider(chosenProviderId) || provider;
+  // Honor the approval UI's model choice. The dialog already validates with
+  // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
+  // isPlausibleModelForProvider here would silently replace free-typed
+  // OpenRouter slugs that lack a "/" with the provider default.
   // If the user picked a different provider in the approval UI, do not fall
   // back to globalDefaultModel (it was resolved for the prompt's provider).
   const decisionModel =
-    typeof decision.model === "string" &&
-    isPlausibleModelForProvider(chosenProviderId, decision.model)
+    typeof decision.model === "string" && decision.model.trim()
       ? decision.model.trim()
       : "";
   const chosenModel =

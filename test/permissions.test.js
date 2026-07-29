@@ -227,6 +227,36 @@ describe("ensurePermission", () => {
     // Ollama has no static defaultModel; never keep the OpenAI settings model.
     expect(result.model).not.toBe("gpt-4o");
   });
+
+  it("honors a free-typed OpenRouter model from the approval UI", async () => {
+    await saveSettings({
+      defaultProviderId: "openrouter",
+      defaultModel: "openrouter/auto",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r8b",
+      origin: "https://free-type.example",
+      messages: [{ role: "user", content: "hi" }],
+      preferredProviderId: "openrouter",
+    });
+    await waitForPending("r8b");
+
+    // Approval UI accepts any non-blank OpenRouter slug via isModelValid;
+    // ensurePermission must not drop it for lacking a "/".
+    resolveApproval("r8b", {
+      decision: "allow_once",
+      providerId: "openrouter",
+      model: "my-custom-endpoint",
+    });
+
+    await expect(pending).resolves.toEqual({
+      allowed: true,
+      providerId: "openrouter",
+      model: "my-custom-endpoint",
+      once: true,
+    });
+  });
 });
 
 describe("resolveApproval", () => {
