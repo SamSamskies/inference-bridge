@@ -720,7 +720,12 @@ async function renderOrigins() {
           return;
         }
 
-        const applied = await loadOriginModels(providerId, undefined);
+        // Prefer the provider default (e.g. openrouter/auto). OpenRouter uses an
+        // autosuggest input that stays blank when selected is omitted, unlike
+        // <select> which auto-picks the first catalog entry.
+        const preferredModel =
+          providers.find((p) => p.id === providerId)?.defaultModel || undefined;
+        const applied = await loadOriginModels(providerId, preferredModel);
         if (!applied || originProviderSelect.value !== providerId) {
           return;
         }
