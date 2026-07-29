@@ -904,6 +904,17 @@ saveButton.addEventListener("click", async () => {
       setStatus("Choose a valid default model before saving.", "err");
       return;
     }
+    if (!isPlausibleModelForProvider(providerId, model)) {
+      setStatus(
+        providerId === "openrouter"
+          ? "OpenRouter models must look like org/model (include a /)."
+          : providerId === "openai"
+            ? "OpenAI model ids should not include a /."
+            : "Choose a valid default model before saving.",
+        "err"
+      );
+      return;
+    }
 
     syncApiKeyDraftFromInput();
     syncModelDraftFromControl();

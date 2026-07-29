@@ -257,11 +257,13 @@ export async function saveSettings(patch) {
     for (const [providerId, model] of Object.entries(patch.defaultModels)) {
       if (typeof model !== "string") continue;
       const trimmed = model.trim();
-      if (trimmed && isPlausibleModelForProvider(providerId, trimmed)) {
-        nextDefaultModels[providerId] = trimmed;
-      } else {
+      if (!trimmed) {
         delete nextDefaultModels[providerId];
+      } else if (isPlausibleModelForProvider(providerId, trimmed)) {
+        nextDefaultModels[providerId] = trimmed;
       }
+      // Implausible non-empty values are ignored so a bad write cannot wipe a
+      // previously saved model while the caller still believes save succeeded.
     }
   }
 
@@ -271,9 +273,8 @@ export async function saveSettings(patch) {
     modelsTouched = true;
     if (isPlausibleModelForProvider(nextProviderId, trimmed)) {
       nextDefaultModels[nextProviderId] = trimmed;
-    } else {
-      delete nextDefaultModels[nextProviderId];
     }
+    // else: ignore — do not delete the existing entry
   }
 
   if (typeof patch.defaultProviderId === "string" && patch.defaultProviderId.trim()) {

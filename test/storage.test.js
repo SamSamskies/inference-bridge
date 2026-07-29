@@ -173,6 +173,23 @@ describe("saveSettings apiKeys and defaultModels", () => {
     settings = await getSettings();
     expect(settings.defaultModel).toBe("gemma4");
   });
+
+  it("does not wipe a saved model when an implausible defaultModel is patched", async () => {
+    await saveSettings({
+      defaultProviderId: "openrouter",
+      defaultModel: "openrouter/free",
+    });
+
+    await saveSettings({
+      defaultProviderId: "openrouter",
+      defaultModel: "gpt-5.6-luna",
+      defaultModels: { openrouter: "gpt-5.6-luna" },
+    });
+
+    const settings = await getSettings();
+    expect(settings.defaultModels.openrouter).toBe("openrouter/free");
+    expect(settings.defaultModel).toBe("openrouter/free");
+  });
 });
 
 describe("origin grants still work with openrouter", () => {
