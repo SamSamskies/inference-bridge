@@ -234,12 +234,12 @@ async function fetchModels(providerId) {
   });
 
   if (!response?.ok) {
-    const result = {
+    // Do not cache failures — a transient API/network error should retry on
+    // the next provider switch or refresh, same as Ollama's "Check again".
+    return {
       models: /** @type {Array<{ id: string, label?: string }>} */ ([]),
       error: response?.error?.message || "Failed to list models",
     };
-    modelCache.set(providerId, result);
-    return result;
   }
 
   const result = {
