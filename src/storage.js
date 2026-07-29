@@ -2,6 +2,8 @@
  * Extension-local settings. API keys never leave this storage / service worker.
  */
 
+import { OPENAI_MODELS } from "./providers/openai.js";
+
 /**
  * @typedef {{ allowedAt: number, providerId?: string, model?: string }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
@@ -23,10 +25,13 @@ const DEFAULTS = Object.freeze({
   blockedOrigins: {},
 });
 
+const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
+
 /**
  * OpenRouter catalog ids are always `org/model`. OpenAI's curated list has no
  * slash. Reject cross-contaminated prefs (e.g. gpt-5.6-luna stored under
- * openrouter after an older single-defaultModel save).
+ * openrouter after an older single-defaultModel save). Ollama accepts local
+ * tags (`gemma4`, `llama3.2:latest`, `user/model`) but not OpenAI curated ids.
  * @param {string} providerId
  * @param {string} model
  * @returns {boolean}
@@ -36,6 +41,7 @@ export function isPlausibleModelForProvider(providerId, model) {
   if (!trimmed) return false;
   if (providerId === "openrouter") return trimmed.includes("/");
   if (providerId === "openai") return !trimmed.includes("/");
+  if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
   return true;
 }
 
@@ -172,10 +178,10 @@ export async function getSettings() {
     defaultModels = { ...DEFAULTS.defaultModels };
   }
 
+  // Never fall across providers (e.g. Ollama must not inherit the OpenAI default).
   const defaultModel =
     defaultModels[defaultProviderId] ||
     DEFAULTS.defaultModels[defaultProviderId] ||
-    DEFAULTS.defaultModels.openai ||
     "";
 
   if (scrubbed) {

@@ -85,6 +85,40 @@ describe("getSettings", () => {
     expect(settings.defaultModel).toBe("openrouter/auto");
   });
 
+  it("scrubs an OpenAI model stored under ollama", async () => {
+    chromeMock.store.set("defaultProviderId", "ollama");
+    chromeMock.store.set("defaultModels", {
+      openai: "gpt-5.6-luna",
+      ollama: "gpt-5.6-luna",
+    });
+
+    const settings = await getSettings();
+    expect(settings.defaultModels.ollama).toBeUndefined();
+    expect(settings.defaultModels.openai).toBe("gpt-5.6-luna");
+    expect(settings.defaultModel).toBe("");
+  });
+
+  it("does not migrate a flat OpenAI model onto ollama", async () => {
+    chromeMock.store.set("defaultProviderId", "ollama");
+    chromeMock.store.set("defaultModel", "gpt-5.6-luna");
+
+    const settings = await getSettings();
+    expect(settings.defaultModels.ollama).not.toBe("gpt-5.6-luna");
+    expect(settings.defaultModel).toBe("");
+  });
+
+  it("does not fall back to the OpenAI default when ollama has no model", async () => {
+    chromeMock.store.set("defaultProviderId", "ollama");
+    chromeMock.store.set("defaultModels", {
+      openai: "gpt-5.6-luna",
+      openrouter: "openrouter/auto",
+    });
+
+    const settings = await getSettings();
+    expect(settings.defaultModel).toBe("");
+    expect(settings.defaultModels.ollama).toBeUndefined();
+  });
+
   it("scrubs opaque and file origins from stored grants/blocks", async () => {
     chromeMock.store.set("allowedOrigins", {
       "https://ok.example": { allowedAt: 1, providerId: "openai", model: "gpt-4o-mini" },
