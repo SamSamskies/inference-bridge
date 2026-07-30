@@ -7,6 +7,7 @@ import { OPENAI_MODELS } from "./providers/openai.js";
 /**
  * @typedef {{ allowedAt: number, providerId?: string, model?: string }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
+ * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  */
 
 const DEFAULTS = Object.freeze({
@@ -23,6 +24,12 @@ const DEFAULTS = Object.freeze({
   allowedOrigins: {},
   /** @type {Record<string, OriginBlock>} */
   blockedOrigins: {},
+  /**
+   * Last provider/model chosen in the approval popup per origin.
+   * Prefills later prompts; does not skip approval (unlike allowedOrigins).
+   * @type {Record<string, OriginLastUsed>}
+   */
+  originLastUsed: {},
 });
 
 const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
@@ -81,13 +88,40 @@ function normalizeApiKeys(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {Record<string, OriginLastUsed>}
+ */
+function normalizeOriginLastUsed(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  /** @type {Record<string, OriginLastUsed>} */
+  const out = {};
+  for (const [origin, entry] of Object.entries(value)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const providerId = normalizeProviderId(
+      typeof /** @type {{ providerId?: unknown }} */ (entry).providerId === "string"
+        ? /** @type {{ providerId: string }} */ (entry).providerId
+        : undefined
+    );
+    const modelRaw = /** @type {{ model?: unknown }} */ (entry).model;
+    const model =
+      typeof modelRaw === "string" && modelRaw.trim() ? modelRaw.trim() : undefined;
+    const usedAtRaw = /** @type {{ usedAt?: unknown }} */ (entry).usedAt;
+    const usedAt =
+      typeof usedAtRaw === "number" && Number.isFinite(usedAtRaw) ? usedAtRaw : 0;
+    out[origin] = { providerId, model, usedAt };
+  }
+  return out;
+}
+
+/**
  * @returns {Promise<{
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
  *   allowedOrigins: Record<string, OriginGrant>,
- *   blockedOrigins: Record<string, OriginBlock>
+ *   blockedOrigins: Record<string, OriginBlock>,
+ *   originLastUsed: Record<string, OriginLastUsed>
  * }>}
  */
 export async function getSettings() {
@@ -107,6 +141,7 @@ export async function getSettings() {
     stored.blockedOrigins && typeof stored.blockedOrigins === "object"
       ? /** @type {Record<string, OriginBlock>} */ ({ ...stored.blockedOrigins })
       : {};
+  const originLastUsed = normalizeOriginLastUsed(stored.originLastUsed);
 
   // Drop opaque / file principals if a prior build stored grants under them.
   // Those keys are not stable site identities and must never authorize broadly.
@@ -120,6 +155,12 @@ export async function getSettings() {
   for (const key of Object.keys(blockedOrigins)) {
     if (key === "null" || key === "file://" || key.startsWith("file:")) {
       delete blockedOrigins[key];
+      scrubbed = true;
+    }
+  }
+  for (const key of Object.keys(originLastUsed)) {
+    if (key === "null" || key === "file://" || key.startsWith("file:")) {
+      delete originLastUsed[key];
       scrubbed = true;
     }
   }
@@ -189,6 +230,7 @@ export async function getSettings() {
     const patch = {
       allowedOrigins,
       blockedOrigins,
+      originLastUsed,
       apiKeys,
       defaultModels,
     };
@@ -209,6 +251,7 @@ export async function getSettings() {
     defaultModels,
     allowedOrigins,
     blockedOrigins,
+    originLastUsed,
   };
 }
 
@@ -340,10 +383,43 @@ export async function grantOriginAlways(origin, { providerId, model }) {
  */
 export async function blockOrigin(origin) {
   if (!isPersistableOriginKey(origin)) return;
-  const { allowedOrigins, blockedOrigins } = await getSettings();
+  const { allowedOrigins, blockedOrigins, originLastUsed } = await getSettings();
   delete allowedOrigins[origin];
+  delete originLastUsed[origin];
   blockedOrigins[origin] = { blockedAt: Date.now() };
-  await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
+  await chrome.storage.local.set({
+    allowedOrigins,
+    blockedOrigins,
+    originLastUsed,
+  });
+}
+
+/**
+ * Last provider/model chosen for an origin in the approval UI (does not grant access).
+ * @param {string} origin
+ * @returns {Promise<OriginLastUsed | null>}
+ */
+export async function getOriginLastUsed(origin) {
+  if (!isPersistableOriginKey(origin)) return null;
+  const { originLastUsed } = await getSettings();
+  return originLastUsed[origin] ?? null;
+}
+
+/**
+ * Remember the last approval choice so later prompts can prefill provider/model.
+ * @param {string} origin
+ * @param {{ providerId: string, model: string }} options
+ */
+export async function setOriginLastUsed(origin, { providerId, model }) {
+  if (!isPersistableOriginKey(origin)) return;
+  const { originLastUsed } = await getSettings();
+  const nextModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
+  originLastUsed[origin] = {
+    providerId: normalizeProviderId(providerId),
+    model: nextModel,
+    usedAt: Date.now(),
+  };
+  await chrome.storage.local.set({ originLastUsed });
 }
 
 /**

@@ -18,6 +18,7 @@ Inference Bridge is a Chrome extension that implements the experimental [Inferen
 | Provider API keys (OpenAI, OpenRouter, if configured) | Authenticate requests to the selected remote provider | `chrome.storage.local` |
 | Default provider and model | Pre-fill Options and approval UI | `chrome.storage.local` |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | `chrome.storage.local` |
+| Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | `chrome.storage.local` |
 
 This data stays on the device unless the user clears extension storage or uninstalls the extension.
 

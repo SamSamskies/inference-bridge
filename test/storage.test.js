@@ -5,6 +5,9 @@ import {
   grantOriginAlways,
   normalizeProviderId,
   saveSettings,
+  setOriginLastUsed,
+  getOriginLastUsed,
+  blockOrigin,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -33,6 +36,7 @@ describe("getSettings", () => {
       defaultModels: { openai: "gpt-5.6-luna", openrouter: "openrouter/auto" },
       allowedOrigins: {},
       blockedOrigins: {},
+      originLastUsed: {},
     });
   });
 
@@ -130,17 +134,34 @@ describe("getSettings", () => {
       "https://blocked.example": { blockedAt: 5 },
       null: { blockedAt: 6 },
     });
+    chromeMock.store.set("originLastUsed", {
+      "https://ok.example": {
+        providerId: "openai",
+        model: "gpt-4o-mini",
+        usedAt: 7,
+      },
+      null: { providerId: "openai", model: "gpt-4o", usedAt: 8 },
+      "file:///tmp/x": { providerId: "ollama", model: "gemma4", usedAt: 9 },
+    });
 
     const settings = await getSettings();
     expect(Object.keys(settings.allowedOrigins)).toEqual(["https://ok.example"]);
     expect(Object.keys(settings.blockedOrigins)).toEqual([
       "https://blocked.example",
     ]);
+    expect(Object.keys(settings.originLastUsed)).toEqual(["https://ok.example"]);
     expect(chromeMock.store.get("allowedOrigins")).toEqual({
       "https://ok.example": {
         allowedAt: 1,
         providerId: "openai",
         model: "gpt-4o-mini",
+      },
+    });
+    expect(chromeMock.store.get("originLastUsed")).toEqual({
+      "https://ok.example": {
+        providerId: "openai",
+        model: "gpt-4o-mini",
+        usedAt: 7,
       },
     });
   });
@@ -237,5 +258,35 @@ describe("origin grants still work with openrouter", () => {
       providerId: "openrouter",
       model: "openrouter/free",
     });
+  });
+});
+
+describe("originLastUsed", () => {
+  it("stores and reads the last approval choice without granting access", async () => {
+    await setOriginLastUsed("https://app.example", {
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+
+    await expect(getOriginLastUsed("https://app.example")).resolves.toMatchObject({
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+    const settings = await getSettings();
+    expect(settings.allowedOrigins["https://app.example"]).toBeUndefined();
+    expect(settings.originLastUsed["https://app.example"]).toMatchObject({
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+  });
+
+  it("clears last-used when the origin is blocked", async () => {
+    await setOriginLastUsed("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await blockOrigin("https://app.example");
+
+    await expect(getOriginLastUsed("https://app.example")).resolves.toBeNull();
   });
 });

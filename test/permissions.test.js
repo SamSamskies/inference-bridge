@@ -11,8 +11,10 @@ import {
   blockOrigin,
   grantOriginAlways,
   getOriginGrant,
+  getOriginLastUsed,
   isOriginBlocked,
   saveSettings,
+  setOriginLastUsed,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -152,6 +154,68 @@ describe("ensurePermission", () => {
       once: true,
     });
     await expect(getOriginGrant("https://once.example")).resolves.toBeNull();
+    await expect(getOriginLastUsed("https://once.example")).resolves.toMatchObject({
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+  });
+
+  it("prefills the next prompt from the last allow_once choice", async () => {
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModel: "gpt-5.6-luna",
+    });
+    await setOriginLastUsed("https://cache.example", {
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r5b",
+      origin: "https://cache.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r5b");
+
+    expect(getPendingApproval("r5b")).toMatchObject({
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+
+    resolveApproval("r5b", {
+      decision: "deny",
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("prefers explicit preferredProviderId over last-used", async () => {
+    await setOriginLastUsed("https://pref.example", {
+      providerId: "openrouter",
+      model: "openrouter/free",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r5c",
+      origin: "https://pref.example",
+      messages: [{ role: "user", content: "hi" }],
+      preferredProviderId: "openai",
+      preferredModel: "gpt-4o",
+    });
+    await waitForPending("r5c");
+
+    expect(getPendingApproval("r5c")).toMatchObject({
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    resolveApproval("r5c", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
   it("always persists provider + model", async () => {
@@ -178,9 +242,17 @@ describe("ensurePermission", () => {
       providerId: "ollama",
       model: "gemma4",
     });
+    await expect(getOriginLastUsed("https://always.example")).resolves.toMatchObject({
+      providerId: "ollama",
+      model: "gemma4",
+    });
   });
 
   it("never blocks the origin", async () => {
+    await setOriginLastUsed("https://never.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
     const pending = ensurePermission({
       requestId: "r7",
       origin: "https://never.example",
@@ -196,6 +268,7 @@ describe("ensurePermission", () => {
 
     await expect(pending).resolves.toMatchObject({ allowed: false, once: false });
     await expect(isOriginBlocked("https://never.example")).resolves.toBe(true);
+    await expect(getOriginLastUsed("https://never.example")).resolves.toBeNull();
   });
 
   it("uses the chosen provider default when switching providers in the prompt", async () => {

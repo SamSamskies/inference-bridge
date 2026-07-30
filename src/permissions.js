@@ -6,6 +6,8 @@ import {
   getSettings,
   grantOriginAlways,
   getOriginGrant,
+  getOriginLastUsed,
+  setOriginLastUsed,
   isOriginBlocked,
   blockOrigin,
   normalizeProviderId,
@@ -45,10 +47,16 @@ const pendingApprovals = new Map();
  */
 export async function ensurePermission(args) {
   const settings = await getSettings();
+  const lastUsed = await getOriginLastUsed(args.origin);
   const defaultProvider =
     getProvider(settings.defaultProviderId) || getDefaultProvider();
+  // Prefill order: explicit preferred → last approval choice for this origin →
+  // global defaults → registry default. Last-used never skips the prompt.
   const providerId = normalizeProviderId(
-    args.preferredProviderId || settings.defaultProviderId || defaultProvider.id
+    args.preferredProviderId ||
+      lastUsed?.providerId ||
+      settings.defaultProviderId ||
+      defaultProvider.id
   );
   const provider = getProvider(providerId) || defaultProvider;
   // Prefer the per-provider remembered default from defaultModels.
@@ -62,11 +70,21 @@ export async function ensurePermission(args) {
   )
     ? remembered
     : "";
-  const globalDefaultModel =
-    (typeof args.preferredModel === "string" &&
+  const lastUsedModel =
+    lastUsed &&
+    normalizeProviderId(lastUsed.providerId) === provider.id &&
+    typeof lastUsed.model === "string" &&
+    lastUsed.model.trim()
+      ? lastUsed.model.trim()
+      : "";
+  const preferredModel =
+    typeof args.preferredModel === "string" &&
     isPlausibleModelForProvider(provider.id, args.preferredModel)
-      ? args.preferredModel
-      : "") ||
+      ? args.preferredModel.trim()
+      : "";
+  const globalDefaultModel =
+    preferredModel ||
+    lastUsedModel ||
     settingsModelForProvider ||
     provider.defaultModel ||
     "";
@@ -125,6 +143,10 @@ export async function ensurePermission(args) {
 
   switch (decision.decision) {
     case "allow_once":
+      await setOriginLastUsed(args.origin, {
+        providerId: chosenProviderId,
+        model: chosenModel,
+      });
       return {
         allowed: true,
         providerId: chosenProviderId,
@@ -133,6 +155,10 @@ export async function ensurePermission(args) {
       };
     case "always":
       await grantOriginAlways(args.origin, {
+        providerId: chosenProviderId,
+        model: chosenModel,
+      });
+      await setOriginLastUsed(args.origin, {
         providerId: chosenProviderId,
         model: chosenModel,
       });

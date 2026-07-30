@@ -4,7 +4,6 @@ import {
   populateModelSelect,
   usesModelAutosuggest,
 } from "./model-input.js";
-import { isPlausibleModelForProvider } from "../src/storage.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -453,10 +452,15 @@ async function load() {
   const providerId = fillProviders(requestedId);
   previewEl.textContent = previewMessages(request.messages || []);
   updateRememberHint();
+  // Prefer the pending request's model (global default, last-used, or preferred)
+  // even when it is a free-typed slug that fails the stricter plausibility check.
+  const requestModel =
+    typeof request.model === "string" && request.model.trim()
+      ? request.model.trim()
+      : "";
   const preferredModel =
-    providerId === requestedId &&
-    isPlausibleModelForProvider(providerId, request.model)
-      ? request.model
+    providerId === requestedId && requestModel
+      ? requestModel
       : providers.find((p) => p.id === providerId)?.defaultModel || undefined;
   await loadModelsForProvider(providerId, preferredModel);
 }
