@@ -6,16 +6,28 @@ import {
   revokeOrigin,
   setOriginProviderModel,
   unblockOrigin,
+  isPlausibleModelForProvider,
 } from "../src/storage.js";
+import {
+  isModelValid,
+  populateModelInput,
+  populateModelSelect,
+  usesModelAutosuggest,
+} from "./model-input.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
+const apiKeyLabel = document.getElementById("apiKeyLabel");
 const apiKeyInput = document.getElementById("apiKey");
 const toggleApiKeyButton = document.getElementById("toggleApiKey");
 const ollamaStatusRow = document.getElementById("ollamaStatusRow");
 const ollamaHint = document.getElementById("ollamaHint");
 const checkOllamaButton = document.getElementById("checkOllama");
-const modelSelect = document.getElementById("model");
+const modelSelect = document.getElementById("modelSelect");
+const modelInputRow = document.getElementById("modelInputRow");
+const modelInput = document.getElementById("modelInput");
+const clearModelButton = document.getElementById("clearModel");
+const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
@@ -24,16 +36,27 @@ const originsEmpty = document.getElementById("originsEmpty");
 const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
 
-/** @type {Array<{ id: string, label: string, requiresApiKey: boolean, defaultModel: string, models?: string[] }>} */
+/** @type {Array<{ id: string, label: string, requiresApiKey: boolean, defaultModel: string, models?: Array<{ id: string, label?: string }> }>} */
 let providers = [];
 
-/** @type {Map<string, { models: string[], error?: string }>} */
+/** @type {Map<string, { models: Array<{ id: string, label?: string }>, error?: string }>} */
 const modelCache = new Map();
+
+/**
+ * In-memory drafts for every requiresApiKey provider. Survives provider
+ * switches in the UI so typing an OpenAI key, flipping to OpenRouter, then
+ * back does not lose the unsaved value. Persisted only on Save.
+ * @type {Record<string, string>}
+ */
+let apiKeyDrafts = {};
+
+/** Provider id currently bound to the visible API key input, if any. */
+let apiKeyBoundProviderId = "";
 
 /**
  * @type {{
  *   available: boolean,
- *   models: string[],
+ *   models: Array<{ id: string, label?: string }>,
  *   message: string,
  * }}
  */
@@ -43,9 +66,50 @@ let ollamaStatus = {
   message: "",
 };
 
+/** Clears success feedback after a short delay; errors stay until replaced. */
+let statusClearTimer = 0;
+
 function setStatus(message, kind) {
+  if (statusClearTimer) {
+    clearTimeout(statusClearTimer);
+    statusClearTimer = 0;
+  }
   statusEl.textContent = message;
-  statusEl.className = `status${kind ? ` ${kind}` : ""}`;
+  statusEl.className = `status status-end${kind ? ` ${kind}` : ""}`;
+  if (kind === "ok" && message) {
+    statusClearTimer = window.setTimeout(() => {
+      statusClearTimer = 0;
+      if (statusEl.classList.contains("ok")) {
+        statusEl.textContent = "";
+        statusEl.className = "status status-end";
+      }
+    }, 2500);
+  }
+}
+
+/**
+ * @param {unknown} models
+ * @returns {Array<{ id: string, label?: string }>}
+ */
+function normalizeModels(models) {
+  if (!Array.isArray(models)) return [];
+  /** @type {Array<{ id: string, label?: string }>} */
+  const out = [];
+  for (const entry of models) {
+    if (typeof entry === "string" && entry) {
+      out.push({ id: entry });
+      continue;
+    }
+    if (entry && typeof entry === "object" && typeof entry.id === "string" && entry.id) {
+      out.push({
+        id: entry.id,
+        ...(typeof entry.label === "string" && entry.label
+          ? { label: entry.label }
+          : {}),
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -68,7 +132,7 @@ async function refreshOllamaStatus() {
     return ollamaStatus;
   }
 
-  const models = Array.isArray(response.models) ? response.models : [];
+  const models = normalizeModels(response.models);
   if (models.length === 0) {
     ollamaStatus = {
       available: false,
@@ -91,12 +155,44 @@ async function refreshOllamaStatus() {
 }
 
 /**
+ * Stash the visible API key input into drafts before switching providers.
+ */
+function syncApiKeyDraftFromInput() {
+  if (!apiKeyBoundProviderId) return;
+  apiKeyDrafts[apiKeyBoundProviderId] = apiKeyInput.value;
+}
+
+/**
+ * Show the API key field only for the selected provider when it needs one.
  * @param {string} providerId
  */
-function updateProviderChrome(providerId) {
+function updateApiKeyField(providerId) {
+  syncApiKeyDraftFromInput();
+
   const provider = providers.find((p) => p.id === providerId);
   const needsKey = Boolean(provider?.requiresApiKey);
   apiKeyField.hidden = !needsKey;
+
+  if (!needsKey || !provider) {
+    apiKeyBoundProviderId = "";
+    return;
+  }
+
+  apiKeyBoundProviderId = provider.id;
+  apiKeyLabel.textContent = `${provider.label} API key`;
+  apiKeyInput.placeholder =
+    provider.id === "openrouter" ? "sk-or-..." : "sk-...";
+  apiKeyInput.value = apiKeyDrafts[provider.id] || "";
+  apiKeyInput.type = "password";
+  toggleApiKeyButton.textContent = "Show";
+  toggleApiKeyButton.setAttribute("aria-pressed", "false");
+}
+
+/**
+ * @param {string} providerId
+ */
+function updateProviderChrome(providerId) {
+  updateApiKeyField(providerId);
 
   // Only surface Ollama help + Check again when the option is disabled.
   const showOllamaStatus = !ollamaStatus.available;
@@ -111,7 +207,15 @@ function updateProviderChrome(providerId) {
 
 /**
  * @param {string} providerId
- * @returns {Promise<{ models: string[], error?: string }>}
+ * @returns {boolean}
+ */
+function allowUnknownFor(providerId) {
+  return providerId !== "ollama";
+}
+
+/**
+ * @param {string} providerId
+ * @returns {Promise<{ models: Array<{ id: string, label?: string }>, error?: string }>}
  */
 async function fetchModels(providerId) {
   if (providerId === "ollama") {
@@ -130,45 +234,19 @@ async function fetchModels(providerId) {
   });
 
   if (!response?.ok) {
-    const result = {
-      models: /** @type {string[]} */ ([]),
+    // Do not cache failures — a transient API/network error should retry on
+    // the next provider switch or refresh, same as Ollama's "Check again".
+    return {
+      models: /** @type {Array<{ id: string, label?: string }>} */ ([]),
       error: response?.error?.message || "Failed to list models",
     };
-    modelCache.set(providerId, result);
-    return result;
   }
 
   const result = {
-    models: Array.isArray(response.models) ? response.models : [],
+    models: normalizeModels(response.models),
   };
   modelCache.set(providerId, result);
   return result;
-}
-
-/**
- * @param {HTMLSelectElement} select
- * @param {string[]} models
- * @param {string | undefined} selected
- * @param {{ allowUnknown?: boolean }} [opts]
- */
-function populateModelSelect(select, models, selected, opts = {}) {
-  const allowUnknown = opts.allowUnknown !== false;
-  select.replaceChildren();
-  const set = new Set(models);
-  // OpenAI may keep a saved model outside the curated list; Ollama only shows installed tags.
-  if (selected && (models.includes(selected) || (allowUnknown && models.length > 0))) {
-    set.add(selected);
-  }
-  for (const model of set) {
-    const option = document.createElement("option");
-    option.value = model;
-    option.textContent = model;
-    if (model === selected) option.selected = true;
-    select.append(option);
-  }
-  if ((!selected || !set.has(selected)) && select.options.length > 0) {
-    select.selectedIndex = 0;
-  }
 }
 
 /**
@@ -218,6 +296,65 @@ function populateProviderSelect(select, selectedId) {
 /** Bumped on each default-model load so a slower earlier fetch cannot repaint. */
 let defaultModelsLoadId = 0;
 
+/** Models currently backing the default model input (for validation). */
+/** @type {Array<{ id: string, label?: string }>} */
+let defaultModels = [];
+
+/**
+ * Show select for short catalogs; searchable input for OpenRouter.
+ * @param {string} providerId
+ */
+function setDefaultModelControlMode(providerId) {
+  const autosuggest = usesModelAutosuggest(providerId);
+  modelSelect.hidden = autosuggest;
+  modelInputRow.hidden = !autosuggest;
+  updateClearModelButton();
+}
+
+function updateClearModelButton() {
+  const visible =
+    !modelInputRow.hidden &&
+    !modelInput.disabled &&
+    modelInput.value.trim().length > 0;
+  clearModelButton.hidden = !visible;
+}
+
+/**
+ * @param {string} providerId
+ * @returns {string}
+ */
+function readDefaultModelValue(providerId) {
+  if (usesModelAutosuggest(providerId)) {
+    return modelInput.value.trim();
+  }
+  return modelSelect.value;
+}
+
+/**
+ * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} models
+ * @param {string | undefined} selected
+ * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
+ */
+function populateDefaultModelControl(providerId, models, selected, opts = {}) {
+  const allowUnknown = opts.allowUnknown !== false;
+  const disabled = Boolean(opts.disabled);
+  setDefaultModelControlMode(providerId);
+
+  if (usesModelAutosuggest(providerId)) {
+    populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
+    modelInput.disabled = disabled;
+    modelSelect.disabled = true;
+    updateClearModelButton();
+    return;
+  }
+
+  populateModelSelect(modelSelect, models, selected, { allowUnknown });
+  modelSelect.disabled = disabled;
+  modelInput.disabled = true;
+  updateClearModelButton();
+}
+
 /**
  * @param {string} providerId
  * @param {string | undefined} preferredModel
@@ -226,8 +363,10 @@ async function refreshDefaultModels(providerId, preferredModel) {
   const loadId = ++defaultModelsLoadId;
   modelHint.hidden = true;
   modelHint.textContent = "";
-  modelSelect.disabled = true;
-  populateModelSelect(modelSelect, [], preferredModel);
+  populateDefaultModelControl(providerId, [], preferredModel, {
+    allowUnknown: true,
+    disabled: true,
+  });
 
   const { models, error } = await fetchModels(providerId);
   // Ignore stale responses after the user switches providers mid-flight.
@@ -238,20 +377,22 @@ async function refreshDefaultModels(providerId, preferredModel) {
   // Keep the saved Ollama model visible (read-only) while Ollama is down so
   // the UI reflects the persisted default rather than an empty remapped catalog.
   if (providerId === "ollama" && !ollamaStatus.available) {
-    populateModelSelect(
-      modelSelect,
-      preferredModel ? [preferredModel] : [],
+    defaultModels = preferredModel ? [{ id: preferredModel }] : [];
+    populateDefaultModelControl(
+      providerId,
+      preferredModel ? [{ id: preferredModel }] : [],
       preferredModel,
-      { allowUnknown: true }
+      { allowUnknown: true, disabled: true }
     );
-    modelSelect.disabled = true;
     return;
   }
 
-  populateModelSelect(modelSelect, models, preferredModel, {
-    allowUnknown: providerId !== "ollama",
+  defaultModels = models;
+  const allowUnknown = allowUnknownFor(providerId);
+  populateDefaultModelControl(providerId, models, preferredModel, {
+    allowUnknown,
+    disabled: models.length === 0 && !allowUnknown,
   });
-  modelSelect.disabled = models.length === 0;
 
   if (error && providerId !== "ollama") {
     modelHint.hidden = false;
@@ -259,19 +400,49 @@ async function refreshDefaultModels(providerId, preferredModel) {
   } else if (models.length === 0 && providerId !== "ollama") {
     modelHint.hidden = false;
     modelHint.textContent = "No models available for this provider.";
+  } else if (
+    preferredModel &&
+    allowUnknown &&
+    !models.some((m) => m.id === preferredModel) &&
+    readDefaultModelValue(providerId) === preferredModel
+  ) {
+    modelHint.hidden = false;
+    modelHint.textContent =
+      "Saved model is not in the current catalog; it will still be used.";
   }
 }
 
-/** Last saved defaults — restored when switching back to the saved provider. */
+/** Last saved default provider — used to restore Ollama after Check again. */
 let savedDefaultProviderId = "openai";
-let savedDefaultModel = "gpt-5.6-luna";
+
+/** Per-provider model drafts — survives switching before Save, persisted as defaultModels. */
+/** @type {Record<string, string>} */
+let modelDrafts = {};
+
+/** Provider id currently shown in the default model control. */
+let modelBoundProviderId = "";
+
+/**
+ * Stash the visible model control into drafts before switching providers.
+ */
+function syncModelDraftFromControl() {
+  if (!modelBoundProviderId) return;
+  const value = readDefaultModelValue(modelBoundProviderId);
+  if (value && isPlausibleModelForProvider(modelBoundProviderId, value)) {
+    modelDrafts[modelBoundProviderId] = value;
+  } else if (value) {
+    // Drop a cross-contaminated value instead of persisting it.
+    delete modelDrafts[modelBoundProviderId];
+  }
+}
 
 /**
  * @param {string} providerId
  * @returns {string | undefined}
  */
 function preferredDefaultModel(providerId) {
-  if (providerId === savedDefaultProviderId) return savedDefaultModel;
+  const draft = modelDrafts[providerId];
+  if (draft && isPlausibleModelForProvider(providerId, draft)) return draft;
   return providers.find((p) => p.id === providerId)?.defaultModel || undefined;
 }
 
@@ -283,15 +454,46 @@ toggleApiKeyButton.addEventListener("click", () => {
 });
 
 providerSelect.addEventListener("change", async () => {
+  syncModelDraftFromControl();
   const providerId = providerSelect.value;
+  modelBoundProviderId = providerId;
   updateProviderChrome(providerId);
   await refreshDefaultModels(providerId, preferredDefaultModel(providerId));
+});
+
+modelInput.addEventListener("input", () => {
+  updateClearModelButton();
+  const providerId = providerSelect.value;
+  if (!usesModelAutosuggest(providerId)) return;
+  if (!allowUnknownFor(providerId)) {
+    const valid = isModelValid(modelInput.value, defaultModels, {
+      allowUnknown: false,
+    });
+    if (modelInput.value.trim() && !valid) {
+      modelHint.hidden = false;
+      modelHint.textContent = "Choose a model from the installed Ollama tags.";
+    } else if (!modelHint.textContent.startsWith("Ollama is")) {
+      modelHint.hidden = true;
+      modelHint.textContent = "";
+    }
+  }
+});
+
+clearModelButton.addEventListener("click", () => {
+  modelInput.value = "";
+  if (modelBoundProviderId) {
+    delete modelDrafts[modelBoundProviderId];
+  }
+  updateClearModelButton();
+  modelInput.focus();
+  modelInput.dispatchEvent(new Event("input"));
 });
 
 checkOllamaButton.addEventListener("click", async () => {
   checkOllamaButton.disabled = true;
   checkOllamaButton.textContent = "Checking…";
   try {
+    syncModelDraftFromControl();
     const wantedOllama = savedDefaultProviderId === "ollama";
     await refreshOllamaStatus();
     // Restore saved Ollama when it becomes available; otherwise keep the
@@ -301,6 +503,7 @@ checkOllamaButton.addEventListener("click", async () => {
       providerSelect,
       wantedOllama && ollamaStatus.available ? "ollama" : providerSelect.value
     );
+    modelBoundProviderId = nextId;
     updateProviderChrome(nextId);
     await refreshDefaultModels(nextId, preferredDefaultModel(nextId));
     await renderOrigins();
@@ -314,8 +517,28 @@ checkOllamaButton.addEventListener("click", async () => {
   }
 });
 
+/**
+ * Commit callbacks for in-progress OpenRouter origin model inputs.
+ * Text <input> only fires `change` after blur; flushing on page hide covers
+ * closing the Options tab while the field is still focused.
+ * @type {Array<() => void>}
+ */
+let originModelCommitters = [];
+
+function flushOriginModelEdits() {
+  for (const commit of originModelCommitters) {
+    commit();
+  }
+}
+
+window.addEventListener("pagehide", flushOriginModelEdits);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushOriginModelEdits();
+});
+
 async function renderOrigins() {
   const grants = await listAllowedOrigins();
+  originModelCommitters = [];
   originsEl.replaceChildren();
   originsEmpty.hidden = grants.length > 0;
 
@@ -352,7 +575,23 @@ async function renderOrigins() {
     modelCaption.textContent = "Model";
     const originModelSelect = document.createElement("select");
     originModelSelect.setAttribute("aria-label", `Model for ${grant.origin}`);
-    modelLabel.append(modelCaption, originModelSelect);
+    const originModelInput = document.createElement("input");
+    originModelInput.type = "text";
+    originModelInput.autocomplete = "off";
+    originModelInput.spellcheck = false;
+    originModelInput.placeholder = "Type to search models…";
+    originModelInput.hidden = true;
+    const datalistId = `origin-models-${encodeURIComponent(grant.origin)}`;
+    originModelInput.setAttribute("list", datalistId);
+    originModelInput.setAttribute("aria-label", `Model for ${grant.origin}`);
+    const originModelList = document.createElement("datalist");
+    originModelList.id = datalistId;
+    modelLabel.append(
+      modelCaption,
+      originModelSelect,
+      originModelInput,
+      originModelList
+    );
     meta.append(modelLabel);
 
     const modelStatus = document.createElement("p");
@@ -361,6 +600,46 @@ async function renderOrigins() {
 
     /** Bumped on each model load for this grant so slower fetches cannot repaint. */
     let originModelsLoadId = 0;
+    /** @type {Array<{ id: string, label?: string }>} */
+    let originModels = [];
+
+    /**
+     * @param {string} providerId
+     * @returns {string}
+     */
+    function readOriginModelValue(providerId) {
+      if (usesModelAutosuggest(providerId)) {
+        return originModelInput.value.trim();
+      }
+      return originModelSelect.value;
+    }
+
+    /**
+     * @param {string} providerId
+     * @param {Array<{ id: string, label?: string }>} models
+     * @param {string | undefined} selected
+     * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
+     */
+    function populateOriginModelControl(providerId, models, selected, opts = {}) {
+      const allowUnknown = opts.allowUnknown !== false;
+      const disabled = Boolean(opts.disabled);
+      const autosuggest = usesModelAutosuggest(providerId);
+      originModelSelect.hidden = autosuggest;
+      originModelInput.hidden = !autosuggest;
+
+      if (autosuggest) {
+        populateModelInput(originModelInput, originModelList, models, selected, {
+          allowUnknown,
+        });
+        originModelInput.disabled = disabled;
+        originModelSelect.disabled = true;
+        return;
+      }
+
+      populateModelSelect(originModelSelect, models, selected, { allowUnknown });
+      originModelSelect.disabled = disabled;
+      originModelInput.disabled = true;
+    }
 
     /**
      * @param {string} providerId
@@ -369,7 +648,10 @@ async function renderOrigins() {
      */
     async function loadOriginModels(providerId, selectedModel) {
       const loadId = ++originModelsLoadId;
-      originModelSelect.disabled = true;
+      populateOriginModelControl(providerId, [], selectedModel, {
+        allowUnknown: true,
+        disabled: true,
+      });
       modelStatus.textContent = "Loading models…";
       const { models, error } = await fetchModels(providerId);
       // Ignore stale responses after the user switches providers mid-flight.
@@ -383,23 +665,25 @@ async function renderOrigins() {
       // Keep the saved Ollama grant model visible (read-only) while Ollama is
       // down — same pattern as refreshDefaultModels / unknown-provider grants.
       if (providerId === "ollama" && !ollamaStatus.available) {
-        populateModelSelect(
-          originModelSelect,
-          selectedModel ? [selectedModel] : [],
+        originModels = selectedModel ? [{ id: selectedModel }] : [];
+        populateOriginModelControl(
+          providerId,
+          selectedModel ? [{ id: selectedModel }] : [],
           selectedModel,
-          { allowUnknown: true }
+          { allowUnknown: true, disabled: true }
         );
-        originModelSelect.disabled = true;
         modelStatus.textContent =
           error ||
           "Ollama is unavailable. The saved model is shown read-only until it is running again.";
         return true;
       }
 
-      populateModelSelect(originModelSelect, models, selectedModel, {
-        allowUnknown: providerId !== "ollama",
+      originModels = models;
+      const allowUnknown = allowUnknownFor(providerId);
+      populateOriginModelControl(providerId, models, selectedModel, {
+        allowUnknown,
+        disabled: models.length === 0 && !allowUnknown,
       });
-      originModelSelect.disabled = models.length === 0;
       if (error) {
         modelStatus.textContent = error;
       } else if (models.length === 0) {
@@ -410,12 +694,16 @@ async function renderOrigins() {
       return true;
     }
 
+    /** Last provider/model written for this row — skip no-op rewrites. */
+    let persistedProviderId = grant.providerId;
+    let persistedModel = typeof grant.model === "string" ? grant.model.trim() : "";
+
     /**
      * @returns {Promise<boolean>}
      */
     async function persistGrant() {
       const providerId = originProviderSelect.value;
-      // Refuse to rewrite an unknown grant via the model dropdown (or any path
+      // Refuse to rewrite an unknown grant via the model control (or any path
       // that still has the stale id selected). Only an explicit switch to a
       // registered provider may update storage.
       if (!providers.some((p) => p.id === providerId)) {
@@ -425,16 +713,25 @@ async function renderOrigins() {
         );
         return false;
       }
-      const model = originModelSelect.value;
-      if (!model) {
-        setStatus(`Choose a model for ${grant.origin}`, "err");
+      const model = readOriginModelValue(providerId);
+      if (
+        !isModelValid(model, originModels, {
+          allowUnknown: allowUnknownFor(providerId),
+        })
+      ) {
+        setStatus(`Choose a valid model for ${grant.origin}`, "err");
         return false;
+      }
+      if (providerId === persistedProviderId && model === persistedModel) {
+        return true;
       }
       const ok = await setOriginProviderModel(grant.origin, {
         providerId,
         model,
       });
       if (ok) {
+        persistedProviderId = providerId;
+        persistedModel = model;
         setStatus(`Updated ${grant.origin}`, "ok");
         return true;
       }
@@ -452,12 +749,21 @@ async function renderOrigins() {
           return;
         }
 
-        const applied = await loadOriginModels(providerId, undefined);
+        // Prefer the provider default (e.g. openrouter/auto). OpenRouter uses an
+        // autosuggest input that stays blank when selected is omitted, unlike
+        // <select> which auto-picks the first catalog entry.
+        const preferredModel =
+          providers.find((p) => p.id === providerId)?.defaultModel || undefined;
+        const applied = await loadOriginModels(providerId, preferredModel);
         if (!applied || originProviderSelect.value !== providerId) {
           return;
         }
 
-        if (!originModelSelect.value) {
+        if (
+          !isModelValid(readOriginModelValue(providerId), originModels, {
+            allowUnknown: allowUnknownFor(providerId),
+          })
+        ) {
           // The select changes before dynamic model discovery completes.
           // Restore the persisted grant when the new provider cannot supply a
           // model so the UI never implies an unpersisted provider is active.
@@ -482,6 +788,19 @@ async function renderOrigins() {
     originModelSelect.addEventListener("change", () => {
       void persistGrant();
     });
+    // Autosuggest <input>: `change` alone waits for blur, so also commit on
+    // blur and when the Options page is hidden (see flushOriginModelEdits).
+    const commitOriginModelInput = () => {
+      void persistGrant();
+    };
+    originModelInput.addEventListener("change", commitOriginModelInput);
+    originModelInput.addEventListener("blur", commitOriginModelInput);
+    originModelCommitters.push(() => {
+      // Blur already commits when focus moves within the page; only flush here
+      // when the field is still focused (e.g. Options tab closed mid-edit).
+      if (document.activeElement !== originModelInput) return;
+      commitOriginModelInput();
+    });
 
     const button = document.createElement("button");
     button.type = "button";
@@ -498,12 +817,12 @@ async function renderOrigins() {
 
     if (!providerKnown) {
       // Show the saved model read-only; do not load another provider's catalog.
-      originModelSelect.disabled = true;
-      populateModelSelect(
-        originModelSelect,
-        grant.model ? [grant.model] : [],
+      originModels = grant.model ? [{ id: grant.model }] : [];
+      populateOriginModelControl(
+        grant.providerId,
+        grant.model ? [{ id: grant.model }] : [],
         grant.model,
-        { allowUnknown: true }
+        { allowUnknown: true, disabled: true }
       );
       modelStatus.textContent = `Unknown provider "${grant.providerId}". Choose a registered provider to update this grant. Requests for this origin fail until then.`;
     } else {
@@ -582,12 +901,26 @@ async function load() {
   await refreshOllamaStatus();
   const settings = await getSettings();
   savedDefaultProviderId = settings.defaultProviderId;
-  savedDefaultModel = settings.defaultModel;
-  apiKeyInput.value = settings.openaiApiKey;
+  modelDrafts = { ...settings.defaultModels };
+  for (const [providerId, model] of Object.entries(modelDrafts)) {
+    if (!isPlausibleModelForProvider(providerId, model)) {
+      delete modelDrafts[providerId];
+    }
+  }
+  if (
+    settings.defaultProviderId &&
+    settings.defaultModel &&
+    isPlausibleModelForProvider(settings.defaultProviderId, settings.defaultModel)
+  ) {
+    modelDrafts[settings.defaultProviderId] = settings.defaultModel;
+  }
+  apiKeyDrafts = { ...settings.apiKeys };
+  apiKeyBoundProviderId = "";
   const effectiveProvider = populateProviderSelect(
     providerSelect,
     settings.defaultProviderId
   );
+  modelBoundProviderId = effectiveProvider;
   updateProviderChrome(effectiveProvider);
   await refreshDefaultModels(effectiveProvider, preferredDefaultModel(effectiveProvider));
   await renderOrigins();
@@ -598,7 +931,7 @@ saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
   try {
     const providerId = providerSelect.value;
-    const model = modelSelect.value;
+    const model = readDefaultModelValue(providerId);
     if (!providers.some((p) => p.id === providerId)) {
       setStatus("Choose a registered provider before saving.", "err");
       return;
@@ -607,17 +940,47 @@ saveButton.addEventListener("click", async () => {
       setStatus("Ollama is unavailable. Choose another provider or click Check again.", "err");
       return;
     }
-    if (!model) {
-      setStatus("Choose a default model before saving.", "err");
+    if (
+      !isModelValid(model, defaultModels, {
+        allowUnknown: allowUnknownFor(providerId),
+      })
+    ) {
+      setStatus("Choose a valid default model before saving.", "err");
       return;
     }
+    if (!isPlausibleModelForProvider(providerId, model)) {
+      setStatus(
+        providerId === "openrouter"
+          ? "OpenRouter models must look like org/model (include a /)."
+          : providerId === "openai"
+            ? "OpenAI model ids should not include a /."
+            : "Choose a valid default model before saving.",
+        "err"
+      );
+      return;
+    }
+
+    syncApiKeyDraftFromInput();
+    syncModelDraftFromControl();
+    modelDrafts[providerId] = model;
+
+    // Persist drafts for every key-requiring provider so switching to Ollama
+    // and saving does not wipe remote keys, while clearing the visible field
+    // still clears that provider's stored key.
+    /** @type {Record<string, string>} */
+    const apiKeys = {};
+    for (const provider of providers) {
+      if (!provider.requiresApiKey) continue;
+      apiKeys[provider.id] = apiKeyDrafts[provider.id] || "";
+    }
+
     await saveSettings({
-      openaiApiKey: apiKeyInput.value,
+      apiKeys,
       defaultProviderId: providerId,
       defaultModel: model,
+      defaultModels: modelDrafts,
     });
     savedDefaultProviderId = providerId;
-    savedDefaultModel = model;
     setStatus("Saved.", "ok");
   } catch (err) {
     setStatus(err instanceof Error ? err.message : "Failed to save", "err");

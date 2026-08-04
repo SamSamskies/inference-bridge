@@ -6,9 +6,12 @@ import {
   getSettings,
   grantOriginAlways,
   getOriginGrant,
+  getOriginLastUsed,
+  setOriginLastUsed,
   isOriginBlocked,
   blockOrigin,
   normalizeProviderId,
+  isPlausibleModelForProvider,
 } from "./storage.js";
 import { getDefaultProvider, getProvider } from "./providers/registry.js";
 
@@ -44,22 +47,44 @@ const pendingApprovals = new Map();
  */
 export async function ensurePermission(args) {
   const settings = await getSettings();
+  const lastUsed = await getOriginLastUsed(args.origin);
   const defaultProvider =
     getProvider(settings.defaultProviderId) || getDefaultProvider();
+  // Prefill order: explicit preferred → last approval choice for this origin →
+  // global defaults → registry default. Last-used never skips the prompt.
   const providerId = normalizeProviderId(
-    args.preferredProviderId || settings.defaultProviderId || defaultProvider.id
+    args.preferredProviderId ||
+      lastUsed?.providerId ||
+      settings.defaultProviderId ||
+      defaultProvider.id
   );
   const provider = getProvider(providerId) || defaultProvider;
-  // Only reuse settings.defaultModel when it belongs to this provider.
-  // Otherwise the approval UI can pre-select (and OpenAI can persist) a name
-  // from another catalog — e.g. an Ollama tag after switching defaults, or
-  // when preferredProviderId differs from settings.defaultProviderId.
-  const settingsModelForProvider =
-    normalizeProviderId(settings.defaultProviderId) === provider.id
-      ? settings.defaultModel
+  // Prefer the per-provider remembered default from defaultModels.
+  const remembered =
+    typeof settings.defaultModels?.[provider.id] === "string"
+      ? settings.defaultModels[provider.id]
+      : "";
+  const settingsModelForProvider = isPlausibleModelForProvider(
+    provider.id,
+    remembered
+  )
+    ? remembered
+    : "";
+  const lastUsedModel =
+    lastUsed &&
+    normalizeProviderId(lastUsed.providerId) === provider.id &&
+    typeof lastUsed.model === "string" &&
+    lastUsed.model.trim()
+      ? lastUsed.model.trim()
+      : "";
+  const preferredModel =
+    typeof args.preferredModel === "string" &&
+    isPlausibleModelForProvider(provider.id, args.preferredModel)
+      ? args.preferredModel.trim()
       : "";
   const globalDefaultModel =
-    (typeof args.preferredModel === "string" && args.preferredModel) ||
+    preferredModel ||
+    lastUsedModel ||
     settingsModelForProvider ||
     provider.defaultModel ||
     "";
@@ -100,16 +125,28 @@ export async function ensurePermission(args) {
     decision.providerId || provider.id
   );
   const chosenProvider = getProvider(chosenProviderId) || provider;
+  // Honor the approval UI's model choice. The dialog already validates with
+  // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
+  // isPlausibleModelForProvider here would silently replace free-typed
+  // OpenRouter slugs that lack a "/" with the provider default.
   // If the user picked a different provider in the approval UI, do not fall
   // back to globalDefaultModel (it was resolved for the prompt's provider).
+  const decisionModel =
+    typeof decision.model === "string" && decision.model.trim()
+      ? decision.model.trim()
+      : "";
   const chosenModel =
-    decision.model ||
+    decisionModel ||
     (chosenProviderId === provider.id ? globalDefaultModel : "") ||
     chosenProvider.defaultModel ||
     "";
 
   switch (decision.decision) {
     case "allow_once":
+      await setOriginLastUsed(args.origin, {
+        providerId: chosenProviderId,
+        model: chosenModel,
+      });
       return {
         allowed: true,
         providerId: chosenProviderId,
@@ -118,6 +155,10 @@ export async function ensurePermission(args) {
       };
     case "always":
       await grantOriginAlways(args.origin, {
+        providerId: chosenProviderId,
+        model: chosenModel,
+      });
+      await setOriginLastUsed(args.origin, {
         providerId: chosenProviderId,
         model: chosenModel,
       });

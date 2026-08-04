@@ -1,10 +1,21 @@
+import {
+  isModelValid,
+  populateModelInput,
+  populateModelSelect,
+  usesModelAutosuggest,
+} from "./model-input.js";
+
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
 
 const originEl = document.getElementById("origin");
 const providerSelect = document.getElementById("provider");
 const ollamaHint = document.getElementById("ollamaHint");
-const modelSelect = document.getElementById("model");
+const modelSelect = document.getElementById("modelSelect");
+const modelInputRow = document.getElementById("modelInputRow");
+const modelInput = document.getElementById("modelInput");
+const clearModelButton = document.getElementById("clearModel");
+const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const previewEl = document.getElementById("preview");
 const errorEl = document.getElementById("error");
@@ -19,6 +30,10 @@ let providers = [];
 /** Whether the current provider has a usable model selection. */
 let modelsReady = false;
 
+/** Models currently backing the model control (for validation). */
+/** @type {Array<{ id: string, label?: string }>} */
+let currentModels = [];
+
 /** Bumped on each model load so a slower earlier fetch cannot repaint. */
 let modelsLoadId = 0;
 
@@ -28,7 +43,7 @@ allowBtn.disabled = true;
 /**
  * @type {{
  *   available: boolean,
- *   models: string[],
+ *   models: Array<{ id: string, label?: string }>,
  *   message: string,
  * }}
  */
@@ -66,12 +81,103 @@ function updateOllamaHint(_providerId) {
   ollamaHint.textContent = "";
 }
 
+/**
+ * @param {string} providerId
+ * @returns {boolean}
+ */
+function allowUnknownFor(providerId) {
+  return providerId !== "ollama";
+}
+
+/**
+ * @param {string} providerId
+ */
+function setModelControlMode(providerId) {
+  const autosuggest = usesModelAutosuggest(providerId);
+  modelSelect.hidden = autosuggest;
+  modelInputRow.hidden = !autosuggest;
+  updateClearModelButton();
+}
+
+function updateClearModelButton() {
+  const visible =
+    !modelInputRow.hidden &&
+    !modelInput.disabled &&
+    modelInput.value.trim().length > 0;
+  clearModelButton.hidden = !visible;
+}
+
+/**
+ * @param {string} providerId
+ * @returns {string}
+ */
+function readModelValue(providerId) {
+  if (usesModelAutosuggest(providerId)) {
+    return modelInput.value.trim();
+  }
+  return modelSelect.value;
+}
+
+/**
+ * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} models
+ * @param {string | undefined} selected
+ * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
+ */
+function populateModelControl(providerId, models, selected, opts = {}) {
+  const allowUnknown = opts.allowUnknown !== false;
+  const disabled = Boolean(opts.disabled);
+  setModelControlMode(providerId);
+
+  if (usesModelAutosuggest(providerId)) {
+    populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
+    modelInput.disabled = disabled;
+    modelSelect.disabled = true;
+    updateClearModelButton();
+    return;
+  }
+
+  populateModelSelect(modelSelect, models, selected, { allowUnknown });
+  modelSelect.disabled = disabled;
+  modelInput.disabled = true;
+  updateClearModelButton();
+}
+
 function updateAllowEnabled() {
   if (errorEl.hidden === false && errorEl.textContent) {
     // Hard page error already disables controls.
     return;
   }
-  allowBtn.disabled = !modelsReady || !modelSelect.value;
+  const providerId = providerSelect.value;
+  const valid = isModelValid(readModelValue(providerId), currentModels, {
+    allowUnknown: allowUnknownFor(providerId),
+  });
+  allowBtn.disabled = !modelsReady || !valid;
+}
+
+/**
+ * @param {unknown} models
+ * @returns {Array<{ id: string, label?: string }>}
+ */
+function normalizeModels(models) {
+  if (!Array.isArray(models)) return [];
+  /** @type {Array<{ id: string, label?: string }>} */
+  const out = [];
+  for (const entry of models) {
+    if (typeof entry === "string" && entry) {
+      out.push({ id: entry });
+      continue;
+    }
+    if (entry && typeof entry === "object" && typeof entry.id === "string" && entry.id) {
+      out.push({
+        id: entry.id,
+        ...(typeof entry.label === "string" && entry.label
+          ? { label: entry.label }
+          : {}),
+      });
+    }
+  }
+  return out;
 }
 
 async function refreshOllamaStatus() {
@@ -90,7 +196,7 @@ async function refreshOllamaStatus() {
     return ollamaStatus;
   }
 
-  const models = Array.isArray(response.models) ? response.models : [];
+  const models = normalizeModels(response.models);
   if (models.length === 0) {
     ollamaStatus = {
       available: false,
@@ -107,31 +213,6 @@ async function refreshOllamaStatus() {
     message: "Using local Ollama at http://localhost:11434.",
   };
   return ollamaStatus;
-}
-
-/**
- * @param {HTMLSelectElement} select
- * @param {string[]} models
- * @param {string | undefined} selected
- * @param {{ allowUnknown?: boolean }} [opts]
- */
-function fillModels(select, models, selected, opts = {}) {
-  const allowUnknown = opts.allowUnknown !== false;
-  select.replaceChildren();
-  const set = new Set(models);
-  if (selected && (models.includes(selected) || (allowUnknown && models.length > 0))) {
-    set.add(selected);
-  }
-  for (const model of set) {
-    const option = document.createElement("option");
-    option.value = model;
-    option.textContent = model;
-    if (model === selected) option.selected = true;
-    select.append(option);
-  }
-  if ((!selected || !set.has(selected)) && select.options.length > 0) {
-    select.selectedIndex = 0;
-  }
 }
 
 /**
@@ -186,11 +267,14 @@ function fillProviders(selectedId) {
 async function loadModelsForProvider(providerId, preferredModel) {
   const loadId = ++modelsLoadId;
   modelsReady = false;
+  currentModels = [];
   updateAllowEnabled();
   updateOllamaHint(providerId);
-  modelSelect.disabled = true;
   setModelHint("Loading models…");
-  fillModels(modelSelect, [], preferredModel);
+  populateModelControl(providerId, [], preferredModel, {
+    allowUnknown: true,
+    disabled: true,
+  });
 
   /**
    * @returns {boolean}
@@ -203,15 +287,17 @@ async function loadModelsForProvider(providerId, preferredModel) {
     if (!isCurrentLoad()) return;
     if (!ollamaStatus.available) {
       setModelHint("");
-      fillModels(modelSelect, [], undefined);
+      currentModels = [];
+      populateModelControl(providerId, [], undefined, { disabled: true });
       modelsReady = false;
       updateAllowEnabled();
       return;
     }
-    fillModels(modelSelect, ollamaStatus.models, preferredModel, {
+    currentModels = ollamaStatus.models;
+    populateModelControl(providerId, ollamaStatus.models, preferredModel, {
       allowUnknown: false,
+      disabled: ollamaStatus.models.length === 0,
     });
-    modelSelect.disabled = ollamaStatus.models.length === 0;
     setModelHint("");
     modelsReady = ollamaStatus.models.length > 0;
     updateAllowEnabled();
@@ -228,21 +314,30 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
   if (!response?.ok) {
     setModelHint(response?.error?.message || "Failed to list models.");
-    fillModels(modelSelect, [], undefined);
-    modelsReady = false;
+    currentModels = [];
+    // OpenAI / OpenRouter still accept free-typed slugs when the catalog
+    // request fails — same as an empty successful catalog.
+    const allowUnknown = allowUnknownFor(providerId);
+    populateModelControl(providerId, [], preferredModel, {
+      allowUnknown,
+      disabled: !allowUnknown,
+    });
+    modelsReady = allowUnknown;
     updateAllowEnabled();
     return;
   }
 
-  const models = Array.isArray(response.models) ? response.models : [];
-  fillModels(modelSelect, models, preferredModel, {
-    allowUnknown: true,
+  const models = normalizeModels(response.models);
+  currentModels = models;
+  const allowUnknown = allowUnknownFor(providerId);
+  populateModelControl(providerId, models, preferredModel, {
+    allowUnknown,
+    disabled: models.length === 0 && !allowUnknown,
   });
-  modelSelect.disabled = models.length === 0;
 
   if (models.length === 0) {
     setModelHint("No models available for this provider.");
-    modelsReady = false;
+    modelsReady = allowUnknown;
   } else {
     setModelHint("");
     modelsReady = true;
@@ -272,6 +367,20 @@ function updateRememberHint() {
 async function decide(action) {
   // Read before disabling — some browsers can odd-path disabled controls.
   const remember = Boolean(rememberInput.checked);
+  const providerId = providerSelect.value;
+  const model = readModelValue(providerId);
+
+  if (action === "allow") {
+    if (
+      !isModelValid(model, currentModels, {
+        allowUnknown: allowUnknownFor(providerId),
+      })
+    ) {
+      setModelHint("Choose a valid model before allowing.");
+      updateAllowEnabled();
+      return;
+    }
+  }
 
   allowBtn.disabled = true;
   denyBtn.disabled = true;
@@ -292,8 +401,8 @@ async function decide(action) {
       type: "resolve-approval",
       requestId,
       decision,
-      providerId: providerSelect.value,
-      model: modelSelect.value,
+      providerId,
+      model,
     });
     if (!response?.ok) {
       showError("This permission request is no longer active.");
@@ -343,10 +452,17 @@ async function load() {
   const providerId = fillProviders(requestedId);
   previewEl.textContent = previewMessages(request.messages || []);
   updateRememberHint();
-  await loadModelsForProvider(
-    providerId,
-    providerId === requestedId ? request.model : undefined
-  );
+  // Prefer the pending request's model (global default, last-used, or preferred)
+  // even when it is a free-typed slug that fails the stricter plausibility check.
+  const requestModel =
+    typeof request.model === "string" && request.model.trim()
+      ? request.model.trim()
+      : "";
+  const preferredModel =
+    providerId === requestedId && requestModel
+      ? requestModel
+      : providers.find((p) => p.id === providerId)?.defaultModel || undefined;
+  await loadModelsForProvider(providerId, preferredModel);
 }
 
 providerSelect.addEventListener("change", () => {
@@ -355,6 +471,20 @@ providerSelect.addEventListener("change", () => {
     providerSelect.value,
     provider?.defaultModel || undefined
   );
+});
+
+modelSelect.addEventListener("change", () => {
+  updateAllowEnabled();
+});
+modelInput.addEventListener("input", () => {
+  updateClearModelButton();
+  updateAllowEnabled();
+});
+clearModelButton.addEventListener("click", () => {
+  modelInput.value = "";
+  updateClearModelButton();
+  updateAllowEnabled();
+  modelInput.focus();
 });
 
 rememberInput.addEventListener("change", updateRememberHint);

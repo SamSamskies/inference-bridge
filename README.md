@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI** or local **Ollama**). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **OpenRouter**, or local **Ollama**). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -11,7 +11,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - `window.inference.request()` for streaming text chat
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
-- OpenAI (BYOK) and local Ollama support
+- OpenAI (BYOK), OpenRouter (BYOK), and local Ollama support
 - Origin/Referer stripping for local Ollama (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -31,6 +31,7 @@ Chrome Web Store listing is not published yet. Until it is, use the development 
 6. Open the extension **Options** page (or click the toolbar icon)
 7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
+   - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — no API key; models are listed from your local Ollama install
 8. Click **Save**
 
@@ -39,9 +40,10 @@ Chrome Web Store listing is not published yet. Until it is, use the development 
 | Provider | Auth | Notes |
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
+| OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
 
-To add another provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options/approval UI if it needs extra credentials.
+To add another provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js)), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials.
 
 ## Try it
 
@@ -65,6 +67,12 @@ for await (const chunk of window.inference.request({
 }
 ```
 
+### OpenRouter
+
+1. Create an API key at [openrouter.ai/keys](https://openrouter.ai/keys)
+2. In Options, paste the key under **OpenRouter API key**, set **Default provider** to OpenRouter (defaults to `openrouter/auto`; type to search for others), and click **Save**
+3. Run the snippet above on an HTTPS or localhost page
+
 ### Ollama (no API key)
 
 1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
@@ -75,7 +83,7 @@ for await (const chunk of window.inference.request({
    ```
 
 3. In Options, set **Default provider** to **Ollama** (enabled only when Ollama is reachable and has at least one model)
-4. Confirm the model dropdown populates from installed models
+4. Confirm the model field populates from installed models (type to filter)
 5. Click **Save**
 6. Run the snippet above on an HTTPS or localhost page
 
@@ -111,7 +119,7 @@ Example app: the [chat demo](https://github.com/SamSamskies/inference-provider-a
 - Does not inject into `file:` pages
 - Permission is per HTTP(S) origin and records the chosen provider + model
 - Request validation happens in the extension before any provider call
-- OpenAI credentials are read only inside the service worker
+- OpenAI / OpenRouter credentials are read only inside the service worker
 - Ollama traffic stays on `http://localhost:11434` / `http://127.0.0.1:11434`
 - Local Ollama requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped to the Ollama port)
 
@@ -135,12 +143,16 @@ If you are building your own IPA extension with local providers, follow the Orig
     permissions.js
     ollama-origin-bypass.js      # strip chrome-extension Origin for local Ollama
     providers/
+      types.js                   # Provider / ModelInfo contract
       registry.js                # add providers here
+      openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
       openai.js                  # OpenAI streaming adapter
+      openrouter.js              # OpenRouter /api/v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
   ui/
-    options.html|.js             # provider + model + API key
+    options.html|.js             # provider + model + API keys
     approval.html|.js            # origin permission prompt
+    model-input.js               # shared model autosuggest (input + datalist)
     shared.css
   scripts/
     package.mjs                  # Chrome Web Store ZIP packaging
@@ -189,16 +201,19 @@ npm run package
 - [ ] `accepted` arrives after Allow (or silent persistent grant), before the first `delta`/`done`
 - [ ] `done.message.content` matches concatenated deltas
 - [ ] AbortSignal / tab close produces `aborted`
-- [ ] Empty OpenAI API key (OpenAI selected) yields `unavailable` with a setup hint
+- [ ] Empty OpenAI / OpenRouter API key (that provider selected) yields `unavailable` with a setup hint
+- [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions
+- [ ] OpenRouter router models (e.g. `openrouter/free`) work; `done.model` may report the underlying model
 - [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
 - [ ] Ollama unavailable / no models → provider option disabled with help text (Options + approval)
 - [ ] Ollama Check again enables the option after Ollama is running with models
 - [ ] Ollama chat from the chatapp succeeds after approving (no HTTP 403)
 - [ ] Switching default provider does not rewrite existing origin grants
+- [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
 
 ### Current limitations
 
-- OpenAI and local Ollama only (Ollama fixed at `http://localhost:11434`)
+- OpenAI, OpenRouter, and local Ollama only (Ollama fixed at `http://localhost:11434`)
 - Text chat only (no tools, images, embeddings, speech)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI

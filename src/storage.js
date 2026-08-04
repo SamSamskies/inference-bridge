@@ -2,20 +2,55 @@
  * Extension-local settings. API keys never leave this storage / service worker.
  */
 
+import { OPENAI_MODELS } from "./providers/openai.js";
+
 /**
  * @typedef {{ allowedAt: number, providerId?: string, model?: string }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
+ * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  */
 
 const DEFAULTS = Object.freeze({
-  openaiApiKey: "",
+  /** @type {Record<string, string>} */
+  apiKeys: {},
   defaultProviderId: "openai",
-  defaultModel: "gpt-5.6-luna",
+  /** Per-provider remembered models. Active model is defaultModels[defaultProviderId]. */
+  /** @type {Readonly<Record<string, string>>} */
+  defaultModels: Object.freeze({
+    openai: "gpt-5.6-luna",
+    openrouter: "openrouter/auto",
+  }),
   /** @type {Record<string, OriginGrant>} */
   allowedOrigins: {},
   /** @type {Record<string, OriginBlock>} */
   blockedOrigins: {},
+  /**
+   * Last provider/model chosen in the approval popup per origin.
+   * Prefills later prompts; does not skip approval (unlike allowedOrigins).
+   * @type {Record<string, OriginLastUsed>}
+   */
+  originLastUsed: {},
 });
+
+const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
+
+/**
+ * OpenRouter catalog ids are always `org/model`. OpenAI's curated list has no
+ * slash. Reject cross-contaminated prefs (e.g. gpt-5.6-luna stored under
+ * openrouter after an older single-defaultModel save). Ollama accepts local
+ * tags (`gemma4`, `llama3.2:latest`, `user/model`) but not OpenAI curated ids.
+ * @param {string} providerId
+ * @param {string} model
+ * @returns {boolean}
+ */
+export function isPlausibleModelForProvider(providerId, model) {
+  const trimmed = typeof model === "string" ? model.trim() : "";
+  if (!trimmed) return false;
+  if (providerId === "openrouter") return trimmed.includes("/");
+  if (providerId === "openai") return !trimmed.includes("/");
+  if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
+  return true;
+}
 
 /**
  * Legacy grants / settings without a providerId are treated as OpenAI.
@@ -29,18 +64,74 @@ export function normalizeProviderId(providerId) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {Record<string, string>}
+ */
+function normalizeStringMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string" && entry.trim()) {
+      out[key] = entry.trim();
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, string>}
+ */
+function normalizeApiKeys(value) {
+  return normalizeStringMap(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, OriginLastUsed>}
+ */
+function normalizeOriginLastUsed(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  /** @type {Record<string, OriginLastUsed>} */
+  const out = {};
+  for (const [origin, entry] of Object.entries(value)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const providerId = normalizeProviderId(
+      typeof /** @type {{ providerId?: unknown }} */ (entry).providerId === "string"
+        ? /** @type {{ providerId: string }} */ (entry).providerId
+        : undefined
+    );
+    const modelRaw = /** @type {{ model?: unknown }} */ (entry).model;
+    const model =
+      typeof modelRaw === "string" && modelRaw.trim() ? modelRaw.trim() : undefined;
+    const usedAtRaw = /** @type {{ usedAt?: unknown }} */ (entry).usedAt;
+    const usedAt =
+      typeof usedAtRaw === "number" && Number.isFinite(usedAtRaw) ? usedAtRaw : 0;
+    out[origin] = { providerId, model, usedAt };
+  }
+  return out;
+}
+
+/**
  * @returns {Promise<{
- *   openaiApiKey: string,
+ *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
  *   defaultModel: string,
+ *   defaultModels: Record<string, string>,
  *   allowedOrigins: Record<string, OriginGrant>,
- *   blockedOrigins: Record<string, OriginBlock>
+ *   blockedOrigins: Record<string, OriginBlock>,
+ *   originLastUsed: Record<string, OriginLastUsed>
  * }>}
  */
 export async function getSettings() {
+  // Always read legacy keys even though they are no longer in DEFAULTS, so
+  // upgrades can migrate them (openaiApiKey → apiKeys, defaultModel → defaultModels).
   const stored = await chrome.storage.local.get([
     ...Object.keys(DEFAULTS),
     "blockedOrigins",
+    "openaiApiKey",
+    "defaultModel",
   ]);
   const allowedOrigins =
     stored.allowedOrigins && typeof stored.allowedOrigins === "object"
@@ -50,6 +141,7 @@ export async function getSettings() {
     stored.blockedOrigins && typeof stored.blockedOrigins === "object"
       ? /** @type {Record<string, OriginBlock>} */ ({ ...stored.blockedOrigins })
       : {};
+  const originLastUsed = normalizeOriginLastUsed(stored.originLastUsed);
 
   // Drop opaque / file principals if a prior build stored grants under them.
   // Those keys are not stable site identities and must never authorize broadly.
@@ -66,22 +158,100 @@ export async function getSettings() {
       scrubbed = true;
     }
   }
+  for (const key of Object.keys(originLastUsed)) {
+    if (key === "null" || key === "file://" || key.startsWith("file:")) {
+      delete originLastUsed[key];
+      scrubbed = true;
+    }
+  }
+
+  const apiKeys = normalizeApiKeys(stored.apiKeys);
+  const legacyOpenAiKey =
+    typeof stored.openaiApiKey === "string" ? stored.openaiApiKey.trim() : "";
+  // Migrate once: fold the flat openaiApiKey into the map when openai is unset.
+  if (legacyOpenAiKey && !apiKeys.openai) {
+    apiKeys.openai = legacyOpenAiKey;
+    scrubbed = true;
+  }
+  const hasLegacyApiKey = Object.prototype.hasOwnProperty.call(stored, "openaiApiKey");
+  if (hasLegacyApiKey) {
+    scrubbed = true;
+  }
+
+  const defaultProviderId = normalizeProviderId(
+    typeof stored.defaultProviderId === "string" ? stored.defaultProviderId : undefined
+  );
+  /** @type {Record<string, string>} */
+  let defaultModels = normalizeStringMap(stored.defaultModels);
+  const legacyDefaultModel =
+    typeof stored.defaultModel === "string" && stored.defaultModel.trim()
+      ? stored.defaultModel.trim()
+      : "";
+  // Fold the legacy flat defaultModel into the per-provider map when missing,
+  // but only when the model looks like it belongs to that provider.
+  if (
+    legacyDefaultModel &&
+    !defaultModels[defaultProviderId] &&
+    isPlausibleModelForProvider(defaultProviderId, legacyDefaultModel)
+  ) {
+    defaultModels[defaultProviderId] = legacyDefaultModel;
+    scrubbed = true;
+  }
+  const hasLegacyDefaultModel = Object.prototype.hasOwnProperty.call(
+    stored,
+    "defaultModel"
+  );
+  if (hasLegacyDefaultModel) {
+    scrubbed = true;
+  }
+
+  // Drop cross-provider contamination (e.g. an OpenAI slug under openrouter).
+  for (const [providerId, model] of Object.entries(defaultModels)) {
+    if (!isPlausibleModelForProvider(providerId, model)) {
+      delete defaultModels[providerId];
+      scrubbed = true;
+    }
+  }
+
+  // Fresh install / empty map: use baked-in defaults without forcing a storage
+  // write until the user saves.
+  if (Object.keys(defaultModels).length === 0) {
+    defaultModels = { ...DEFAULTS.defaultModels };
+  }
+
+  // Never fall across providers (e.g. Ollama must not inherit the OpenAI default).
+  const defaultModel =
+    defaultModels[defaultProviderId] ||
+    DEFAULTS.defaultModels[defaultProviderId] ||
+    "";
+
   if (scrubbed) {
-    await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
+    /** @type {Record<string, unknown>} */
+    const patch = {
+      allowedOrigins,
+      blockedOrigins,
+      originLastUsed,
+      apiKeys,
+      defaultModels,
+    };
+    await chrome.storage.local.set(patch);
+    /** @type {string[]} */
+    const toRemove = [];
+    if (hasLegacyApiKey) toRemove.push("openaiApiKey");
+    if (hasLegacyDefaultModel) toRemove.push("defaultModel");
+    if (toRemove.length > 0) {
+      await chrome.storage.local.remove(toRemove);
+    }
   }
 
   return {
-    openaiApiKey:
-      typeof stored.openaiApiKey === "string" ? stored.openaiApiKey : DEFAULTS.openaiApiKey,
-    defaultProviderId: normalizeProviderId(
-      typeof stored.defaultProviderId === "string" ? stored.defaultProviderId : undefined
-    ),
-    defaultModel:
-      typeof stored.defaultModel === "string" && stored.defaultModel
-        ? stored.defaultModel
-        : DEFAULTS.defaultModel,
+    apiKeys,
+    defaultProviderId,
+    defaultModel,
+    defaultModels,
     allowedOrigins,
     blockedOrigins,
+    originLastUsed,
   };
 }
 
@@ -96,24 +266,78 @@ function isPersistableOriginKey(origin) {
 
 /**
  * @param {Partial<{
- *   openaiApiKey: string,
+ *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
- *   defaultModel: string
+ *   defaultModel: string,
+ *   defaultModels: Record<string, string>
  * }>} patch
  */
 export async function saveSettings(patch) {
+  const current = await getSettings();
+  /** @type {Record<string, unknown>} */
   const next = {};
-  if (typeof patch.openaiApiKey === "string") {
-    next.openaiApiKey = patch.openaiApiKey.trim();
+
+  if (patch.apiKeys && typeof patch.apiKeys === "object") {
+    /** @type {Record<string, string>} */
+    const merged = { ...current.apiKeys };
+    for (const [providerId, key] of Object.entries(patch.apiKeys)) {
+      if (typeof key !== "string") continue;
+      const trimmed = key.trim();
+      if (trimmed) {
+        merged[providerId] = trimmed;
+      } else {
+        delete merged[providerId];
+      }
+    }
+    next.apiKeys = merged;
   }
-  if (typeof patch.defaultProviderId === "string" && patch.defaultProviderId.trim()) {
-    next.defaultProviderId = patch.defaultProviderId.trim();
+
+  const nextProviderId =
+    typeof patch.defaultProviderId === "string" && patch.defaultProviderId.trim()
+      ? patch.defaultProviderId.trim()
+      : current.defaultProviderId;
+
+  /** @type {Record<string, string>} */
+  let nextDefaultModels = { ...current.defaultModels };
+  let modelsTouched = false;
+
+  if (patch.defaultModels && typeof patch.defaultModels === "object") {
+    modelsTouched = true;
+    for (const [providerId, model] of Object.entries(patch.defaultModels)) {
+      if (typeof model !== "string") continue;
+      const trimmed = model.trim();
+      if (!trimmed) {
+        delete nextDefaultModels[providerId];
+      } else if (isPlausibleModelForProvider(providerId, trimmed)) {
+        nextDefaultModels[providerId] = trimmed;
+      }
+      // Implausible non-empty values are ignored so a bad write cannot wipe a
+      // previously saved model while the caller still believes save succeeded.
+    }
   }
+
+  // Convenience: patch.defaultModel writes the active provider's map entry.
   if (typeof patch.defaultModel === "string" && patch.defaultModel.trim()) {
-    next.defaultModel = patch.defaultModel.trim();
+    const trimmed = patch.defaultModel.trim();
+    modelsTouched = true;
+    if (isPlausibleModelForProvider(nextProviderId, trimmed)) {
+      nextDefaultModels[nextProviderId] = trimmed;
+    }
+    // else: ignore — do not delete the existing entry
   }
+
+  if (typeof patch.defaultProviderId === "string" && patch.defaultProviderId.trim()) {
+    next.defaultProviderId = nextProviderId;
+  }
+
+  if (modelsTouched || next.defaultProviderId) {
+    next.defaultModels = nextDefaultModels;
+  }
+
   if (Object.keys(next).length > 0) {
     await chrome.storage.local.set(next);
+    // Drop any leftover flat defaultModel key — the map is the source of truth.
+    await chrome.storage.local.remove("defaultModel");
   }
 }
 
@@ -159,10 +383,43 @@ export async function grantOriginAlways(origin, { providerId, model }) {
  */
 export async function blockOrigin(origin) {
   if (!isPersistableOriginKey(origin)) return;
-  const { allowedOrigins, blockedOrigins } = await getSettings();
+  const { allowedOrigins, blockedOrigins, originLastUsed } = await getSettings();
   delete allowedOrigins[origin];
+  delete originLastUsed[origin];
   blockedOrigins[origin] = { blockedAt: Date.now() };
-  await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
+  await chrome.storage.local.set({
+    allowedOrigins,
+    blockedOrigins,
+    originLastUsed,
+  });
+}
+
+/**
+ * Last provider/model chosen for an origin in the approval UI (does not grant access).
+ * @param {string} origin
+ * @returns {Promise<OriginLastUsed | null>}
+ */
+export async function getOriginLastUsed(origin) {
+  if (!isPersistableOriginKey(origin)) return null;
+  const { originLastUsed } = await getSettings();
+  return originLastUsed[origin] ?? null;
+}
+
+/**
+ * Remember the last approval choice so later prompts can prefill provider/model.
+ * @param {string} origin
+ * @param {{ providerId: string, model: string }} options
+ */
+export async function setOriginLastUsed(origin, { providerId, model }) {
+  if (!isPersistableOriginKey(origin)) return;
+  const { originLastUsed } = await getSettings();
+  const nextModel = typeof model === "string" && model.trim() ? model.trim() : undefined;
+  originLastUsed[origin] = {
+    providerId: normalizeProviderId(providerId),
+    model: nextModel,
+    usedAt: Date.now(),
+  };
+  await chrome.storage.local.set({ originLastUsed });
 }
 
 /**
