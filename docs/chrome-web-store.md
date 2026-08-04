@@ -44,11 +44,32 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Official reference implementation of the Inference Provider API. |
-| Description | See README Features + Security; note experimental status of the API proposal. |
+| Summary | Route `window.inference` chat to OpenAI, OpenRouter, or Ollama — keys stay in the extension. |
+| Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
 | Privacy policy URL | Hosted copy of [`PRIVACY.md`](../PRIVACY.md) (GitHub raw/pages or dedicated URL) |
+
+### Description (paste into store form)
+
+```
+Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
+
+Bring your own OpenAI or OpenRouter key, or run local Ollama. API keys stay in the extension; page scripts never see them.
+
+• Streaming chat via window.inference.request()
+• Per-site Allow / Deny / Remember prompts
+• You pick the provider and model
+• OpenAI, OpenRouter, or local Ollama
+• Local Ollama works without special OLLAMA_ORIGINS setup
+• Injects only on https and localhost pages
+
+Official reference for the experimental Inference Provider API:
+https://github.com/SamSamskies/inference-provider-api
+
+Privacy policy:
+https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
+```
 
 ## Permission justifications (paste into store form)
 
