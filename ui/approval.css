@@ -39,6 +39,7 @@ body.approval-body {
 
 .approval-eyebrow {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.4em;
   min-width: 0;
@@ -50,11 +51,10 @@ body.approval-body {
 }
 
 .approval-eyebrow .eyebrow-origin {
-  flex: 1 1 auto;
+  flex: 1 1 12ch;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
   text-transform: none;
   letter-spacing: normal;
   font-family: var(--mono);
