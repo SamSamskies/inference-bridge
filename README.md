@@ -19,7 +19,9 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 ### Chrome Web Store (recommended)
 
-Chrome Web Store listing is not published yet. Until it is, use the development install below.
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/inference-bridge/ekjldffogogadhfhgkibgkfdhhikfamd).
+
+For local development or unreleased builds, use the load-unpacked steps below.
 
 ### Development (Load unpacked)
 
