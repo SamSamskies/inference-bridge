@@ -37,6 +37,31 @@ body.approval-body {
   overflow: hidden;
 }
 
+.approval-eyebrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.approval-eyebrow .eyebrow-label {
+  flex: 0 0 auto;
+}
+
+.approval-eyebrow .eyebrow-origin {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--mono);
+  font-weight: 650;
+  color: var(--ink);
+}
+
 .approval .preview {
   flex: 1 1 auto;
   min-height: 0;

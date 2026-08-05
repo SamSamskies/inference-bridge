@@ -384,13 +384,6 @@ button:disabled {
   margin-top: 8px;
 }
 
-.origin {
-  font-family: var(--mono);
-  font-size: 0.95rem;
-  color: var(--ink);
-  word-break: break-all;
-}
-
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

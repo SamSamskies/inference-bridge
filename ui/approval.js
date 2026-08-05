@@ -524,6 +524,7 @@ async function load() {
   }
 
   originEl.textContent = request.origin;
+  originEl.title = request.origin;
   const requestedId =
     typeof request.providerId === "string" &&
     providers.some((p) => p.id === request.providerId)
