@@ -345,14 +345,94 @@ async function loadModelsForProvider(providerId, preferredModel) {
   updateAllowEnabled();
 }
 
-function previewMessages(messages) {
-  return messages
-    .map((m) => {
-      const content =
-        m.content.length > 280 ? `${m.content.slice(0, 280)}…` : m.content;
-      return `${m.role}:\n${content}`;
-    })
-    .join("\n\n");
+const PREVIEW_TRUNCATE = 280;
+
+/**
+ * @param {string} content
+ * @param {{ truncate?: boolean }} [opts]
+ */
+function formatPreviewContent(content, { truncate = true } = {}) {
+  if (truncate && content.length > PREVIEW_TRUNCATE) {
+    return `${content.slice(0, PREVIEW_TRUNCATE)}…`;
+  }
+  return content;
+}
+
+/**
+ * @param {{ role: string, content: string }} message
+ * @param {{ truncate?: boolean }} [opts]
+ */
+function createPreviewMessage(message, opts) {
+  const el = document.createElement("div");
+  el.className = "preview-msg";
+
+  const role = document.createElement("div");
+  role.className = "preview-role";
+  role.textContent = message.role;
+
+  const body = document.createElement("div");
+  body.className = "preview-content";
+  body.textContent = formatPreviewContent(message.content, opts);
+
+  el.append(role, body);
+  return el;
+}
+
+/**
+ * Collapse system messages by default so the preview highlights the user turn.
+ * @param {Array<{ role: string, content: string }>} messages
+ */
+function renderPreview(messages) {
+  previewEl.replaceChildren();
+
+  const context = [];
+  const visible = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      context.push(message);
+    } else {
+      visible.push(message);
+    }
+  }
+
+  // Only collapse when there is something else to show; otherwise leave system open.
+  const collapseContext = context.length > 0 && visible.length > 0;
+
+  if (context.length === 0) {
+    for (const message of visible) {
+      previewEl.append(createPreviewMessage(message));
+    }
+    return;
+  }
+
+  if (!collapseContext) {
+    for (const message of context) {
+      previewEl.append(createPreviewMessage(message, { truncate: false }));
+    }
+    return;
+  }
+
+  // Put the disclosure above the user turn so it stays visible in the
+  // constrained approval popup without scrolling past the message.
+  const details = document.createElement("details");
+  details.className = "preview-context";
+
+  const summary = document.createElement("summary");
+  const n = context.length;
+  summary.textContent = `Context (${n} hidden part${n === 1 ? "" : "s"}) — expand to see system instructions`;
+
+  const body = document.createElement("div");
+  body.className = "preview-context-body";
+  for (const message of context) {
+    body.append(createPreviewMessage(message, { truncate: false }));
+  }
+
+  details.append(summary, body);
+  previewEl.append(details);
+
+  for (const message of visible) {
+    previewEl.append(createPreviewMessage(message));
+  }
 }
 
 function updateRememberHint() {
@@ -450,7 +530,7 @@ async function load() {
       ? request.providerId
       : providers[0].id;
   const providerId = fillProviders(requestedId);
-  previewEl.textContent = previewMessages(request.messages || []);
+  renderPreview(request.messages || []);
   updateRememberHint();
   // Prefer the pending request's model (global default, last-used, or preferred)
   // even when it is a free-typed slug that fails the stricter plausibility check.
