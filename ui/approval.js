@@ -345,24 +345,10 @@ async function loadModelsForProvider(providerId, preferredModel) {
   updateAllowEnabled();
 }
 
-const PREVIEW_TRUNCATE = 280;
-
-/**
- * @param {string} content
- * @param {{ truncate?: boolean }} [opts]
- */
-function formatPreviewContent(content, { truncate = true } = {}) {
-  if (truncate && content.length > PREVIEW_TRUNCATE) {
-    return `${content.slice(0, PREVIEW_TRUNCATE)}…`;
-  }
-  return content;
-}
-
 /**
  * @param {{ role: string, content: string }} message
- * @param {{ truncate?: boolean }} [opts]
  */
-function createPreviewMessage(message, opts) {
+function createPreviewMessage(message) {
   const el = document.createElement("div");
   el.className = "preview-msg";
 
@@ -372,7 +358,7 @@ function createPreviewMessage(message, opts) {
 
   const body = document.createElement("div");
   body.className = "preview-content";
-  body.textContent = formatPreviewContent(message.content, opts);
+  body.textContent = message.content;
 
   el.append(role, body);
   return el;
@@ -407,7 +393,7 @@ function renderPreview(messages) {
 
   if (!collapseContext) {
     for (const message of context) {
-      previewEl.append(createPreviewMessage(message, { truncate: false }));
+      previewEl.append(createPreviewMessage(message));
     }
     return;
   }
@@ -424,7 +410,7 @@ function renderPreview(messages) {
   const body = document.createElement("div");
   body.className = "preview-context-body";
   for (const message of context) {
-    body.append(createPreviewMessage(message, { truncate: false }));
+    body.append(createPreviewMessage(message));
   }
 
   details.append(summary, body);
