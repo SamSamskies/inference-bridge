@@ -112,7 +112,7 @@ try {
 }
 ```
 
-Example app: the [chat demo](https://github.com/SamSamskies/inference-provider-api/tree/main/examples/chatapp) in the specification repository.
+Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) (chat, social Ask AI, and more). Source lives in the [specification repository](https://github.com/SamSamskies/inference-provider-api/tree/main/examples).
 
 ## Security
 
@@ -209,7 +209,7 @@ npm run package
 - [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
 - [ ] Ollama unavailable / no models → provider option disabled with help text (Options + approval)
 - [ ] Ollama Check again enables the option after Ollama is running with models
-- [ ] Ollama chat from the chatapp succeeds after approving (no HTTP 403)
+- [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
 - [ ] Switching default provider does not rewrite existing origin grants
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
 
