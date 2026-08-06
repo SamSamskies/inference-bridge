@@ -347,11 +347,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
 function previewMessages(messages) {
   return messages
-    .map((m) => {
-      const content =
-        m.content.length > 280 ? `${m.content.slice(0, 280)}…` : m.content;
-      return `${m.role}:\n${content}`;
-    })
+    .map((m) => `${m.role}:\n${m.content}`)
     .join("\n\n");
 }
 
