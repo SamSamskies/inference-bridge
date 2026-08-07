@@ -42,7 +42,10 @@ const pendingApprovals = new Map();
  * @returns {Promise<boolean>}
  */
 async function hasCompatHostAccess(provider) {
-  if (!provider?.id || !isCompatProviderId(provider.id)) return true;
+  // Fail closed when the provider is missing (e.g. deleted compat endpoint
+  // between grant read and resolve). Built-ins still short-circuit to true.
+  if (!provider?.id) return false;
+  if (!isCompatProviderId(provider.id)) return true;
   const baseUrl = provider.baseUrl;
   return (
     typeof baseUrl === "string" &&

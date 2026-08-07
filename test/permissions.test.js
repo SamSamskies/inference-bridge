@@ -106,6 +106,52 @@ describe("ensurePermission", () => {
     expect(getPendingApproval("r2compat-ok")).toBeNull();
   });
 
+  it("re-prompts when a compat grant's provider no longer resolves", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    const registry = await import("../src/providers/registry.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    await grantOriginAlways("https://compat-missing.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    // Simulate endpoint disappearing between grant read and provider resolve.
+    const realGetProviderAsync = registry.getProviderAsync;
+    vi.spyOn(registry, "getProviderAsync").mockImplementation(async (id) => {
+      if (id === "compat:lm") return undefined;
+      return realGetProviderAsync(id);
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-missing",
+      origin: "https://compat-missing.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-missing");
+
+    expect(getPendingApproval("r2compat-missing")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    resolveApproval("r2compat-missing", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("re-prompts when a compat grant exists but host permission was revoked", async () => {
     const { saveCompatEndpoints } = await import("../src/storage.js");
     await saveSettings({
