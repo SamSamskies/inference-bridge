@@ -104,6 +104,9 @@ chrome.runtime.onConnect.addListener((port) => {
       if (entry && entry.phase === "awaiting_permission" && sameTab) {
         entry.port = port;
         entry.portDisconnected = false;
+        // Rebind proves the content script has streamId (started-ack may have
+        // been lost on the superseded port). Soft-disconnect needs announced.
+        entry.announced = true;
         boundStreamId = id;
         try {
           port.postMessage({ type: "rebind-ok", streamId: id });
