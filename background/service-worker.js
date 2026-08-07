@@ -234,6 +234,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
 });
 
+// Navigation/reload destroys the content script. Soft-disconnect during
+// approval leaves the stream waiting for rebind (or abort); without this,
+// waitForPortRebind(..., Infinity) never resolves and the stream leaks.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "loading") return;
+  for (const [id, entry] of activeStreams.entries()) {
+    if (entry.tabId === tabId) {
+      abortStream(id, "Tab navigated");
+    }
+  }
+});
+
 chrome.action.onClicked.addListener(() => {
   chrome.runtime.openOptionsPage();
 });
