@@ -82,6 +82,15 @@ chrome.runtime.onConnect.addListener((port) => {
       });
       return;
     }
+    if (msg.type === "started-ack") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry && entry.phase === "awaiting_permission" && entry.port === port) {
+        entry.announced = true;
+        boundStreamId = id;
+      }
+      return;
+    }
     if (msg.type === "rebind") {
       const id = typeof msg.streamId === "string" ? msg.streamId : "";
       const entry = id ? activeStreams.get(id) : undefined;
@@ -124,8 +133,8 @@ chrome.runtime.onConnect.addListener((port) => {
     if (entry && entry.port !== port) return;
     // While the approval popup is open, a brief port drop must not cancel the
     // pending decision — the content script may rebind, and a late Approve
-    // should still resolve. Only do this after "started" was sent; before that
-    // the content script has no streamId and cannot rebind.
+    // should still resolve. Only after the content script acks "started"
+    // (announced); before that it has no streamId and cannot rebind.
     if (entry?.phase === "awaiting_permission" && entry.announced) {
       entry.portDisconnected = true;
       return;
@@ -289,9 +298,9 @@ async function handleStart(port, msg, onStreamId) {
     }
 
     // Acknowledge so the page can attach stream listeners before permission UI.
+    // Do not set announced here — wait for started-ack so a disconnect in the
+    // delivery gap aborts instead of orphaning an approval the page cannot rebind.
     port.postMessage({ type: "started", streamId });
-    const startedEntry = activeStreams.get(streamId);
-    if (startedEntry) startedEntry.announced = true;
 
     const permission = await ensurePermission({
       requestId: streamId,

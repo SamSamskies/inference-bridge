@@ -119,6 +119,11 @@
           streamId = msg.streamId;
           ports.set(streamId, nextPort);
           started = true;
+          try {
+            nextPort.postMessage({ type: "started-ack", streamId });
+          } catch {
+            // disconnect handler will clean up
+          }
           postToPage({
             id: correlationId,
             streamId,
