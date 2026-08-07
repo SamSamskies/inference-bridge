@@ -63,7 +63,14 @@ async function hasCompatHostAccess(provider) {
  *   preferredProviderId?: string,
  *   preferredModel?: string,
  * }} args
- * @returns {Promise<{ allowed: boolean, providerId: string, model: string, once: boolean }>}
+ * @returns {Promise<{
+ *   allowed: boolean,
+ *   providerId: string,
+ *   model: string,
+ *   once: boolean,
+ *   code?: string,
+ *   message?: string,
+ * }>}
  */
 export async function ensurePermission(args) {
   const settings = await getSettings();
@@ -185,12 +192,26 @@ export async function ensurePermission(args) {
     case "always": {
       // Same host gate as persistent grants: approving a compat provider
       // without optional host access would only fail later in ensureReady.
-      if (!(await hasCompatHostAccess(chosenProvider))) {
+      // Do not report these as permission_denied — Allow already succeeded.
+      if (!chosenProvider) {
         return {
           allowed: false,
           providerId: chosenProviderId,
           model: chosenModel,
           once: false,
+          code: "unavailable",
+          message: `Unknown provider "${chosenProviderId}". Open the Inference Bridge options and update this site's grant.`,
+        };
+      }
+      if (!(await hasCompatHostAccess(chosenProvider))) {
+        const label = chosenProvider.label || chosenProviderId;
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+          code: "unavailable",
+          message: `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`,
         };
       }
       if (decision.decision === "always") {

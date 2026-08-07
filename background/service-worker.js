@@ -382,7 +382,13 @@ async function handleStart(port, msg, onStreamId) {
     }
 
     if (!permission.allowed) {
-      throwInference("permission_denied", "Permission denied by user.");
+      // allow_once/always can still fail post-approval (missing compat host
+      // access, deleted provider) with an explicit code/message — do not
+      // misreport those as a user Deny.
+      throwInference(
+        permission.code || "permission_denied",
+        permission.message || "Permission denied by user."
+      );
     }
 
     entry.phase = "streaming";

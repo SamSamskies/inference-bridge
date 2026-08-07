@@ -231,6 +231,8 @@ describe("ensurePermission", () => {
       providerId: "compat:lm",
       model: "local-model",
       once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/host permission/i),
     });
   });
 
@@ -272,6 +274,8 @@ describe("ensurePermission", () => {
       providerId: "compat:lm",
       model: "local-model",
       once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/unknown provider/i),
     });
   });
 
