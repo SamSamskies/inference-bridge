@@ -76,6 +76,29 @@ describe("createOpenAICompatProvider", () => {
     expect(models).toContainEqual({ id: "alpha" });
   });
 
+  it("sends Bearer auth on listModels when an API key is provided", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      expect(init.headers.Authorization).toBe("Bearer secret");
+      return jsonResponse({ data: [{ id: "local" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAICompatProvider(endpoint);
+    const models = await provider.listModels({ apiKey: "secret" });
+    expect(models).toEqual([{ id: "local" }]);
+  });
+
+  it("lists models without Authorization when no key", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      expect(init?.headers?.Authorization).toBeUndefined();
+      return jsonResponse({ data: [{ id: "local" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAICompatProvider(endpoint);
+    await provider.listModels();
+  });
+
   it("returns an empty list when /models fails so free-text can degrade", async () => {
     vi.stubGlobal(
       "fetch",

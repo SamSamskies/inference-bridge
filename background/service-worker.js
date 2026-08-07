@@ -216,7 +216,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         try {
-          const models = await resolveProviderModels(provider);
+          const settings = await getSettings();
+          const models = await resolveProviderModels(provider, {
+            apiKey: settings.apiKeys[provider.id],
+          });
           sendResponse({
             ok: true,
             providerId: provider.id,

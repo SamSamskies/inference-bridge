@@ -59,14 +59,20 @@ export function createOpenAICompatProvider(endpoint) {
     baseUrl,
     defaultModel: "",
 
-    async listModels({ signal } = {}) {
+    async listModels({ signal, apiKey } = {}) {
       // Host-permission failures must propagate: swallowing them as [] makes the
       // UI offer free-text entry while streamChat still fails on ensureReady.
       await ensureReady(baseUrl, label);
 
+      /** @type {Record<string, string>} */
+      const headers = {};
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+
       let response;
       try {
-        response = await fetch(modelsUrl, { signal });
+        response = await fetch(modelsUrl, { headers, signal });
       } catch {
         return [];
       }

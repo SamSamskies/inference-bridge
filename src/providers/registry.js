@@ -85,7 +85,7 @@ function toModelInfo(entry) {
  * Resolve models for a provider (static catalog or async discovery).
  * Always returns ModelInfo[] so UI callers share one shape.
  * @param {Provider} provider
- * @param {{ signal?: AbortSignal }} [args]
+ * @param {{ signal?: AbortSignal, apiKey?: string }} [args]
  * @returns {Promise<ModelInfo[]>}
  */
 export async function resolveProviderModels(provider, args = {}) {

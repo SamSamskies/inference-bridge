@@ -18,7 +18,7 @@
  *   optionalApiKey?: boolean,
  *   defaultModel: string,
  *   models?: readonly (string | ModelInfo)[],
- *   listModels?: (args?: { signal?: AbortSignal }) => Promise<ModelInfo[]>,
+ *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
  *   streamChat: (args: {
  *     apiKey?: string,
  *     model: string,
