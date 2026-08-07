@@ -35,6 +35,7 @@ void ensureOllamaOriginBypass().catch(() => {});
  *   tabId?: number,
  *   phase: StreamPhase,
  *   portDisconnected?: boolean,
+ *   announced?: boolean,
  * }>} */
 const activeStreams = new Map();
 
@@ -120,8 +121,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const entry = activeStreams.get(boundStreamId);
     // While the approval popup is open, a brief port drop must not cancel the
     // pending decision — the content script may rebind, and a late Approve
-    // should still resolve.
-    if (entry?.phase === "awaiting_permission") {
+    // should still resolve. Only do this after "started" was sent; before that
+    // the content script has no streamId and cannot rebind.
+    if (entry?.phase === "awaiting_permission" && entry.announced) {
       entry.portDisconnected = true;
       return;
     }
@@ -237,6 +239,7 @@ async function handleStart(port, msg, onStreamId) {
     controller,
     tabId,
     phase: "awaiting_permission",
+    announced: false,
   });
   onStreamId(streamId);
 
@@ -284,6 +287,8 @@ async function handleStart(port, msg, onStreamId) {
 
     // Acknowledge so the page can attach stream listeners before permission UI.
     port.postMessage({ type: "started", streamId });
+    const startedEntry = activeStreams.get(streamId);
+    if (startedEntry) startedEntry.announced = true;
 
     const permission = await ensurePermission({
       requestId: streamId,
@@ -454,6 +459,7 @@ function abortStream(streamId, reason) {
  *   tabId?: number,
  *   phase: StreamPhase,
  *   portDisconnected?: boolean,
+ *   announced?: boolean,
  * } | null>}
  */
 async function waitForPortRebind(streamId, timeoutMs) {
