@@ -184,7 +184,10 @@
         if (cleanedUp || epoch !== portEpoch) return;
         // During approval wait, rebind so a brief worker/port drop does not
         // abort the page while the approval popup is still open.
-        if (started && !gotOutcome && streamId && !rebindAttempted) {
+        if (started && !gotOutcome && streamId) {
+          // Mid-rebind drop: keep the scheduled retry instead of aborting while
+          // the service worker still holds the stream for rebind.
+          if (rebindAttempted && rebindTimer != null) return;
           if (attemptRebind()) return;
         }
         failDisconnected();
