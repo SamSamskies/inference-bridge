@@ -211,7 +211,36 @@
           error: { code: "aborted", message: "Extension disconnected" },
         });
       }
+      // Soft-disconnect during approval does not abort the SW stream (so a brief
+      // port drop can rebind). If we are giving up locally, tell the worker or
+      // waitForPortRebind(..., Infinity) orphans the stream forever.
+      signalStreamAbort(streamId);
       cleanup();
+    }
+
+    /**
+     * Ensure the service worker drops an awaiting stream when rebind is abandoned.
+     * @param {string} id
+     */
+    function signalStreamAbort(id) {
+      if (!id) return;
+      try {
+        port.postMessage({ type: "abort", streamId: id });
+        return;
+      } catch {
+        // Port may already be dead — open a one-shot port to deliver abort.
+      }
+      try {
+        const abortPort = chrome.runtime.connect({ name: "ipa-inference" });
+        abortPort.postMessage({ type: "abort", streamId: id });
+        try {
+          abortPort.disconnect();
+        } catch {
+          // ignore
+        }
+      } catch {
+        // Extension context gone — tab/SW lifecycle clears the stream.
+      }
     }
 
     /**
