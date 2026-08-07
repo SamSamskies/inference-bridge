@@ -119,6 +119,9 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => {
     if (!boundStreamId) return;
     const entry = activeStreams.get(boundStreamId);
+    // Ignore disconnect from a superseded port after a successful rebind —
+    // otherwise portDisconnected flips true again and Approve waits forever.
+    if (entry && entry.port !== port) return;
     // While the approval popup is open, a brief port drop must not cancel the
     // pending decision — the content script may rebind, and a late Approve
     // should still resolve. Only do this after "started" was sent; before that
