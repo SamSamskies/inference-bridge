@@ -60,11 +60,9 @@ export function createOpenAICompatProvider(endpoint) {
     defaultModel: "",
 
     async listModels({ signal } = {}) {
-      try {
-        await ensureReady(baseUrl, label);
-      } catch {
-        return [];
-      }
+      // Host-permission failures must propagate: swallowing them as [] makes the
+      // UI offer free-text entry while streamChat still fails on ensureReady.
+      await ensureReady(baseUrl, label);
 
       let response;
       try {

@@ -87,6 +87,20 @@ describe("createOpenAICompatProvider", () => {
     await expect(provider.listModels()).resolves.toEqual([]);
   });
 
+  it("rejects listModels when host permission is missing", async () => {
+    globalThis.chrome.permissions.contains = vi.fn(async () => false);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAICompatProvider(endpoint);
+    await expect(provider.listModels()).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+      message: expect.stringMatching(/host permission/i),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("streams chat to /chat/completions without Authorization when no key", async () => {
     const sse = [
       'data: {"id":"1","model":"local","choices":[{"delta":{"content":"Hi"}}]}',
