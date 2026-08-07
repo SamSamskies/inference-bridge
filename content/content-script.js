@@ -7,7 +7,7 @@
  */
 (() => {
   const CHANNEL = "__ipa_inference__";
-  /** How long to wait for a successful rebind after a mid-approval port drop. */
+  /** Retry interval for rebind while approval may still be open. */
   const REBIND_TIMEOUT_MS = 3000;
   /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
   const KEEP_ALIVE_MS = 20_000;
@@ -78,6 +78,8 @@
     let gotOutcome = false;
     let cleanedUp = false;
     let rebindAttempted = false;
+    /** Bumps on each new port so stale disconnect/message handlers no-op. */
+    let portEpoch = 0;
     /** @type {ReturnType<typeof setTimeout> | null} */
     let rebindTimer = null;
     /** @type {ReturnType<typeof setInterval> | null} */
@@ -107,9 +109,12 @@
 
     /**
      * @param {chrome.runtime.Port} nextPort
+     * @param {number} epoch
      */
-    function attachPortListeners(nextPort) {
+    function attachPortListeners(nextPort, epoch) {
       nextPort.onMessage.addListener((msg) => {
+        if (cleanedUp || epoch !== portEpoch) return;
+
         if (msg.type === "started") {
           streamId = msg.streamId;
           ports.set(streamId, nextPort);
@@ -171,9 +176,9 @@
       });
 
       nextPort.onDisconnect.addListener(() => {
-        if (cleanedUp) return;
-        // During approval wait, try one rebind so a brief worker/port drop does
-        // not abort the page while the approval popup is still open.
+        if (cleanedUp || epoch !== portEpoch) return;
+        // During approval wait, rebind so a brief worker/port drop does not
+        // abort the page while the approval popup is still open.
         if (started && !gotOutcome && streamId && !rebindAttempted) {
           if (attemptRebind()) return;
         }
@@ -206,6 +211,11 @@
      */
     function attemptRebind() {
       rebindAttempted = true;
+      if (rebindTimer != null) {
+        clearTimeout(rebindTimer);
+        rebindTimer = null;
+      }
+
       let nextPort;
       try {
         nextPort = chrome.runtime.connect({ name: "ipa-inference" });
@@ -213,17 +223,30 @@
         return false;
       }
 
+      const epoch = ++portEpoch;
+      const previous = port;
       port = nextPort;
-      attachPortListeners(nextPort);
+      attachPortListeners(nextPort, epoch);
       try {
         nextPort.postMessage({ type: "rebind", streamId });
       } catch {
         return false;
       }
 
+      // Ignore disconnect from the superseded port.
+      try {
+        previous.disconnect();
+      } catch {
+        // ignore
+      }
+
+      // Do not abort on timeout — approval may still be open. Retry until
+      // rebind-ok, rebind-fail, or a terminal stream outcome.
       rebindTimer = setTimeout(() => {
         rebindTimer = null;
-        if (!cleanedUp && !gotOutcome) failDisconnected();
+        if (cleanedUp || gotOutcome || epoch !== portEpoch) return;
+        rebindAttempted = false;
+        if (!attemptRebind()) failDisconnected();
       }, REBIND_TIMEOUT_MS);
       return true;
     }
@@ -244,7 +267,8 @@
       }
     }
 
-    attachPortListeners(port);
+    const initialEpoch = ++portEpoch;
+    attachPortListeners(port, initialEpoch);
     startKeepAlive();
 
     try {
