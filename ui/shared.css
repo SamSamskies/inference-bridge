@@ -313,18 +313,75 @@ button:disabled {
   background: var(--bg);
   font-family: var(--mono);
   font-size: 0.8rem;
-  white-space: pre-wrap;
   word-break: break-word;
   max-height: 160px;
   overflow: auto;
   color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.origin {
-  font-family: var(--mono);
-  font-size: 0.95rem;
+.preview-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preview-role {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.preview-content {
+  white-space: pre-wrap;
   color: var(--ink);
-  word-break: break-all;
+}
+
+.preview-context {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  margin: 0;
+}
+
+.preview-context summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  list-style: none;
+  user-select: none;
+}
+
+.preview-context summary::-webkit-details-marker {
+  display: none;
+}
+
+.preview-context summary::before {
+  content: "▶";
+  display: inline-block;
+  width: 1em;
+  margin-right: 0.35em;
+  font-size: 0.7em;
+  transform: translateY(-0.05em);
+  transition: transform 0.12s ease;
+}
+
+.preview-context[open] summary::before {
+  transform: rotate(90deg) translateY(-0.05em);
+}
+
+.preview-context-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {
