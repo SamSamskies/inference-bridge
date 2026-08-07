@@ -320,8 +320,15 @@ async function handleStart(port, msg, onStreamId) {
     // Inference port may have dropped briefly; wait for content-script rebind
     // so Approve or Deny can still deliver to the page (posting to a stale
     // port would drop permission_denied and surface as aborted instead).
+    // After Approve, wait until rebind (or abort): the content script retries
+    // every few seconds while still awaiting an outcome, so a short timeout
+    // would delete the stream while retries continue and abandon a granted
+    // request. Deny still uses a bounded wait so we do not hang forever.
     if (entry.portDisconnected) {
-      entry = await waitForPortRebind(streamId, 3000);
+      entry = await waitForPortRebind(
+        streamId,
+        permission.allowed ? Infinity : 3000
+      );
       if (controller.signal.aborted) {
         activeStreams.delete(streamId);
         return streamId;
@@ -330,8 +337,7 @@ async function handleStart(port, msg, onStreamId) {
         if (!permission.allowed) {
           throwInference("permission_denied", "Permission denied by user.");
         }
-        // Permission was granted; tell the page instead of silently dropping
-        // the stream after a failed rebind wait.
+        // Stream removed without abort (should be rare with unbounded wait).
         sendError(
           "aborted",
           "Extension disconnected before the request could continue."
@@ -467,9 +473,9 @@ function abortStream(streamId, reason) {
 
 /**
  * Wait until the content script rebinds the inference port after a disconnect
- * during the approval wait, or until timeout.
+ * during the approval wait, or until timeout / stream removal / abort.
  * @param {string} streamId
- * @param {number} timeoutMs
+ * @param {number} timeoutMs Use Infinity to wait until rebind or abort.
  * @returns {Promise<{
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
@@ -480,15 +486,19 @@ function abortStream(streamId, reason) {
  * } | null>}
  */
 async function waitForPortRebind(streamId, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Number.isFinite(timeoutMs)
+    ? Date.now() + timeoutMs
+    : Infinity;
   while (Date.now() < deadline) {
     const entry = activeStreams.get(streamId);
-    if (!entry) return null;
+    if (!entry || entry.controller.signal.aborted) return null;
     if (!entry.portDisconnected) return entry;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const entry = activeStreams.get(streamId);
-  if (!entry || entry.portDisconnected) return null;
+  if (!entry || entry.portDisconnected || entry.controller.signal.aborted) {
+    return null;
+  }
   return entry;
 }
 
