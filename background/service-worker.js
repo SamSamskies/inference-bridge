@@ -296,6 +296,13 @@ async function handleStart(port, msg, onStreamId) {
     if (!entry || controller.signal.aborted) {
       return streamId;
     }
+
+    // Resolve deny before any rebind wait so a disconnected port does not
+    // delay permission_denied by up to the rebind timeout (or surface as aborted).
+    if (!permission.allowed) {
+      throwInference("permission_denied", "Permission denied by user.");
+    }
+
     // Inference port may have dropped briefly; wait for content-script rebind
     // so a late Approve can still deliver to the page.
     if (entry.portDisconnected) {
@@ -305,8 +312,8 @@ async function handleStart(port, msg, onStreamId) {
         return streamId;
       }
       if (!entry) {
-        // Permission may already have been granted; tell the page instead of
-        // silently dropping the stream after a failed rebind wait.
+        // Permission was granted; tell the page instead of silently dropping
+        // the stream after a failed rebind wait.
         sendError(
           "aborted",
           "Extension disconnected before the request could continue."
@@ -314,10 +321,6 @@ async function handleStart(port, msg, onStreamId) {
         activeStreams.delete(streamId);
         return streamId;
       }
-    }
-
-    if (!permission.allowed) {
-      throwInference("permission_denied", "Permission denied by user.");
     }
 
     entry.phase = "streaming";
