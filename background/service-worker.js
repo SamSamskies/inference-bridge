@@ -300,7 +300,17 @@ async function handleStart(port, msg, onStreamId) {
     // so a late Approve can still deliver to the page.
     if (entry.portDisconnected) {
       entry = await waitForPortRebind(streamId, 3000);
-      if (!entry || controller.signal.aborted) {
+      if (controller.signal.aborted) {
+        activeStreams.delete(streamId);
+        return streamId;
+      }
+      if (!entry) {
+        // Permission may already have been granted; tell the page instead of
+        // silently dropping the stream after a failed rebind wait.
+        sendError(
+          "aborted",
+          "Extension disconnected before the request could continue."
+        );
         activeStreams.delete(streamId);
         return streamId;
       }
