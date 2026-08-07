@@ -84,7 +84,14 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === "rebind") {
       const id = typeof msg.streamId === "string" ? msg.streamId : "";
       const entry = id ? activeStreams.get(id) : undefined;
-      if (entry && entry.phase === "awaiting_permission") {
+      const senderTabId = port.sender?.tab?.id;
+      // Only the originating tab may rebind — streamId alone must not let
+      // another tab take over an awaiting_permission stream.
+      const sameTab =
+        entry?.tabId != null &&
+        senderTabId != null &&
+        senderTabId === entry.tabId;
+      if (entry && entry.phase === "awaiting_permission" && sameTab) {
         entry.port = port;
         entry.portDisconnected = false;
         boundStreamId = id;
