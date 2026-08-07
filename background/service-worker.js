@@ -27,10 +27,14 @@ import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 // unhandled rejection if Chrome rejects the rule update during worker startup.
 void ensureOllamaOriginBypass().catch(() => {});
 
+/** @typedef {"awaiting_permission" | "streaming"} StreamPhase */
+
 /** @type {Map<string, {
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
  *   tabId?: number,
+ *   phase: StreamPhase,
+ *   portDisconnected?: boolean,
  * }>} */
 const activeStreams = new Map();
 
@@ -54,16 +58,48 @@ function throwInference(code, message) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  // Approval popup pings this port so Chrome resets the SW idle timer while the
+  // user decides (connect alone is not enough in current Chrome).
+  if (port.name === "ipa-approval") {
+    port.onMessage.addListener(() => {
+      // Receiving the ping is the keepalive; no reply needed.
+    });
+    return;
+  }
+
   if (port.name !== "ipa-inference") return;
 
   /** @type {string | null} */
   let boundStreamId = null;
 
   port.onMessage.addListener((msg) => {
+    // Content-script keepalive during approval wait and long generations.
+    if (msg.type === "ping") return;
     if (msg.type === "start") {
       void handleStart(port, msg, (id) => {
         boundStreamId = id;
       });
+      return;
+    }
+    if (msg.type === "rebind") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry && entry.phase === "awaiting_permission") {
+        entry.port = port;
+        entry.portDisconnected = false;
+        boundStreamId = id;
+        try {
+          port.postMessage({ type: "rebind-ok", streamId: id });
+        } catch {
+          // ignore
+        }
+      } else {
+        try {
+          port.postMessage({ type: "rebind-fail", streamId: id });
+        } catch {
+          // ignore
+        }
+      }
       return;
     }
     if (msg.type === "abort") {
@@ -73,9 +109,16 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   port.onDisconnect.addListener(() => {
-    if (boundStreamId) {
-      abortStream(boundStreamId, "Port disconnected");
+    if (!boundStreamId) return;
+    const entry = activeStreams.get(boundStreamId);
+    // While the approval popup is open, a brief port drop must not cancel the
+    // pending decision — the content script may rebind, and a late Approve
+    // should still resolve.
+    if (entry?.phase === "awaiting_permission") {
+      entry.portDisconnected = true;
+      return;
     }
+    abortStream(boundStreamId, "Port disconnected");
   });
 });
 
@@ -96,7 +139,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-    if (message?.type === "list-providers") {
+  if (message?.type === "list-providers") {
     sendResponse({
       providers: listProviders().map((p) => ({
         id: p.id,
@@ -182,7 +225,12 @@ async function handleStart(port, msg, onStreamId) {
   const controller = new AbortController();
   const tabId = port.sender?.tab?.id;
 
-  activeStreams.set(streamId, { port, controller, tabId });
+  activeStreams.set(streamId, {
+    port,
+    controller,
+    tabId,
+    phase: "awaiting_permission",
+  });
   onStreamId(streamId);
 
   /**
@@ -190,8 +238,10 @@ async function handleStart(port, msg, onStreamId) {
    * @param {string} message
    */
   const sendError = (code, message) => {
+    const entry = activeStreams.get(streamId);
+    const target = entry?.port || port;
     try {
-      port.postMessage({
+      target.postMessage({
         type: "error",
         error: serializeInferenceError(code, message),
       });
@@ -234,14 +284,27 @@ async function handleStart(port, msg, onStreamId) {
       messages: validated.value.messages,
     });
 
-    // Aborted while the permission prompt was open.
-    if (!activeStreams.has(streamId) || controller.signal.aborted) {
+    // Aborted while the permission prompt was open (tab closed / explicit abort).
+    let entry = activeStreams.get(streamId);
+    if (!entry || controller.signal.aborted) {
       return streamId;
+    }
+    // Inference port may have dropped briefly; wait for content-script rebind
+    // so a late Approve can still deliver to the page.
+    if (entry.portDisconnected) {
+      entry = await waitForPortRebind(streamId, 3000);
+      if (!entry || controller.signal.aborted) {
+        activeStreams.delete(streamId);
+        return streamId;
+      }
     }
 
     if (!permission.allowed) {
       throwInference("permission_denied", "Permission denied by user.");
     }
+
+    entry.phase = "streaming";
+    const livePort = entry.port;
 
     const settings = await getSettings();
     const provider = getProvider(permission.providerId);
@@ -280,7 +343,7 @@ async function handleStart(port, msg, onStreamId) {
     }
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
-    port.postMessage({
+    livePort.postMessage({
       type: "chunk",
       chunk: { type: "accepted" },
     });
@@ -293,7 +356,7 @@ async function handleStart(port, msg, onStreamId) {
       onDelta: (content) => {
         if (controller.signal.aborted) return;
         try {
-          port.postMessage({
+          entry.port.postMessage({
             type: "chunk",
             chunk: { type: "delta", content },
           });
@@ -312,7 +375,7 @@ async function handleStart(port, msg, onStreamId) {
       return streamId;
     }
 
-    port.postMessage({
+    entry.port.postMessage({
       type: "chunk",
       chunk: {
         type: "done",
@@ -358,6 +421,32 @@ function abortStream(streamId, reason) {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Wait until the content script rebinds the inference port after a disconnect
+ * during the approval wait, or until timeout.
+ * @param {string} streamId
+ * @param {number} timeoutMs
+ * @returns {Promise<{
+ *   port: chrome.runtime.Port,
+ *   controller: AbortController,
+ *   tabId?: number,
+ *   phase: StreamPhase,
+ *   portDisconnected?: boolean,
+ * } | null>}
+ */
+async function waitForPortRebind(streamId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const entry = activeStreams.get(streamId);
+    if (!entry) return null;
+    if (!entry.portDisconnected) return entry;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const entry = activeStreams.get(streamId);
+  if (!entry || entry.portDisconnected) return null;
+  return entry;
 }
 
 /**

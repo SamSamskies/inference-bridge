@@ -8,6 +8,24 @@ import {
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
 
+// Keep the MV3 service worker alive while this popup is open. Opening a port
+// alone no longer resets Chrome's idle timer — periodic messages do.
+const APPROVAL_KEEPALIVE_MS = 20_000;
+try {
+  const keepAlivePort = chrome.runtime.connect({ name: "ipa-approval" });
+  const ping = () => {
+    try {
+      keepAlivePort.postMessage({ type: "ping" });
+    } catch {
+      // Port gone — worker likely died; load()/decide() will surface errors.
+    }
+  };
+  ping();
+  setInterval(ping, APPROVAL_KEEPALIVE_MS);
+} catch {
+  // If connect fails, load()/decide() will surface errors via sendMessage.
+}
+
 const originEl = document.getElementById("origin");
 const providerSelect = document.getElementById("provider");
 const ollamaHint = document.getElementById("ollamaHint");

@@ -7,6 +7,10 @@
  */
 (() => {
   const CHANNEL = "__ipa_inference__";
+  /** How long to wait for a successful rebind after a mid-approval port drop. */
+  const REBIND_TIMEOUT_MS = 3000;
+  /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
+  const KEEP_ALIVE_MS = 20_000;
 
   /** @type {Map<string, chrome.runtime.Port>} */
   const ports = new Map();
@@ -70,51 +74,111 @@
 
     let streamId = "";
     let started = false;
+    /** True once we have a terminal chunk/error for the page — no rebind. */
+    let gotOutcome = false;
     let cleanedUp = false;
+    let rebindAttempted = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let rebindTimer = null;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    let keepAliveTimer = null;
 
-    port.onMessage.addListener((msg) => {
-      if (msg.type === "started") {
-        streamId = msg.streamId;
-        ports.set(streamId, port);
-        started = true;
-        postToPage({
-          id: correlationId,
-          streamId,
-        });
-        return;
+    function pingKeepAlive() {
+      if (cleanedUp) return;
+      try {
+        port.postMessage({ type: "ping" });
+      } catch {
+        // ignore — disconnect handler will clean up
       }
+    }
 
-      if (msg.type === "chunk") {
-        postToPage({
-          streamId,
-          type: "chunk",
-          chunk: msg.chunk,
-        });
-        // Final done chunk ends the stream — drop the port map entry and disconnect.
-        if (msg.chunk?.type === "done") {
-          cleanup();
-        }
-        return;
+    function startKeepAlive() {
+      stopKeepAlive();
+      pingKeepAlive();
+      keepAliveTimer = setInterval(pingKeepAlive, KEEP_ALIVE_MS);
+    }
+
+    function stopKeepAlive() {
+      if (keepAliveTimer != null) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
       }
+    }
 
-      if (msg.type === "error") {
-        if (!started) {
+    /**
+     * @param {chrome.runtime.Port} nextPort
+     */
+    function attachPortListeners(nextPort) {
+      nextPort.onMessage.addListener((msg) => {
+        if (msg.type === "started") {
+          streamId = msg.streamId;
+          ports.set(streamId, nextPort);
+          started = true;
           postToPage({
             id: correlationId,
-            error: msg.error,
+            streamId,
           });
-        } else {
+          return;
+        }
+
+        if (msg.type === "rebind-ok") {
+          if (rebindTimer != null) {
+            clearTimeout(rebindTimer);
+            rebindTimer = null;
+          }
+          ports.set(streamId, nextPort);
+          return;
+        }
+
+        if (msg.type === "rebind-fail") {
+          failDisconnected();
+          return;
+        }
+
+        if (msg.type === "chunk") {
+          gotOutcome = true;
           postToPage({
             streamId,
-            type: "error",
-            error: msg.error,
+            type: "chunk",
+            chunk: msg.chunk,
           });
+          // Final done chunk ends the stream — drop the port map entry and disconnect.
+          if (msg.chunk?.type === "done") {
+            cleanup();
+          }
+          return;
         }
-        cleanup();
-      }
-    });
 
-    port.onDisconnect.addListener(() => {
+        if (msg.type === "error") {
+          gotOutcome = true;
+          if (!started) {
+            postToPage({
+              id: correlationId,
+              error: msg.error,
+            });
+          } else {
+            postToPage({
+              streamId,
+              type: "error",
+              error: msg.error,
+            });
+          }
+          cleanup();
+        }
+      });
+
+      nextPort.onDisconnect.addListener(() => {
+        if (cleanedUp) return;
+        // During approval wait, try one rebind so a brief worker/port drop does
+        // not abort the page while the approval popup is still open.
+        if (started && !gotOutcome && streamId && !rebindAttempted) {
+          if (attemptRebind()) return;
+        }
+        failDisconnected();
+      });
+    }
+
+    function failDisconnected() {
       if (cleanedUp) return;
       if (!started) {
         postToPage({
@@ -132,11 +196,43 @@
         });
       }
       cleanup();
-    });
+    }
+
+    /**
+     * @returns {boolean} true if a rebind attempt was started
+     */
+    function attemptRebind() {
+      rebindAttempted = true;
+      let nextPort;
+      try {
+        nextPort = chrome.runtime.connect({ name: "ipa-inference" });
+      } catch {
+        return false;
+      }
+
+      port = nextPort;
+      attachPortListeners(nextPort);
+      try {
+        nextPort.postMessage({ type: "rebind", streamId });
+      } catch {
+        return false;
+      }
+
+      rebindTimer = setTimeout(() => {
+        rebindTimer = null;
+        if (!cleanedUp && !gotOutcome) failDisconnected();
+      }, REBIND_TIMEOUT_MS);
+      return true;
+    }
 
     function cleanup() {
       if (cleanedUp) return;
       cleanedUp = true;
+      stopKeepAlive();
+      if (rebindTimer != null) {
+        clearTimeout(rebindTimer);
+        rebindTimer = null;
+      }
       if (streamId) ports.delete(streamId);
       try {
         port.disconnect();
@@ -144,6 +240,9 @@
         // ignore
       }
     }
+
+    attachPortListeners(port);
+    startKeepAlive();
 
     try {
       // Always use the tab's real origin — never trust a page-claimed origin.
