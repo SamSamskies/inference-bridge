@@ -15,6 +15,7 @@
  *   id: string,
  *   label: string,
  *   requiresApiKey: boolean,
+ *   optionalApiKey?: boolean,
  *   defaultModel: string,
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal }) => Promise<ModelInfo[]>,

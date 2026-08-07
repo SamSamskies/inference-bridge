@@ -3,11 +3,13 @@
  */
 
 import { OPENAI_MODELS } from "./providers/openai.js";
+import { normalizeCompatBaseUrl } from "./host-permissions.js";
 
 /**
  * @typedef {{ allowedAt: number, providerId?: string, model?: string }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
+ * @typedef {{ id: string, name: string, baseUrl: string }} CompatEndpoint
  */
 
 const DEFAULTS = Object.freeze({
@@ -20,6 +22,8 @@ const DEFAULTS = Object.freeze({
     openai: "gpt-5.6-luna",
     openrouter: "openrouter/auto",
   }),
+  /** @type {readonly CompatEndpoint[]} */
+  compatEndpoints: Object.freeze([]),
   /** @type {Record<string, OriginGrant>} */
   allowedOrigins: {},
   /** @type {Record<string, OriginBlock>} */
@@ -35,10 +39,19 @@ const DEFAULTS = Object.freeze({
 const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
 
 /**
+ * @param {string} providerId
+ * @returns {boolean}
+ */
+export function isCompatProviderId(providerId) {
+  return typeof providerId === "string" && providerId.startsWith("compat:");
+}
+
+/**
  * OpenRouter catalog ids are always `org/model`. OpenAI's curated list has no
  * slash. Reject cross-contaminated prefs (e.g. gpt-5.6-luna stored under
  * openrouter after an older single-defaultModel save). Ollama accepts local
  * tags (`gemma4`, `llama3.2:latest`, `user/model`) but not OpenAI curated ids.
+ * Named OpenAI-compatible endpoints accept any non-empty model string.
  * @param {string} providerId
  * @param {string} model
  * @returns {boolean}
@@ -46,6 +59,7 @@ const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
 export function isPlausibleModelForProvider(providerId, model) {
   const trimmed = typeof model === "string" ? model.trim() : "";
   if (!trimmed) return false;
+  if (isCompatProviderId(providerId)) return true;
   if (providerId === "openrouter") return trimmed.includes("/");
   if (providerId === "openai") return !trimmed.includes("/");
   if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
@@ -114,11 +128,37 @@ function normalizeOriginLastUsed(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {CompatEndpoint[]}
+ */
+export function normalizeCompatEndpoints(value) {
+  if (!Array.isArray(value)) return [];
+  /** @type {CompatEndpoint[]} */
+  const out = [];
+  const seen = new Set();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const idRaw = /** @type {{ id?: unknown }} */ (entry).id;
+    const nameRaw = /** @type {{ name?: unknown }} */ (entry).name;
+    const baseRaw = /** @type {{ baseUrl?: unknown }} */ (entry).baseUrl;
+    const id = typeof idRaw === "string" ? idRaw.trim() : "";
+    const name = typeof nameRaw === "string" ? nameRaw.trim() : "";
+    if (!isCompatProviderId(id) || !name || seen.has(id)) continue;
+    const baseUrl = normalizeCompatBaseUrl(baseRaw);
+    if (!baseUrl) continue;
+    seen.add(id);
+    out.push({ id, name, baseUrl });
+  }
+  return out;
+}
+
+/**
  * @returns {Promise<{
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
+ *   compatEndpoints: CompatEndpoint[],
  *   allowedOrigins: Record<string, OriginGrant>,
  *   blockedOrigins: Record<string, OriginBlock>,
  *   originLastUsed: Record<string, OriginLastUsed>
@@ -142,6 +182,8 @@ export async function getSettings() {
       ? /** @type {Record<string, OriginBlock>} */ ({ ...stored.blockedOrigins })
       : {};
   const originLastUsed = normalizeOriginLastUsed(stored.originLastUsed);
+  const compatEndpoints = normalizeCompatEndpoints(stored.compatEndpoints);
+  const compatIds = new Set(compatEndpoints.map((e) => e.id));
 
   // Drop opaque / file principals if a prior build stored grants under them.
   // Those keys are not stable site identities and must never authorize broadly.
@@ -178,9 +220,22 @@ export async function getSettings() {
     scrubbed = true;
   }
 
-  const defaultProviderId = normalizeProviderId(
+  // Drop api keys for deleted compat endpoints.
+  for (const key of Object.keys(apiKeys)) {
+    if (isCompatProviderId(key) && !compatIds.has(key)) {
+      delete apiKeys[key];
+      scrubbed = true;
+    }
+  }
+
+  let defaultProviderId = normalizeProviderId(
     typeof stored.defaultProviderId === "string" ? stored.defaultProviderId : undefined
   );
+  if (isCompatProviderId(defaultProviderId) && !compatIds.has(defaultProviderId)) {
+    defaultProviderId = DEFAULTS.defaultProviderId;
+    scrubbed = true;
+  }
+
   /** @type {Record<string, string>} */
   let defaultModels = normalizeStringMap(stored.defaultModels);
   const legacyDefaultModel =
@@ -210,6 +265,11 @@ export async function getSettings() {
     if (!isPlausibleModelForProvider(providerId, model)) {
       delete defaultModels[providerId];
       scrubbed = true;
+      continue;
+    }
+    if (isCompatProviderId(providerId) && !compatIds.has(providerId)) {
+      delete defaultModels[providerId];
+      scrubbed = true;
     }
   }
 
@@ -225,6 +285,36 @@ export async function getSettings() {
     DEFAULTS.defaultModels[defaultProviderId] ||
     "";
 
+  // Grants / last-used pointing at deleted compat endpoints fall back to openai.
+  for (const [origin, grant] of Object.entries(allowedOrigins)) {
+    const pid = normalizeProviderId(grant?.providerId);
+    if (isCompatProviderId(pid) && !compatIds.has(pid)) {
+      allowedOrigins[origin] = {
+        ...grant,
+        providerId: DEFAULTS.defaultProviderId,
+      };
+      scrubbed = true;
+    }
+  }
+  for (const [origin, entry] of Object.entries(originLastUsed)) {
+    if (isCompatProviderId(entry.providerId) && !compatIds.has(entry.providerId)) {
+      originLastUsed[origin] = {
+        ...entry,
+        providerId: DEFAULTS.defaultProviderId,
+      };
+      scrubbed = true;
+    }
+  }
+
+  // Persist normalized compat list when stored data was dirty.
+  const storedCompatRaw = stored.compatEndpoints;
+  if (
+    Array.isArray(storedCompatRaw) &&
+    JSON.stringify(storedCompatRaw) !== JSON.stringify(compatEndpoints)
+  ) {
+    scrubbed = true;
+  }
+
   if (scrubbed) {
     /** @type {Record<string, unknown>} */
     const patch = {
@@ -233,6 +323,8 @@ export async function getSettings() {
       originLastUsed,
       apiKeys,
       defaultModels,
+      defaultProviderId,
+      compatEndpoints,
     };
     await chrome.storage.local.set(patch);
     /** @type {string[]} */
@@ -249,6 +341,7 @@ export async function getSettings() {
     defaultProviderId,
     defaultModel,
     defaultModels,
+    compatEndpoints,
     allowedOrigins,
     blockedOrigins,
     originLastUsed,
@@ -339,6 +432,20 @@ export async function saveSettings(patch) {
     // Drop any leftover flat defaultModel key — the map is the source of truth.
     await chrome.storage.local.remove("defaultModel");
   }
+}
+
+/**
+ * Replace the full list of named OpenAI-compatible endpoints.
+ * Scrubs orphaned api keys / default models / grants via getSettings().
+ * @param {unknown} endpoints
+ * @returns {Promise<CompatEndpoint[]>}
+ */
+export async function saveCompatEndpoints(endpoints) {
+  const normalized = normalizeCompatEndpoints(endpoints);
+  await chrome.storage.local.set({ compatEndpoints: normalized });
+  // Re-read so orphan scrubbing (keys, models, grants, defaultProviderId) runs.
+  const settings = await getSettings();
+  return settings.compatEndpoints;
 }
 
 /**

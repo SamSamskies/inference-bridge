@@ -1,9 +1,10 @@
 /**
  * Shared model picker helpers for Options and the approval dialog.
  *
- * Short catalogs (OpenAI curated list, local Ollama tags) use a <select>.
- * Large live catalogs (OpenRouter) use <input list> + <datalist> so users can
- * type to filter by slug or display label.
+ * Short catalogs (OpenAI curated list, local Ollama tags, discovered
+ * OpenAI-compatible models) use a <select>. Large live catalogs (OpenRouter)
+ * use <input list> + <datalist> so users can type to filter by slug or label.
+ * Compat endpoints fall back to free-text only when /v1/models returns nothing.
  */
 
 /**
@@ -11,13 +12,18 @@
  */
 
 /**
- * OpenRouter's catalog is large enough that a searchable input is clearer;
- * OpenAI and Ollama stay on a normal select.
  * @param {string} providerId
+ * @param {ModelInfo[] | undefined} [models] Catalog used for compat:* mode
  * @returns {boolean}
  */
-export function usesModelAutosuggest(providerId) {
-  return providerId === "openrouter";
+export function usesModelAutosuggest(providerId, models) {
+  if (providerId === "openrouter") return true;
+  // Named OpenAI-compatible servers: select when models listed; free-text when
+  // listing failed/empty so users can still type a model id.
+  if (typeof providerId === "string" && providerId.startsWith("compat:")) {
+    return !Array.isArray(models) || models.length === 0;
+  }
+  return false;
 }
 
 /**

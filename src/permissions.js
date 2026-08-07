@@ -13,7 +13,7 @@ import {
   normalizeProviderId,
   isPlausibleModelForProvider,
 } from "./storage.js";
-import { getDefaultProvider, getProvider } from "./providers/registry.js";
+import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 
 /**
  * @typedef {{
@@ -49,7 +49,7 @@ export async function ensurePermission(args) {
   const settings = await getSettings();
   const lastUsed = await getOriginLastUsed(args.origin);
   const defaultProvider =
-    getProvider(settings.defaultProviderId) || getDefaultProvider();
+    (await getProviderAsync(settings.defaultProviderId)) || getDefaultProvider();
   // Prefill order: explicit preferred → last approval choice for this origin →
   // global defaults → registry default. Last-used never skips the prompt.
   const providerId = normalizeProviderId(
@@ -58,7 +58,7 @@ export async function ensurePermission(args) {
       settings.defaultProviderId ||
       defaultProvider.id
   );
-  const provider = getProvider(providerId) || defaultProvider;
+  const provider = (await getProviderAsync(providerId)) || defaultProvider;
   // Prefer the per-provider remembered default from defaultModels.
   const remembered =
     typeof settings.defaultModels?.[provider.id] === "string"
@@ -103,7 +103,7 @@ export async function ensurePermission(args) {
     const grantProviderId = normalizeProviderId(existing.providerId);
     // Fall back to the grant provider's default — not settings.defaultModel,
     // which may belong to a different provider.
-    const grantProvider = getProvider(grantProviderId);
+    const grantProvider = await getProviderAsync(grantProviderId);
     const grantFallbackModel = grantProvider?.defaultModel || "";
     return {
       allowed: true,
@@ -124,7 +124,8 @@ export async function ensurePermission(args) {
   const chosenProviderId = normalizeProviderId(
     decision.providerId || provider.id
   );
-  const chosenProvider = getProvider(chosenProviderId) || provider;
+  const chosenProvider =
+    (await getProviderAsync(chosenProviderId)) || provider;
   // Honor the approval UI's model choice. The dialog already validates with
   // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
   // isPlausibleModelForProvider here would silently replace free-typed

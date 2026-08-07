@@ -5,6 +5,8 @@
 import { openaiProvider } from "./openai.js";
 import { ollamaProvider } from "./ollama.js";
 import { openrouterProvider } from "./openrouter.js";
+import { createOpenAICompatProvider } from "./openai-compat.js";
+import { getSettings } from "../storage.js";
 
 /** @typedef {import("./types.js").Provider} Provider */
 /** @typedef {import("./types.js").ModelInfo} ModelInfo */
@@ -17,6 +19,7 @@ const providers = new Map([
 ]);
 
 /**
+ * Built-in providers only (no user-configured compat endpoints).
  * @returns {Provider[]}
  */
 export function listProviders() {
@@ -37,6 +40,32 @@ export function getProvider(id) {
  */
 export function getDefaultProvider() {
   return openaiProvider;
+}
+
+/**
+ * Built-ins plus saved OpenAI-compatible endpoints.
+ * @returns {Promise<Provider[]>}
+ */
+export async function listAllProviders() {
+  const { compatEndpoints } = await getSettings();
+  return [
+    ...listProviders(),
+    ...compatEndpoints.map((endpoint) => createOpenAICompatProvider(endpoint)),
+  ];
+}
+
+/**
+ * Resolve a built-in or compat provider by id.
+ * @param {string} id
+ * @returns {Promise<Provider | undefined>}
+ */
+export async function getProviderAsync(id) {
+  const builtIn = getProvider(id);
+  if (builtIn) return builtIn;
+  const { compatEndpoints } = await getSettings();
+  const endpoint = compatEndpoints.find((e) => e.id === id);
+  if (!endpoint) return undefined;
+  return createOpenAICompatProvider(endpoint);
 }
 
 /**

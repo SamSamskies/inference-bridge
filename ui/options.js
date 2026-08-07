@@ -1,6 +1,7 @@
 import {
   getSettings,
   saveSettings,
+  saveCompatEndpoints,
   listAllowedOrigins,
   listBlockedOrigins,
   revokeOrigin,
@@ -8,6 +9,11 @@ import {
   unblockOrigin,
   isPlausibleModelForProvider,
 } from "../src/storage.js";
+import {
+  normalizeCompatBaseUrl,
+  requestHostPermissionForBaseUrl,
+} from "../src/host-permissions.js";
+import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
 import {
   isModelValid,
   populateModelInput,
@@ -35,15 +41,29 @@ const originsEl = document.getElementById("origins");
 const originsEmpty = document.getElementById("originsEmpty");
 const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
+const compatEndpointsEl = document.getElementById("compatEndpoints");
+const compatEndpointsEmpty = document.getElementById("compatEndpointsEmpty");
+const compatNameInput = document.getElementById("compatName");
+const compatBaseUrlInput = document.getElementById("compatBaseUrl");
+const compatApiKeyInput = document.getElementById("compatApiKey");
+const compatSaveButton = document.getElementById("compatSave");
+const compatCancelButton = document.getElementById("compatCancel");
+const compatStatusEl = document.getElementById("compatStatus");
 
-/** @type {Array<{ id: string, label: string, requiresApiKey: boolean, defaultModel: string, models?: Array<{ id: string, label?: string }> }>} */
+/** @type {Array<{ id: string, label: string, requiresApiKey: boolean, optionalApiKey?: boolean, defaultModel: string, models?: Array<{ id: string, label?: string }> }>} */
 let providers = [];
+
+/** @type {Array<{ id: string, name: string, baseUrl: string }>} */
+let compatEndpoints = [];
+
+/** Endpoint id being edited, or "" when adding. */
+let compatEditingId = "";
 
 /** @type {Map<string, { models: Array<{ id: string, label?: string }>, error?: string }>} */
 const modelCache = new Map();
 
 /**
- * In-memory drafts for every requiresApiKey provider. Survives provider
+ * In-memory drafts for every key-capable provider. Survives provider
  * switches in the UI so typing an OpenAI key, flipping to OpenRouter, then
  * back does not lose the unsaved value. Persisted only on Save.
  * @type {Record<string, string>}
@@ -163,14 +183,14 @@ function syncApiKeyDraftFromInput() {
 }
 
 /**
- * Show the API key field only for the selected provider when it needs one.
+ * Show the API key field for providers that require a key or accept an optional one.
  * @param {string} providerId
  */
 function updateApiKeyField(providerId) {
   syncApiKeyDraftFromInput();
 
   const provider = providers.find((p) => p.id === providerId);
-  const needsKey = Boolean(provider?.requiresApiKey);
+  const needsKey = Boolean(provider?.requiresApiKey || provider?.optionalApiKey);
   apiKeyField.hidden = !needsKey;
 
   if (!needsKey || !provider) {
@@ -179,9 +199,15 @@ function updateApiKeyField(providerId) {
   }
 
   apiKeyBoundProviderId = provider.id;
-  apiKeyLabel.textContent = `${provider.label} API key`;
+  apiKeyLabel.textContent = provider.optionalApiKey
+    ? `${provider.label} API key (optional)`
+    : `${provider.label} API key`;
   apiKeyInput.placeholder =
-    provider.id === "openrouter" ? "sk-or-..." : "sk-...";
+    provider.id === "openrouter"
+      ? "sk-or-..."
+      : provider.optionalApiKey
+        ? "Leave blank if not required"
+        : "sk-...";
   apiKeyInput.value = apiKeyDrafts[provider.id] || "";
   apiKeyInput.type = "password";
   toggleApiKeyButton.textContent = "Show";
@@ -301,11 +327,12 @@ let defaultModelsLoadId = 0;
 let defaultModels = [];
 
 /**
- * Show select for short catalogs; searchable input for OpenRouter.
+ * Show select for short catalogs; searchable input for OpenRouter or empty compat catalogs.
  * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} [models]
  */
-function setDefaultModelControlMode(providerId) {
-  const autosuggest = usesModelAutosuggest(providerId);
+function setDefaultModelControlMode(providerId, models) {
+  const autosuggest = usesModelAutosuggest(providerId, models);
   modelSelect.hidden = autosuggest;
   modelInputRow.hidden = !autosuggest;
   updateClearModelButton();
@@ -324,7 +351,7 @@ function updateClearModelButton() {
  * @returns {string}
  */
 function readDefaultModelValue(providerId) {
-  if (usesModelAutosuggest(providerId)) {
+  if (usesModelAutosuggest(providerId, defaultModels)) {
     return modelInput.value.trim();
   }
   return modelSelect.value;
@@ -339,9 +366,9 @@ function readDefaultModelValue(providerId) {
 function populateDefaultModelControl(providerId, models, selected, opts = {}) {
   const allowUnknown = opts.allowUnknown !== false;
   const disabled = Boolean(opts.disabled);
-  setDefaultModelControlMode(providerId);
+  setDefaultModelControlMode(providerId, models);
 
-  if (usesModelAutosuggest(providerId)) {
+  if (usesModelAutosuggest(providerId, models)) {
     populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
     modelInput.disabled = disabled;
     modelSelect.disabled = true;
@@ -399,7 +426,9 @@ async function refreshDefaultModels(providerId, preferredModel) {
     modelHint.textContent = error;
   } else if (models.length === 0 && providerId !== "ollama") {
     modelHint.hidden = false;
-    modelHint.textContent = "No models available for this provider.";
+    modelHint.textContent = providerId.startsWith("compat:")
+      ? "Could not list models from /v1/models. Type a model id manually."
+      : "No models available for this provider.";
   } else if (
     preferredModel &&
     allowUnknown &&
@@ -464,7 +493,7 @@ providerSelect.addEventListener("change", async () => {
 modelInput.addEventListener("input", () => {
   updateClearModelButton();
   const providerId = providerSelect.value;
-  if (!usesModelAutosuggest(providerId)) return;
+  if (!usesModelAutosuggest(providerId, defaultModels)) return;
   if (!allowUnknownFor(providerId)) {
     const valid = isModelValid(modelInput.value, defaultModels, {
       allowUnknown: false,
@@ -608,7 +637,7 @@ async function renderOrigins() {
      * @returns {string}
      */
     function readOriginModelValue(providerId) {
-      if (usesModelAutosuggest(providerId)) {
+      if (usesModelAutosuggest(providerId, originModels)) {
         return originModelInput.value.trim();
       }
       return originModelSelect.value;
@@ -623,7 +652,7 @@ async function renderOrigins() {
     function populateOriginModelControl(providerId, models, selected, opts = {}) {
       const allowUnknown = opts.allowUnknown !== false;
       const disabled = Boolean(opts.disabled);
-      const autosuggest = usesModelAutosuggest(providerId);
+      const autosuggest = usesModelAutosuggest(providerId, models);
       originModelSelect.hidden = autosuggest;
       originModelInput.hidden = !autosuggest;
 
@@ -896,10 +925,176 @@ async function loadProviders() {
   providers = Array.isArray(response?.providers) ? response.providers : [];
 }
 
+/**
+ * @param {string} message
+ * @param {"ok" | "err" | ""} [kind]
+ */
+function setCompatStatus(message, kind = "") {
+  compatStatusEl.textContent = message;
+  compatStatusEl.className = `status${kind ? ` ${kind}` : ""}`;
+}
+
+function resetCompatForm() {
+  compatEditingId = "";
+  compatNameInput.value = "";
+  compatBaseUrlInput.value = "";
+  compatApiKeyInput.value = "";
+  compatSaveButton.textContent = "Add server";
+  compatCancelButton.hidden = true;
+}
+
+function renderCompatEndpoints() {
+  compatEndpointsEl.replaceChildren();
+  const hasEndpoints = compatEndpoints.length > 0;
+  compatEndpointsEl.hidden = !hasEndpoints;
+  compatEndpointsEmpty.hidden = hasEndpoints;
+
+  for (const endpoint of compatEndpoints) {
+    const li = document.createElement("li");
+    const meta = document.createElement("div");
+    meta.className = "origin-meta";
+
+    const title = document.createElement("strong");
+    title.textContent = endpoint.name;
+    const url = document.createElement("code");
+    url.textContent = endpoint.baseUrl;
+    meta.append(title, url);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", () => {
+      compatEditingId = endpoint.id;
+      compatNameInput.value = endpoint.name;
+      compatBaseUrlInput.value = endpoint.baseUrl;
+      compatApiKeyInput.value = apiKeyDrafts[endpoint.id] || "";
+      compatSaveButton.textContent = "Save changes";
+      compatCancelButton.hidden = false;
+      setCompatStatus("");
+      compatNameInput.focus();
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "danger";
+    removeBtn.textContent = "Remove";
+    removeBtn.addEventListener("click", async () => {
+      const next = compatEndpoints.filter((e) => e.id !== endpoint.id);
+      await saveCompatEndpoints(next);
+      delete apiKeyDrafts[endpoint.id];
+      await saveSettings({ apiKeys: { [endpoint.id]: "" } });
+      modelCache.delete(endpoint.id);
+      if (compatEditingId === endpoint.id) resetCompatForm();
+      const settings = await getSettings();
+      compatEndpoints = settings.compatEndpoints;
+      await loadProviders();
+      savedDefaultProviderId = settings.defaultProviderId;
+      const nextProvider = populateProviderSelect(
+        providerSelect,
+        settings.defaultProviderId
+      );
+      modelBoundProviderId = nextProvider;
+      updateProviderChrome(nextProvider);
+      await refreshDefaultModels(
+        nextProvider,
+        preferredDefaultModel(nextProvider)
+      );
+      await renderOrigins();
+      renderCompatEndpoints();
+      setCompatStatus(`Removed ${endpoint.name}.`, "ok");
+      setStatus(`Removed ${endpoint.name}.`, "ok");
+    });
+
+    actions.append(editBtn, removeBtn);
+    li.append(meta, actions);
+    compatEndpointsEl.append(li);
+  }
+}
+
+compatCancelButton.addEventListener("click", () => {
+  resetCompatForm();
+  setCompatStatus("");
+});
+
+compatSaveButton.addEventListener("click", async () => {
+  compatSaveButton.disabled = true;
+  try {
+    const name = compatNameInput.value.trim();
+    const baseUrl = normalizeCompatBaseUrl(compatBaseUrlInput.value);
+    if (!name) {
+      setCompatStatus("Enter a name for this server.", "err");
+      return;
+    }
+    if (!baseUrl) {
+      setCompatStatus(
+        "Enter a valid http(s) URL (e.g. http://127.0.0.1:1234).",
+        "err"
+      );
+      return;
+    }
+
+    const granted = await requestHostPermissionForBaseUrl(baseUrl);
+    if (!granted) {
+      setCompatStatus(
+        "Host permission was not granted. Chrome must allow access to this origin before the endpoint can be saved.",
+        "err"
+      );
+      return;
+    }
+
+    try {
+      await ensureLoopbackOriginBypassForBaseUrl(baseUrl);
+    } catch (err) {
+      console.warn("Failed to install loopback Origin bypass", err);
+    }
+
+    const id = compatEditingId || `compat:${crypto.randomUUID()}`;
+    const next = compatEndpoints.filter((e) => e.id !== id);
+    next.push({ id, name, baseUrl });
+    await saveCompatEndpoints(next);
+
+    const key = compatApiKeyInput.value.trim();
+    apiKeyDrafts[id] = key;
+    await saveSettings({ apiKeys: { [id]: key } });
+
+    modelCache.delete(id);
+    const settings = await getSettings();
+    compatEndpoints = settings.compatEndpoints;
+    await loadProviders();
+    renderCompatEndpoints();
+    resetCompatForm();
+
+    const currentProvider = populateProviderSelect(
+      providerSelect,
+      providerSelect.value || settings.defaultProviderId
+    );
+    modelBoundProviderId = currentProvider;
+    updateProviderChrome(currentProvider);
+    await refreshDefaultModels(
+      currentProvider,
+      preferredDefaultModel(currentProvider)
+    );
+    await renderOrigins();
+    setCompatStatus(`Saved ${name}.`, "ok");
+    setStatus(`Saved OpenAI-compatible server ${name}.`, "ok");
+  } catch (err) {
+    setCompatStatus(
+      err instanceof Error ? err.message : "Failed to save server",
+      "err"
+    );
+  } finally {
+    compatSaveButton.disabled = false;
+  }
+});
+
 async function load() {
   await loadProviders();
   await refreshOllamaStatus();
   const settings = await getSettings();
+  compatEndpoints = settings.compatEndpoints;
   savedDefaultProviderId = settings.defaultProviderId;
   modelDrafts = { ...settings.defaultModels };
   for (const [providerId, model] of Object.entries(modelDrafts)) {
@@ -923,6 +1118,7 @@ async function load() {
   modelBoundProviderId = effectiveProvider;
   updateProviderChrome(effectiveProvider);
   await refreshDefaultModels(effectiveProvider, preferredDefaultModel(effectiveProvider));
+  renderCompatEndpoints();
   await renderOrigins();
   await renderBlocked();
 }
@@ -964,13 +1160,13 @@ saveButton.addEventListener("click", async () => {
     syncModelDraftFromControl();
     modelDrafts[providerId] = model;
 
-    // Persist drafts for every key-requiring provider so switching to Ollama
+    // Persist drafts for every key-capable provider so switching to Ollama
     // and saving does not wipe remote keys, while clearing the visible field
     // still clears that provider's stored key.
     /** @type {Record<string, string>} */
     const apiKeys = {};
     for (const provider of providers) {
-      if (!provider.requiresApiKey) continue;
+      if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
       apiKeys[provider.id] = apiKeyDrafts[provider.id] || "";
     }
 

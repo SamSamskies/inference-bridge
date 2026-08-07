@@ -190,6 +190,45 @@ describe("ensurePermission", () => {
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
+  it("prefills last-used OpenAI-compatible endpoints", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModel: "gpt-5.6-luna",
+      defaultModels: { "compat:lm": "local-model" },
+    });
+    await setOriginLastUsed("https://compat-cache.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r5compat",
+      origin: "https://compat-cache.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r5compat");
+
+    expect(getPendingApproval("r5compat")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    resolveApproval("r5compat", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("prefers explicit preferredProviderId over last-used", async () => {
     await setOriginLastUsed("https://pref.example", {
       providerId: "openrouter",

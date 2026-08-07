@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **OpenRouter**, or local **Ollama**). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **OpenRouter**, local **Ollama**, or experimental **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -12,7 +12,8 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), OpenRouter (BYOK), and local Ollama support
-- Origin/Referer stripping for local Ollama (no `OLLAMA_ORIGINS` required in the common case)
+- Experimental named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
+- Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
 ## Installation
@@ -35,6 +36,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
    - **OpenAI** — paste your API key and choose a default model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — no API key; models are listed from your local Ollama install
+   - **OpenAI-compatible (experimental)** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
 8. Click **Save**
 
 ## Supported Providers
@@ -44,8 +46,9 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
+| OpenAI-compatible (experimental) | Optional API key | User-named endpoints; select from `GET /v1/models` when available, free-text fallback; chat via `/v1/chat/completions` |
 
-To add another provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js)), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials.
+To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js)), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the experimental named-endpoint UI instead.
 
 ## Try it
 
@@ -91,6 +94,18 @@ for await (const chunk of window.inference.request({
 
 Inference Bridge strips the `chrome-extension://` `Origin` header on requests to local Ollama (see the [spec README](https://github.com/SamSamskies/inference-provider-api/blob/main/README.md) “Local providers” section). After updating the extension, use **Reload** on `chrome://extensions` so that rule is installed. If you still see HTTP 403, you can fall back to restarting Ollama with `OLLAMA_ORIGINS=chrome-extension://*`, but origin stripping is preferred.
 
+### OpenAI-compatible servers (experimental)
+
+Use this for LM Studio, llama.cpp server, vLLM, LocalAI, or any self-hosted proxy that exposes OpenAI-style `/v1/models` and `/v1/chat/completions`.
+
+1. Start your server and note its host URL (e.g. `http://127.0.0.1:1234` or `http://192.168.1.67:1234`)
+2. In Options, under **OpenAI-compatible servers**, enter a **Name**, **Base URL**, and optional API key — `/v1` is appended automatically if you omit it (unusual paths like `/openai/v1` are kept as entered)
+3. Click **Add server** — Chrome prompts for host access to **that origin only**; deny means the endpoint is not saved
+4. Set **Default provider** to the new named entry, pick or type a model, and click **Save**
+5. Run the snippet above on an HTTPS or localhost page
+
+Ollama remains a first-class built-in provider; you do not need to re-add it as a custom endpoint. Loopback servers get the same Origin/Referer stripping used for Ollama. Remote HTTPS endpoints do not.
+
 Abort example:
 
 ```js
@@ -123,9 +138,10 @@ Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/
 - Request validation happens in the extension before any provider call
 - OpenAI / OpenRouter credentials are read only inside the service worker
 - Ollama traffic stays on `http://localhost:11434` / `http://127.0.0.1:11434`
-- Local Ollama requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped to the Ollama port)
+- Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
+- Optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
 
-If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in the [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js). Keep host permissions and DNR rules tight; do not apply header stripping to remote APIs.
+If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in the [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js) / [`src/loopback-origin-bypass.js`](src/loopback-origin-bypass.js). Keep host permissions and DNR rules tight; do not apply header stripping to remote APIs.
 
 ## Architecture
 
@@ -144,15 +160,18 @@ If you are building your own IPA extension with local providers, follow the Orig
     storage.js
     permissions.js
     ollama-origin-bypass.js      # strip chrome-extension Origin for local Ollama
+    loopback-origin-bypass.js    # same for other loopback OpenAI-compatible hosts
+    host-permissions.js          # optional host permission helpers for custom endpoints
     providers/
       types.js                   # Provider / ModelInfo contract
-      registry.js                # add providers here
+      registry.js                # built-ins + dynamic compat endpoints
       openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
+      openai-compat.js           # factory for user-named OpenAI-compatible servers
       openai.js                  # OpenAI streaming adapter
       openrouter.js              # OpenRouter /api/v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
   ui/
-    options.html|.js             # provider + model + API keys
+    options.html|.js             # provider + model + API keys + compat endpoints
     approval.html|.js            # origin permission prompt
     model-input.js               # shared model autosuggest (input + datalist)
     shared.css
@@ -173,7 +192,7 @@ The specification remains intentionally small. Provider-specific or advanced cap
 
 ## Experimental Features
 
-None currently. When this extension adds capabilities outside the current specification (for example tool calling, vision, or provider-specific APIs), they will be documented in this section and clearly labeled in the UI and docs. Experimental features must not silently change the meaning of the core IPA contract.
+- **Named OpenAI-compatible endpoints** — Configure multiple servers (name, base URL, optional API key) in Options. Each appears in the provider picker as `Name (experimental)`. Chat uses `/v1/chat/completions`; models use a select from `GET /v1/models` when available, with free-text fallback if listing fails. Host access is requested per origin on save (`optional_host_permissions`). Does not expand the page-facing IPA. Not a substitute for the built-in Ollama provider.
 
 ## Development
 
@@ -210,12 +229,15 @@ npm run package
 - [ ] Ollama unavailable / no models → provider option disabled with help text (Options + approval)
 - [ ] Ollama Check again enables the option after Ollama is running with models
 - [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
+- [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
+- [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
+- [ ] Compat `/v1/models` failure still allows typing a model id
 - [ ] Switching default provider does not rewrite existing origin grants
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
 
 ### Current limitations
 
-- OpenAI, OpenRouter, and local Ollama only (Ollama fixed at `http://localhost:11434`)
+- Built-in providers are OpenAI, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are experimental and user-configured
 - Text chat only (no tools, images, embeddings, speech)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI

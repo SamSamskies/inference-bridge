@@ -81,6 +81,59 @@
       </section>
 
       <section class="panel stack">
+        <h2>OpenAI-compatible servers (experimental)</h2>
+        <p class="hint">
+          Add LM Studio, llama.cpp, vLLM, LocalAI, or other OpenAI-compatible
+          servers. Enter the host (e.g. <code>http://127.0.0.1:1234</code>) —
+          <code>/v1</code> is added automatically if omitted. Chrome asks for
+          host access when you save each server (that origin only). Ollama
+          remains a separate built-in provider — you do not need to re-add it
+          here.
+        </p>
+        <ul class="list" id="compatEndpoints" hidden></ul>
+        <p class="hint" id="compatEndpointsEmpty">No custom servers yet.</p>
+        <label class="field">
+          <span>Name</span>
+          <input
+            id="compatName"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="LM Studio"
+          />
+        </label>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            id="compatBaseUrl"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="http://127.0.0.1:1234"
+          />
+        </label>
+        <div class="field">
+          <span>API key (optional)</span>
+          <div class="secret-input">
+            <input
+              id="compatApiKey"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Leave blank if the server does not need one"
+            />
+          </div>
+        </div>
+        <div class="actions actions-end">
+          <button type="button" class="primary" id="compatSave">Add server</button>
+          <button type="button" class="ghost" id="compatCancel" hidden>
+            Cancel edit
+          </button>
+        </div>
+        <div class="status" id="compatStatus" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="panel stack">
         <h2>Always-allowed origins</h2>
         <p class="hint">
           Origins granted with “Always allow”. Change the provider and model

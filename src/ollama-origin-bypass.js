@@ -10,6 +10,13 @@ const OLLAMA_ORIGIN_BYPASS_RULE_IDS = Object.freeze([11434, 11435]);
 let installPromise = null;
 
 /**
+ * @returns {void}
+ */
+export function resetOllamaOriginBypassMemoForTests() {
+  installPromise = null;
+}
+
+/**
  * Install (or re-assert) DNR rules that strip Origin/Referer for local Ollama.
  * Concurrent callers share one in-flight install so early chat/list-models
  * requests wait for the rules before fetching. Failed installs clear the

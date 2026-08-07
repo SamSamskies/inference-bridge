@@ -71,6 +71,10 @@ label,
   color: var(--muted);
 }
 
+.hint {
+  margin: 0;
+}
+
 a {
   color: var(--accent);
 }
