@@ -73,6 +73,72 @@ describe("ensurePermission", () => {
     expect(getPendingApproval("r2")).toBeNull();
   });
 
+  it("reuses a compat grant when host permission is still present", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "r2compat-ok",
+        origin: "https://compat-grant.example",
+        messages: [{ role: "user", content: "hi" }],
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+    });
+    expect(getPendingApproval("r2compat-ok")).toBeNull();
+  });
+
+  it("re-prompts when a compat grant exists but host permission was revoked", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-revoked",
+      origin: "https://compat-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-revoked");
+
+    resolveApproval("r2compat-revoked", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("falls back to the grant provider default model, not settings.defaultModel", async () => {
     await saveSettings({
       defaultProviderId: "openai",

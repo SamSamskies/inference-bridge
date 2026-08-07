@@ -12,8 +12,10 @@ import {
   blockOrigin,
   normalizeProviderId,
   isPlausibleModelForProvider,
+  isCompatProviderId,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
+import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 
 /**
  * @typedef {{
@@ -105,12 +107,28 @@ export async function ensurePermission(args) {
     // which may belong to a different provider.
     const grantProvider = await getProviderAsync(grantProviderId);
     const grantFallbackModel = grantProvider?.defaultModel || "";
-    return {
-      allowed: true,
-      providerId: grantProviderId,
-      model: existing.model || grantFallbackModel,
-      once: false,
-    };
+
+    // Compat endpoints need optional host access. If the user revoked it in
+    // Chrome site settings, do not honor the persistent grant — re-prompt so
+    // the request does not skip approval only to fail later in ensureReady.
+    let compatHostOk = true;
+    if (isCompatProviderId(grantProviderId)) {
+      const baseUrl =
+        /** @type {{ baseUrl?: string } | undefined} */ (grantProvider)?.baseUrl;
+      compatHostOk =
+        typeof baseUrl === "string" &&
+        Boolean(baseUrl) &&
+        (await hasHostPermissionForBaseUrl(baseUrl));
+    }
+
+    if (compatHostOk) {
+      return {
+        allowed: true,
+        providerId: grantProviderId,
+        model: existing.model || grantFallbackModel,
+        once: false,
+      };
+    }
   }
 
   const decision = await promptUser({
