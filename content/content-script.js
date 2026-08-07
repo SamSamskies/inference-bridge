@@ -126,6 +126,9 @@
             clearTimeout(rebindTimer);
             rebindTimer = null;
           }
+          // Allow another rebind if the port drops again while still awaiting
+          // permission (or before the first chunk/error arrives).
+          rebindAttempted = false;
           ports.set(streamId, nextPort);
           return;
         }
