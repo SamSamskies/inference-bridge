@@ -318,30 +318,13 @@ async function handleStart(port, msg, onStreamId) {
     }
 
     // Inference port may have dropped briefly; wait for content-script rebind
-    // so Approve or Deny can still deliver to the page (posting to a stale
-    // port would drop permission_denied and surface as aborted instead).
-    // After Approve, wait until rebind (or abort): the content script retries
-    // every few seconds while still awaiting an outcome, so a short timeout
-    // would delete the stream while retries continue and abandon a granted
-    // request. Deny still uses a bounded wait so we do not hang forever.
+    // so Approve or Deny deliver on a live port. The content script retries
+    // rebind every few seconds while still awaiting an outcome — a short
+    // timeout would post permission_denied (or continue after Approve) to a
+    // stale port and the page would only see a generic disconnect.
     if (entry.portDisconnected) {
-      entry = await waitForPortRebind(
-        streamId,
-        permission.allowed ? Infinity : 3000
-      );
-      if (controller.signal.aborted) {
-        activeStreams.delete(streamId);
-        return streamId;
-      }
-      if (!entry) {
-        if (!permission.allowed) {
-          throwInference("permission_denied", "Permission denied by user.");
-        }
-        // Stream removed without abort (should be rare with unbounded wait).
-        sendError(
-          "aborted",
-          "Extension disconnected before the request could continue."
-        );
+      entry = await waitForPortRebind(streamId, Infinity);
+      if (controller.signal.aborted || !entry) {
         activeStreams.delete(streamId);
         return streamId;
       }
