@@ -227,6 +227,8 @@
       const previous = port;
       port = nextPort;
       attachPortListeners(nextPort, epoch);
+      // Route page aborts to the live port immediately — do not wait for rebind-ok.
+      if (streamId) ports.set(streamId, nextPort);
       try {
         nextPort.postMessage({ type: "rebind", streamId });
       } catch {
