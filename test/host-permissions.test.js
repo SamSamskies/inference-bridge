@@ -26,6 +26,18 @@ describe("normalizeCompatBaseUrl", () => {
     );
   });
 
+  it("truncates pasted /v1 endpoint paths to the /v1 base", () => {
+    expect(normalizeCompatBaseUrl("http://127.0.0.1:1234/v1/models")).toBe(
+      "http://127.0.0.1:1234/v1"
+    );
+    expect(
+      normalizeCompatBaseUrl("https://api.example.com/v1/chat/completions")
+    ).toBe("https://api.example.com/v1");
+    expect(
+      normalizeCompatBaseUrl("http://127.0.0.1:8080/openai/v1/models")
+    ).toBe("http://127.0.0.1:8080/openai/v1");
+  });
+
   it("rejects blank, non-http(s), and invalid URLs", () => {
     expect(normalizeCompatBaseUrl("")).toBeNull();
     expect(normalizeCompatBaseUrl("   ")).toBeNull();

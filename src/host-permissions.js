@@ -5,8 +5,10 @@
 
 /**
  * Normalize a user-entered OpenAI-compatible base URL.
- * Trims, requires http(s), strips a trailing slash, and appends `/v1` when the
- * path does not already end with `/v1`.
+ * Trims, requires http(s), strips a trailing slash, and ensures the path ends
+ * at a `/v1` segment. Pasted endpoint URLs like `/v1/models` or
+ * `/v1/chat/completions` are truncated to the `/v1` base; origins without `/v1`
+ * get `/v1` appended.
  *
  * @param {unknown} input
  * @returns {string | null}
@@ -27,9 +29,12 @@ export function normalizeCompatBaseUrl(input) {
   if (!url.hostname) return null;
 
   let path = url.pathname.replace(/\/+$/, "");
-  if (!path || path === "") {
+  const v1Match = path.match(/^(.*?\/v1)(?:\/|$)/);
+  if (v1Match) {
+    path = v1Match[1];
+  } else if (!path || path === "") {
     path = "/v1";
-  } else if (!path.endsWith("/v1")) {
+  } else {
     path = `${path}/v1`;
   }
 
