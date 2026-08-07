@@ -100,6 +100,12 @@ export async function ensurePermission(args) {
     };
   }
 
+  // Prompt prefill starts from global defaults; a revoked-compat re-prompt
+  // below overrides these with the stored grant so Always allow cannot
+  // silently switch the origin to a different provider.
+  let promptProviderId = provider.id;
+  let promptModel = globalDefaultModel;
+
   const existing = await getOriginGrant(args.origin);
   if (existing) {
     const grantProviderId = normalizeProviderId(existing.providerId);
@@ -107,6 +113,7 @@ export async function ensurePermission(args) {
     // which may belong to a different provider.
     const grantProvider = await getProviderAsync(grantProviderId);
     const grantFallbackModel = grantProvider?.defaultModel || "";
+    const grantModel = existing.model || grantFallbackModel;
 
     // Compat endpoints need optional host access. If the user revoked it in
     // Chrome site settings, do not honor the persistent grant — re-prompt so
@@ -125,22 +132,25 @@ export async function ensurePermission(args) {
       return {
         allowed: true,
         providerId: grantProviderId,
-        model: existing.model || grantFallbackModel,
+        model: grantModel,
         once: false,
       };
     }
+
+    promptProviderId = grantProviderId;
+    promptModel = grantModel;
   }
 
   const decision = await promptUser({
     requestId: args.requestId,
     origin: args.origin,
     messages: args.messages,
-    providerId: provider.id,
-    model: globalDefaultModel,
+    providerId: promptProviderId,
+    model: promptModel,
   });
 
   const chosenProviderId = normalizeProviderId(
-    decision.providerId || provider.id
+    decision.providerId || promptProviderId
   );
   const chosenProvider =
     (await getProviderAsync(chosenProviderId)) || provider;
@@ -149,14 +159,14 @@ export async function ensurePermission(args) {
   // isPlausibleModelForProvider here would silently replace free-typed
   // OpenRouter slugs that lack a "/" with the provider default.
   // If the user picked a different provider in the approval UI, do not fall
-  // back to globalDefaultModel (it was resolved for the prompt's provider).
+  // back to promptModel (it was resolved for the prompt's provider).
   const decisionModel =
     typeof decision.model === "string" && decision.model.trim()
       ? decision.model.trim()
       : "";
   const chosenModel =
     decisionModel ||
-    (chosenProviderId === provider.id ? globalDefaultModel : "") ||
+    (chosenProviderId === promptProviderId ? promptModel : "") ||
     chosenProvider.defaultModel ||
     "";
 

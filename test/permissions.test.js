@@ -108,6 +108,10 @@ describe("ensurePermission", () => {
 
   it("re-prompts when a compat grant exists but host permission was revoked", async () => {
     const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModels: { openai: "gpt-4o" },
+    });
     await saveCompatEndpoints([
       {
         id: "compat:lm",
@@ -130,6 +134,13 @@ describe("ensurePermission", () => {
       messages: [{ role: "user", content: "hi" }],
     });
     await waitForPending("r2compat-revoked");
+
+    // Prefill the stored grant — not global defaults — so Always allow cannot
+    // silently overwrite the compat grant with OpenAI / another default.
+    expect(getPendingApproval("r2compat-revoked")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
 
     resolveApproval("r2compat-revoked", {
       decision: "deny",
