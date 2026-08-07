@@ -234,6 +234,47 @@ describe("ensurePermission", () => {
     });
   });
 
+  it("denies approval when the chosen compat provider no longer resolves", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    const registry = await import("../src/providers/registry.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+
+    const pending = ensurePermission({
+      requestId: "r2compat-chosen-gone",
+      origin: "https://compat-chosen-gone.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-chosen-gone");
+
+    const realGetProviderAsync = registry.getProviderAsync;
+    vi.spyOn(registry, "getProviderAsync").mockImplementation(async (id) => {
+      if (id === "compat:lm") return undefined;
+      return realGetProviderAsync(id);
+    });
+
+    resolveApproval("r2compat-chosen-gone", {
+      decision: "allow_once",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+    });
+  });
+
   it("falls back to the grant provider default model, not settings.defaultModel", async () => {
     await saveSettings({
       defaultProviderId: "openai",

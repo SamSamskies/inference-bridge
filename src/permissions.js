@@ -160,8 +160,10 @@ export async function ensurePermission(args) {
   const chosenProviderId = normalizeProviderId(
     decision.providerId || promptProviderId
   );
-  const chosenProvider =
-    (await getProviderAsync(chosenProviderId)) || provider;
+  // Do not fall back to the pre-prompt provider: hasCompatHostAccess would
+  // then check the wrong object while we still return chosenProviderId
+  // (e.g. a deleted compat:* selection passing via a built-in fallback).
+  const chosenProvider = await getProviderAsync(chosenProviderId);
   // Honor the approval UI's model choice. The dialog already validates with
   // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
   // isPlausibleModelForProvider here would silently replace free-typed
@@ -175,7 +177,7 @@ export async function ensurePermission(args) {
   const chosenModel =
     decisionModel ||
     (chosenProviderId === promptProviderId ? promptModel : "") ||
-    chosenProvider.defaultModel ||
+    chosenProvider?.defaultModel ||
     "";
 
   switch (decision.decision) {
