@@ -1170,6 +1170,20 @@ saveButton.addEventListener("click", async () => {
       apiKeys[provider.id] = apiKeyDrafts[provider.id] || "";
     }
 
+    // A prior list-models result (e.g. empty catalog without a key) can stick
+    // in modelCache after the key changes; drop those entries and refresh the
+    // visible picker when the current provider's key was updated.
+    const previousSettings = await getSettings();
+    let refreshModelsAfterKeyChange = false;
+    for (const provider of providers) {
+      if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
+      const prev = (previousSettings.apiKeys[provider.id] || "").trim();
+      const next = (apiKeys[provider.id] || "").trim();
+      if (prev === next) continue;
+      modelCache.delete(provider.id);
+      if (provider.id === providerId) refreshModelsAfterKeyChange = true;
+    }
+
     await saveSettings({
       apiKeys,
       defaultProviderId: providerId,
@@ -1177,6 +1191,9 @@ saveButton.addEventListener("click", async () => {
       defaultModels: modelDrafts,
     });
     savedDefaultProviderId = providerId;
+    if (refreshModelsAfterKeyChange) {
+      await refreshDefaultModels(providerId, model);
+    }
     setStatus("Saved.", "ok");
   } catch (err) {
     setStatus(err instanceof Error ? err.message : "Failed to save", "err");
