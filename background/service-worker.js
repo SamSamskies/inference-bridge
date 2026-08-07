@@ -18,6 +18,7 @@ import {
 import {
   getProviderAsync,
   listAllProviders,
+  listProviders,
   resolveProviderModels,
 } from "../src/providers/registry.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
@@ -164,30 +165,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
+    const serializeProviders = (all) =>
+      all.map((p) => ({
+        id: p.id,
+        label: p.label,
+        requiresApiKey: Boolean(p.requiresApiKey),
+        optionalApiKey: Boolean(
+          /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
+        ),
+        defaultModel: p.defaultModel,
+        // Static catalogs only; dynamic providers omit models here.
+        // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
+        models: p.models
+          ? p.models.map((entry) =>
+              typeof entry === "string" ? { id: entry } : entry
+            )
+          : undefined,
+      }));
+
     void listAllProviders()
       .then((all) => {
-        sendResponse({
-          providers: all.map((p) => ({
-            id: p.id,
-            label: p.label,
-            requiresApiKey: Boolean(p.requiresApiKey),
-            optionalApiKey: Boolean(
-              /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
-            ),
-            defaultModel: p.defaultModel,
-            // Static catalogs only; dynamic providers omit models here.
-            // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
-            models: p.models
-              ? p.models.map((entry) =>
-                  typeof entry === "string" ? { id: entry } : entry
-                )
-              : undefined,
-          })),
-        });
+        sendResponse({ providers: serializeProviders(all) });
       })
       .catch((err) => {
+        // Built-ins do not depend on settings/compat; keep them available.
         sendResponse({
-          providers: [],
+          providers: serializeProviders(listProviders()),
           error: {
             code: "unavailable",
             message:

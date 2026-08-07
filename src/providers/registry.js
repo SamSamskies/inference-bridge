@@ -44,10 +44,19 @@ export function getDefaultProvider() {
 
 /**
  * Built-ins plus saved OpenAI-compatible endpoints.
+ * If settings cannot be loaded, still returns built-ins (compat list is empty).
  * @returns {Promise<Provider[]>}
  */
 export async function listAllProviders() {
-  const { compatEndpoints } = await getSettings();
+  let compatEndpoints = [];
+  try {
+    ({ compatEndpoints } = await getSettings());
+  } catch (err) {
+    console.warn(
+      "Failed to load compat endpoints; returning built-in providers",
+      err
+    );
+  }
   return [
     ...listProviders(),
     ...compatEndpoints.map((endpoint) => createOpenAICompatProvider(endpoint)),

@@ -41,6 +41,23 @@ describe("provider registry", () => {
     expect(getProvider("compat:lm")).toBeUndefined();
   });
 
+  it("still returns built-ins when settings fail to load", async () => {
+    const originalGet = globalThis.chrome.storage.local.get;
+    globalThis.chrome.storage.local.get = async () => {
+      throw new Error("storage unavailable");
+    };
+    try {
+      const all = await listAllProviders();
+      expect(all.map((p) => p.id).sort()).toEqual([
+        "ollama",
+        "openai",
+        "openrouter",
+      ]);
+    } finally {
+      globalThis.chrome.storage.local.get = originalGet;
+    }
+  });
+
   it("resolves static OpenAI models as ModelInfo entries", async () => {
     const openai = getProvider("openai");
     expect(openai).toBeDefined();
