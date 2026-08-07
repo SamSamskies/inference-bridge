@@ -12,8 +12,10 @@ import {
   blockOrigin,
   normalizeProviderId,
   isPlausibleModelForProvider,
+  isCompatProviderId,
 } from "./storage.js";
-import { getDefaultProvider, getProvider } from "./providers/registry.js";
+import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
+import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 
 /**
  * @typedef {{
@@ -35,6 +37,24 @@ import { getDefaultProvider, getProvider } from "./providers/registry.js";
 const pendingApprovals = new Map();
 
 /**
+ * Compat endpoints need optional host access. Built-ins are always ok here.
+ * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
+ * @returns {Promise<boolean>}
+ */
+async function hasCompatHostAccess(provider) {
+  // Fail closed when the provider is missing (e.g. deleted compat endpoint
+  // between grant read and resolve). Built-ins still short-circuit to true.
+  if (!provider?.id) return false;
+  if (!isCompatProviderId(provider.id)) return true;
+  const baseUrl = provider.baseUrl;
+  return (
+    typeof baseUrl === "string" &&
+    Boolean(baseUrl) &&
+    (await hasHostPermissionForBaseUrl(baseUrl))
+  );
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -43,13 +63,20 @@ const pendingApprovals = new Map();
  *   preferredProviderId?: string,
  *   preferredModel?: string,
  * }} args
- * @returns {Promise<{ allowed: boolean, providerId: string, model: string, once: boolean }>}
+ * @returns {Promise<{
+ *   allowed: boolean,
+ *   providerId: string,
+ *   model: string,
+ *   once: boolean,
+ *   code?: string,
+ *   message?: string,
+ * }>}
  */
 export async function ensurePermission(args) {
   const settings = await getSettings();
   const lastUsed = await getOriginLastUsed(args.origin);
   const defaultProvider =
-    getProvider(settings.defaultProviderId) || getDefaultProvider();
+    (await getProviderAsync(settings.defaultProviderId)) || getDefaultProvider();
   // Prefill order: explicit preferred → last approval choice for this origin →
   // global defaults → registry default. Last-used never skips the prompt.
   const providerId = normalizeProviderId(
@@ -58,7 +85,7 @@ export async function ensurePermission(args) {
       settings.defaultProviderId ||
       defaultProvider.id
   );
-  const provider = getProvider(providerId) || defaultProvider;
+  const provider = (await getProviderAsync(providerId)) || defaultProvider;
   // Prefer the per-provider remembered default from defaultModels.
   const remembered =
     typeof settings.defaultModels?.[provider.id] === "string"
@@ -98,51 +125,101 @@ export async function ensurePermission(args) {
     };
   }
 
+  // Prompt prefill starts from global defaults; a revoked-compat re-prompt
+  // below overrides these with the stored grant so Always allow cannot
+  // silently switch the origin to a different provider.
+  let promptProviderId = provider.id;
+  let promptModel = globalDefaultModel;
+
   const existing = await getOriginGrant(args.origin);
   if (existing) {
     const grantProviderId = normalizeProviderId(existing.providerId);
     // Fall back to the grant provider's default — not settings.defaultModel,
     // which may belong to a different provider.
-    const grantProvider = getProvider(grantProviderId);
+    const grantProvider = await getProviderAsync(grantProviderId);
     const grantFallbackModel = grantProvider?.defaultModel || "";
-    return {
-      allowed: true,
-      providerId: grantProviderId,
-      model: existing.model || grantFallbackModel,
-      once: false,
-    };
+    const grantModel = existing.model || grantFallbackModel;
+
+    // Compat endpoints need optional host access. If the user revoked it in
+    // Chrome site settings, do not honor the persistent grant — re-prompt so
+    // the request does not skip approval only to fail later in ensureReady.
+    if (await hasCompatHostAccess(grantProvider)) {
+      return {
+        allowed: true,
+        providerId: grantProviderId,
+        model: grantModel,
+        once: false,
+      };
+    }
+
+    promptProviderId = grantProviderId;
+    promptModel = grantModel;
   }
 
   const decision = await promptUser({
     requestId: args.requestId,
     origin: args.origin,
     messages: args.messages,
-    providerId: provider.id,
-    model: globalDefaultModel,
+    providerId: promptProviderId,
+    model: promptModel,
   });
 
   const chosenProviderId = normalizeProviderId(
-    decision.providerId || provider.id
+    decision.providerId || promptProviderId
   );
-  const chosenProvider = getProvider(chosenProviderId) || provider;
+  // Do not fall back to the pre-prompt provider: hasCompatHostAccess would
+  // then check the wrong object while we still return chosenProviderId
+  // (e.g. a deleted compat:* selection passing via a built-in fallback).
+  const chosenProvider = await getProviderAsync(chosenProviderId);
   // Honor the approval UI's model choice. The dialog already validates with
   // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
   // isPlausibleModelForProvider here would silently replace free-typed
   // OpenRouter slugs that lack a "/" with the provider default.
   // If the user picked a different provider in the approval UI, do not fall
-  // back to globalDefaultModel (it was resolved for the prompt's provider).
+  // back to promptModel (it was resolved for the prompt's provider).
   const decisionModel =
     typeof decision.model === "string" && decision.model.trim()
       ? decision.model.trim()
       : "";
   const chosenModel =
     decisionModel ||
-    (chosenProviderId === provider.id ? globalDefaultModel : "") ||
-    chosenProvider.defaultModel ||
+    (chosenProviderId === promptProviderId ? promptModel : "") ||
+    chosenProvider?.defaultModel ||
     "";
 
   switch (decision.decision) {
     case "allow_once":
+    case "always": {
+      // Same host gate as persistent grants: approving a compat provider
+      // without optional host access would only fail later in ensureReady.
+      // Do not report these as permission_denied — Allow already succeeded.
+      if (!chosenProvider) {
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+          code: "unavailable",
+          message: `Unknown provider "${chosenProviderId}". Open the Inference Bridge options and update this site's grant.`,
+        };
+      }
+      if (!(await hasCompatHostAccess(chosenProvider))) {
+        const label = chosenProvider.label || chosenProviderId;
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+          code: "unavailable",
+          message: `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`,
+        };
+      }
+      if (decision.decision === "always") {
+        await grantOriginAlways(args.origin, {
+          providerId: chosenProviderId,
+          model: chosenModel,
+        });
+      }
       await setOriginLastUsed(args.origin, {
         providerId: chosenProviderId,
         model: chosenModel,
@@ -151,23 +228,9 @@ export async function ensurePermission(args) {
         allowed: true,
         providerId: chosenProviderId,
         model: chosenModel,
-        once: true,
+        once: decision.decision === "allow_once",
       };
-    case "always":
-      await grantOriginAlways(args.origin, {
-        providerId: chosenProviderId,
-        model: chosenModel,
-      });
-      await setOriginLastUsed(args.origin, {
-        providerId: chosenProviderId,
-        model: chosenModel,
-      });
-      return {
-        allowed: true,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: false,
-      };
+    }
     case "never":
       await blockOrigin(args.origin);
       return {

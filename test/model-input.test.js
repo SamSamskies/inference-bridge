@@ -37,8 +37,21 @@ describe("isModelValid", () => {
 });
 
 describe("usesModelAutosuggest", () => {
-  it("is only enabled for OpenRouter", () => {
+  it("is always enabled for OpenRouter", () => {
     expect(usesModelAutosuggest("openrouter")).toBe(true);
+    expect(usesModelAutosuggest("openrouter", [{ id: "a" }])).toBe(true);
+  });
+
+  it("uses a select for compat:* when models are listed", () => {
+    expect(usesModelAutosuggest("compat:abc", [{ id: "local" }])).toBe(false);
+  });
+
+  it("uses free-text for compat:* when the catalog is empty or unknown", () => {
+    expect(usesModelAutosuggest("compat:abc")).toBe(true);
+    expect(usesModelAutosuggest("compat:abc", [])).toBe(true);
+  });
+
+  it("is disabled for OpenAI and Ollama", () => {
     expect(usesModelAutosuggest("openai")).toBe(false);
     expect(usesModelAutosuggest("ollama")).toBe(false);
   });

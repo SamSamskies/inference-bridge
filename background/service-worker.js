@@ -16,7 +16,8 @@ import {
   cancelApproval,
 } from "../src/permissions.js";
 import {
-  getProvider,
+  getProviderAsync,
+  listAllProviders,
   listProviders,
   resolveProviderModels,
 } from "../src/providers/registry.js";
@@ -164,11 +165,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
-    sendResponse({
-      providers: listProviders().map((p) => ({
+    const serializeProviders = (all) =>
+      all.map((p) => ({
         id: p.id,
         label: p.label,
         requiresApiKey: Boolean(p.requiresApiKey),
+        optionalApiKey: Boolean(
+          /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
+        ),
         defaultModel: p.defaultModel,
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
@@ -177,38 +181,73 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
               typeof entry === "string" ? { id: entry } : entry
             )
           : undefined,
-      })),
-    });
-    return false;
+      }));
+
+    void listAllProviders()
+      .then((all) => {
+        sendResponse({ providers: serializeProviders(all) });
+      })
+      .catch((err) => {
+        // Built-ins do not depend on settings/compat; keep them available.
+        sendResponse({
+          providers: serializeProviders(listProviders()),
+          error: {
+            code: "unavailable",
+            message:
+              err instanceof Error ? err.message : "Failed to list providers",
+          },
+        });
+      });
+    return true;
   }
 
   if (message?.type === "list-models") {
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
-    const provider = getProvider(providerId);
-    if (!provider) {
-      sendResponse({
-        ok: false,
-        error: { code: "invalid_request", message: `Unknown provider: ${providerId}` },
-      });
-      return false;
-    }
 
-    void resolveProviderModels(provider)
-      .then((models) => {
-        sendResponse({
-          ok: true,
-          providerId: provider.id,
-          models,
-          defaultModel: provider.defaultModel,
-        });
+    void getProviderAsync(providerId)
+      .then(async (provider) => {
+        if (!provider) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: "invalid_request",
+              message: `Unknown provider: ${providerId}`,
+            },
+          });
+          return;
+        }
+
+        try {
+          const settings = await getSettings();
+          const models = await resolveProviderModels(provider, {
+            apiKey: settings.apiKeys[provider.id],
+          });
+          sendResponse({
+            ok: true,
+            providerId: provider.id,
+            models,
+            defaultModel: provider.defaultModel,
+          });
+        } catch (err) {
+          sendResponse({
+            ok: false,
+            providerId: provider.id,
+            error: {
+              code: /** @type {any} */ (err)?.code || "unavailable",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to list models for provider",
+            },
+          });
+        }
       })
       .catch((err) => {
         sendResponse({
           ok: false,
-          providerId: provider.id,
           error: {
-            code: /** @type {any} */ (err)?.code || "unavailable",
+            code: "unavailable",
             message:
               err instanceof Error
                 ? err.message
@@ -343,14 +382,20 @@ async function handleStart(port, msg, onStreamId) {
     }
 
     if (!permission.allowed) {
-      throwInference("permission_denied", "Permission denied by user.");
+      // allow_once/always can still fail post-approval (missing compat host
+      // access, deleted provider) with an explicit code/message — do not
+      // misreport those as a user Deny.
+      throwInference(
+        permission.code || "permission_denied",
+        permission.message || "Permission denied by user."
+      );
     }
 
     entry.phase = "streaming";
     const livePort = entry.port;
 
     const settings = await getSettings();
-    const provider = getProvider(permission.providerId);
+    const provider = await getProviderAsync(permission.providerId);
     if (!provider) {
       throwInference(
         "unavailable",

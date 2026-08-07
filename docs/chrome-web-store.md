@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, OpenRouter, or local Ollama). Keep listing copy focused on that purpose.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, OpenRouter, local Ollama, or experimental OpenAI-compatible servers). Keep listing copy focused on that purpose.
 
 ## Versioning
 
@@ -73,11 +73,12 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 
 ## Permission justifications (paste into store form)
 
-- **storage** — Store provider settings, API keys, and per-origin grants locally.
-- **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for local Ollama so loopback inference works without widening `OLLAMA_ORIGINS`.
+- **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
+- **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
+- **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an experimental OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
 
 ## Data safety / privacy disclosures
 
@@ -102,9 +103,9 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the README manual checklist on a clean profile:
 
 1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
-2. Confirm OpenAI, OpenRouter, and Ollama flows.
+2. Confirm OpenAI, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
-4. Confirm no unexpected host permissions beyond the tightened Ollama port scope.
+4. Confirm install-time host permissions remain OpenAI / OpenRouter / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
 
 ## Submit (manual)
 

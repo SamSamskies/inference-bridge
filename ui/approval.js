@@ -109,9 +109,10 @@ function allowUnknownFor(providerId) {
 
 /**
  * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} [models]
  */
-function setModelControlMode(providerId) {
-  const autosuggest = usesModelAutosuggest(providerId);
+function setModelControlMode(providerId, models) {
+  const autosuggest = usesModelAutosuggest(providerId, models);
   modelSelect.hidden = autosuggest;
   modelInputRow.hidden = !autosuggest;
   updateClearModelButton();
@@ -130,7 +131,7 @@ function updateClearModelButton() {
  * @returns {string}
  */
 function readModelValue(providerId) {
-  if (usesModelAutosuggest(providerId)) {
+  if (usesModelAutosuggest(providerId, currentModels)) {
     return modelInput.value.trim();
   }
   return modelSelect.value;
@@ -145,9 +146,9 @@ function readModelValue(providerId) {
 function populateModelControl(providerId, models, selected, opts = {}) {
   const allowUnknown = opts.allowUnknown !== false;
   const disabled = Boolean(opts.disabled);
-  setModelControlMode(providerId);
+  setModelControlMode(providerId, models);
 
-  if (usesModelAutosuggest(providerId)) {
+  if (usesModelAutosuggest(providerId, models)) {
     populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
     modelInput.disabled = disabled;
     modelSelect.disabled = true;
@@ -354,7 +355,11 @@ async function loadModelsForProvider(providerId, preferredModel) {
   });
 
   if (models.length === 0) {
-    setModelHint("No models available for this provider.");
+    setModelHint(
+      providerId.startsWith("compat:")
+        ? "Could not list models from /v1/models. Type a model id manually."
+        : "No models available for this provider."
+    );
     modelsReady = allowUnknown;
   } else {
     setModelHint("");

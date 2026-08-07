@@ -3,7 +3,9 @@ import { installChromeMock } from "./helpers/chrome-mock.js";
 import {
   getSettings,
   grantOriginAlways,
+  isPlausibleModelForProvider,
   normalizeProviderId,
+  saveCompatEndpoints,
   saveSettings,
   setOriginLastUsed,
   getOriginLastUsed,
@@ -34,6 +36,7 @@ describe("getSettings", () => {
       defaultProviderId: "openai",
       defaultModel: "gpt-5.6-luna",
       defaultModels: { openai: "gpt-5.6-luna", openrouter: "openrouter/auto" },
+      compatEndpoints: [],
       allowedOrigins: {},
       blockedOrigins: {},
       originLastUsed: {},
@@ -244,6 +247,87 @@ describe("saveSettings apiKeys and defaultModels", () => {
     const settings = await getSettings();
     expect(settings.defaultModels.openrouter).toBe("openrouter/free");
     expect(settings.defaultModel).toBe("openrouter/free");
+  });
+});
+
+describe("isPlausibleModelForProvider", () => {
+  it("accepts any non-empty model for compat:* providers", () => {
+    expect(isPlausibleModelForProvider("compat:abc", "local-model")).toBe(true);
+    expect(isPlausibleModelForProvider("compat:abc", "org/model")).toBe(true);
+    expect(isPlausibleModelForProvider("compat:abc", "")).toBe(false);
+  });
+});
+
+describe("compatEndpoints", () => {
+  it("normalizes base URLs and persists named endpoints", async () => {
+    await saveCompatEndpoints([
+      {
+        id: "compat:one",
+        name: "  LM Studio ",
+        baseUrl: "http://127.0.0.1:1234",
+      },
+    ]);
+    const settings = await getSettings();
+    expect(settings.compatEndpoints).toEqual([
+      {
+        id: "compat:one",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+  });
+
+  it("scrubs orphaned apiKeys, defaultModels, and resets default provider", async () => {
+    await saveCompatEndpoints([
+      { id: "compat:keep", name: "Keep", baseUrl: "http://127.0.0.1:1111/v1" },
+      { id: "compat:drop", name: "Drop", baseUrl: "http://127.0.0.1:2222/v1" },
+    ]);
+    await saveSettings({
+      apiKeys: {
+        openai: "sk-oai",
+        "compat:keep": "key-keep",
+        "compat:drop": "key-drop",
+      },
+      defaultProviderId: "compat:drop",
+      defaultModels: {
+        "compat:keep": "a",
+        "compat:drop": "b",
+      },
+    });
+    await grantOriginAlways("https://app.example", {
+      providerId: "compat:drop",
+      model: "b",
+    });
+    await setOriginLastUsed("https://other.example", {
+      providerId: "compat:drop",
+      model: "b",
+    });
+
+    await saveCompatEndpoints([
+      { id: "compat:keep", name: "Keep", baseUrl: "http://127.0.0.1:1111/v1" },
+    ]);
+
+    const settings = await getSettings();
+    expect(settings.compatEndpoints).toHaveLength(1);
+    expect(settings.apiKeys["compat:drop"]).toBeUndefined();
+    expect(settings.apiKeys["compat:keep"]).toBe("key-keep");
+    expect(settings.defaultModels["compat:drop"]).toBeUndefined();
+    expect(settings.defaultProviderId).toBe("openai");
+    expect(settings.allowedOrigins["https://app.example"]).toBeUndefined();
+    expect(settings.originLastUsed["https://other.example"]).toBeUndefined();
+  });
+
+  it("drops invalid endpoint entries on read", async () => {
+    chromeMock.store.set("compatEndpoints", [
+      { id: "compat:ok", name: "Ok", baseUrl: "http://127.0.0.1:1/v1" },
+      { id: "bad", name: "No", baseUrl: "http://127.0.0.1:2/v1" },
+      { id: "compat:x", name: "", baseUrl: "http://127.0.0.1:3/v1" },
+      { id: "compat:y", name: "Y", baseUrl: "ftp://127.0.0.1:4" },
+    ]);
+    const settings = await getSettings();
+    expect(settings.compatEndpoints).toEqual([
+      { id: "compat:ok", name: "Ok", baseUrl: "http://127.0.0.1:1/v1" },
+    ]);
   });
 });
 

@@ -73,6 +73,212 @@ describe("ensurePermission", () => {
     expect(getPendingApproval("r2")).toBeNull();
   });
 
+  it("reuses a compat grant when host permission is still present", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "r2compat-ok",
+        origin: "https://compat-grant.example",
+        messages: [{ role: "user", content: "hi" }],
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+    });
+    expect(getPendingApproval("r2compat-ok")).toBeNull();
+  });
+
+  it("re-prompts when a compat grant's provider no longer resolves", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    const registry = await import("../src/providers/registry.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    await grantOriginAlways("https://compat-missing.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    // Simulate endpoint disappearing between grant read and provider resolve.
+    const realGetProviderAsync = registry.getProviderAsync;
+    vi.spyOn(registry, "getProviderAsync").mockImplementation(async (id) => {
+      if (id === "compat:lm") return undefined;
+      return realGetProviderAsync(id);
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-missing",
+      origin: "https://compat-missing.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-missing");
+
+    expect(getPendingApproval("r2compat-missing")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    resolveApproval("r2compat-missing", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts when a compat grant exists but host permission was revoked", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModels: { openai: "gpt-4o" },
+    });
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-revoked",
+      origin: "https://compat-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-revoked");
+
+    // Prefill the stored grant — not global defaults — so Always allow cannot
+    // silently overwrite the compat grant with OpenAI / another default.
+    expect(getPendingApproval("r2compat-revoked")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    resolveApproval("r2compat-revoked", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("denies allow_once for compat when host permission is still missing", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-approve-no-host",
+      origin: "https://compat-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-approve-no-host");
+
+    resolveApproval("r2compat-approve-no-host", {
+      decision: "allow_once",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/host permission/i),
+    });
+  });
+
+  it("denies approval when the chosen compat provider no longer resolves", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    const registry = await import("../src/providers/registry.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+
+    const pending = ensurePermission({
+      requestId: "r2compat-chosen-gone",
+      origin: "https://compat-chosen-gone.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-chosen-gone");
+
+    const realGetProviderAsync = registry.getProviderAsync;
+    vi.spyOn(registry, "getProviderAsync").mockImplementation(async (id) => {
+      if (id === "compat:lm") return undefined;
+      return realGetProviderAsync(id);
+    });
+
+    resolveApproval("r2compat-chosen-gone", {
+      decision: "allow_once",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/unknown provider/i),
+    });
+  });
+
   it("falls back to the grant provider default model, not settings.defaultModel", async () => {
     await saveSettings({
       defaultProviderId: "openai",
@@ -186,6 +392,45 @@ describe("ensurePermission", () => {
       decision: "deny",
       providerId: "openrouter",
       model: "openrouter/free",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("prefills last-used OpenAI-compatible endpoints", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModel: "gpt-5.6-luna",
+      defaultModels: { "compat:lm": "local-model" },
+    });
+    await setOriginLastUsed("https://compat-cache.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r5compat",
+      origin: "https://compat-cache.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r5compat");
+
+    expect(getPendingApproval("r5compat")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    resolveApproval("r5compat", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
     });
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
