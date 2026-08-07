@@ -41,7 +41,9 @@ export function loopbackBypassRuleId(hostname, port) {
  */
 function urlFilterFor(hostname, port) {
   const host = hostname.replace(/^\[|\]$/g, "");
-  return `||${host}:${port}^`;
+  // DNR matches the canonical bracketed IPv6 host ([::1]:port), not bare ::1.
+  const authority = host.includes(":") ? `[${host}]` : host;
+  return `||${authority}:${port}^`;
 }
 
 /**

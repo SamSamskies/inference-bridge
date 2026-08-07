@@ -75,6 +75,17 @@ describe("ensureLoopbackOriginBypass", () => {
     });
   });
 
+  it("uses bracketed IPv6 host in the urlFilter", async () => {
+    const update = vi.fn(async () => {});
+    globalThis.chrome.declarativeNetRequest.updateDynamicRules = update;
+
+    await ensureLoopbackOriginBypass("::1", 1234);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    const rule = update.mock.calls[0][0].addRules[0];
+    expect(rule.condition.urlFilter).toBe("||[::1]:1234^");
+  });
+
   it("no-ops for non-loopback hosts", async () => {
     const update = vi.fn(async () => {});
     globalThis.chrome.declarativeNetRequest.updateDynamicRules = update;
