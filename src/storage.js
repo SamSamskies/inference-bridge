@@ -285,23 +285,19 @@ export async function getSettings() {
     DEFAULTS.defaultModels[defaultProviderId] ||
     "";
 
-  // Grants / last-used pointing at deleted compat endpoints fall back to openai.
+  // Drop grants / last-used that pointed at deleted compat endpoints. Do not
+  // retarget them to another provider — that would keep always-allow active and
+  // could send previously local-only traffic to OpenAI without a new prompt.
   for (const [origin, grant] of Object.entries(allowedOrigins)) {
     const pid = normalizeProviderId(grant?.providerId);
     if (isCompatProviderId(pid) && !compatIds.has(pid)) {
-      allowedOrigins[origin] = {
-        ...grant,
-        providerId: DEFAULTS.defaultProviderId,
-      };
+      delete allowedOrigins[origin];
       scrubbed = true;
     }
   }
   for (const [origin, entry] of Object.entries(originLastUsed)) {
     if (isCompatProviderId(entry.providerId) && !compatIds.has(entry.providerId)) {
-      originLastUsed[origin] = {
-        ...entry,
-        providerId: DEFAULTS.defaultProviderId,
-      };
+      delete originLastUsed[origin];
       scrubbed = true;
     }
   }

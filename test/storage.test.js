@@ -298,6 +298,10 @@ describe("compatEndpoints", () => {
       providerId: "compat:drop",
       model: "b",
     });
+    await setOriginLastUsed("https://other.example", {
+      providerId: "compat:drop",
+      model: "b",
+    });
 
     await saveCompatEndpoints([
       { id: "compat:keep", name: "Keep", baseUrl: "http://127.0.0.1:1111/v1" },
@@ -309,9 +313,8 @@ describe("compatEndpoints", () => {
     expect(settings.apiKeys["compat:keep"]).toBe("key-keep");
     expect(settings.defaultModels["compat:drop"]).toBeUndefined();
     expect(settings.defaultProviderId).toBe("openai");
-    expect(settings.allowedOrigins["https://app.example"].providerId).toBe(
-      "openai"
-    );
+    expect(settings.allowedOrigins["https://app.example"]).toBeUndefined();
+    expect(settings.originLastUsed["https://other.example"]).toBeUndefined();
   });
 
   it("drops invalid endpoint entries on read", async () => {
