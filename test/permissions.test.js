@@ -150,6 +150,44 @@ describe("ensurePermission", () => {
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
+  it("denies allow_once for compat when host permission is still missing", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://compat-grant.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2compat-approve-no-host",
+      origin: "https://compat-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2compat-approve-no-host");
+
+    resolveApproval("r2compat-approve-no-host", {
+      decision: "allow_once",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "compat:lm",
+      model: "local-model",
+      once: false,
+    });
+  });
+
   it("falls back to the grant provider default model, not settings.defaultModel", async () => {
     await saveSettings({
       defaultProviderId: "openai",

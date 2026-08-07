@@ -37,6 +37,21 @@ import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 const pendingApprovals = new Map();
 
 /**
+ * Compat endpoints need optional host access. Built-ins are always ok here.
+ * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
+ * @returns {Promise<boolean>}
+ */
+async function hasCompatHostAccess(provider) {
+  if (!provider?.id || !isCompatProviderId(provider.id)) return true;
+  const baseUrl = provider.baseUrl;
+  return (
+    typeof baseUrl === "string" &&
+    Boolean(baseUrl) &&
+    (await hasHostPermissionForBaseUrl(baseUrl))
+  );
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -118,17 +133,7 @@ export async function ensurePermission(args) {
     // Compat endpoints need optional host access. If the user revoked it in
     // Chrome site settings, do not honor the persistent grant — re-prompt so
     // the request does not skip approval only to fail later in ensureReady.
-    let compatHostOk = true;
-    if (isCompatProviderId(grantProviderId)) {
-      const baseUrl =
-        /** @type {{ baseUrl?: string } | undefined} */ (grantProvider)?.baseUrl;
-      compatHostOk =
-        typeof baseUrl === "string" &&
-        Boolean(baseUrl) &&
-        (await hasHostPermissionForBaseUrl(baseUrl));
-    }
-
-    if (compatHostOk) {
+    if (await hasCompatHostAccess(grantProvider)) {
       return {
         allowed: true,
         providerId: grantProviderId,
@@ -172,6 +177,23 @@ export async function ensurePermission(args) {
 
   switch (decision.decision) {
     case "allow_once":
+    case "always": {
+      // Same host gate as persistent grants: approving a compat provider
+      // without optional host access would only fail later in ensureReady.
+      if (!(await hasCompatHostAccess(chosenProvider))) {
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+        };
+      }
+      if (decision.decision === "always") {
+        await grantOriginAlways(args.origin, {
+          providerId: chosenProviderId,
+          model: chosenModel,
+        });
+      }
       await setOriginLastUsed(args.origin, {
         providerId: chosenProviderId,
         model: chosenModel,
@@ -180,23 +202,9 @@ export async function ensurePermission(args) {
         allowed: true,
         providerId: chosenProviderId,
         model: chosenModel,
-        once: true,
+        once: decision.decision === "allow_once",
       };
-    case "always":
-      await grantOriginAlways(args.origin, {
-        providerId: chosenProviderId,
-        model: chosenModel,
-      });
-      await setOriginLastUsed(args.origin, {
-        providerId: chosenProviderId,
-        model: chosenModel,
-      });
-      return {
-        allowed: true,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: false,
-      };
+    }
     case "never":
       await blockOrigin(args.origin);
       return {
