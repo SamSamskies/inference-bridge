@@ -81,6 +81,35 @@ describe("validateInferenceRequest", () => {
     ]);
   });
 
+  it("preserves optional message.reasoning and rejects non-string reasoning", () => {
+    const ok = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello", reasoning: "why" },
+        { role: "assistant", content: "empty", reasoning: "" },
+      ],
+    });
+    expect(ok).toEqual({
+      ok: true,
+      value: {
+        method: "chat",
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "hello", reasoning: "why" },
+          { role: "assistant", content: "empty" },
+        ],
+      },
+    });
+
+    const bad = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "assistant", content: "x", reasoning: 1 }],
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.message).toMatch(/reasoning/);
+  });
+
   it("ignores a serialized signal field", () => {
     const result = validateInferenceRequest({
       method: "chat",

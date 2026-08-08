@@ -177,6 +177,7 @@ describe("ollamaProvider.streamChat", () => {
       message: { role: "assistant", content: "Hi!" },
       usage: { inputTokens: 10, outputTokens: 2 },
     });
+    expect(result.message).not.toHaveProperty("reasoning");
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${OLLAMA_BASE_URL}/api/chat`);
@@ -185,6 +186,83 @@ describe("ollamaProvider.streamChat", () => {
       messages: [{ role: "user", content: "hi" }],
       stream: true,
     });
+  });
+
+  it("streams thinking as reasoning_delta and content as delta", async () => {
+    const body = [
+      JSON.stringify({
+        model: "qwen3",
+        message: { role: "assistant", thinking: "Hmm", content: "" },
+        done: false,
+      }),
+      JSON.stringify({
+        model: "qwen3",
+        message: { role: "assistant", thinking: "...", content: "" },
+        done: false,
+      }),
+      JSON.stringify({
+        model: "qwen3",
+        message: { role: "assistant", thinking: "", content: "4" },
+        done: false,
+      }),
+      JSON.stringify({
+        model: "qwen3",
+        message: { role: "assistant", content: "" },
+        done: true,
+        prompt_eval_count: 5,
+        eval_count: 1,
+      }),
+      "",
+    ].join("\n");
+
+    vi.stubGlobal("fetch", vi.fn(async () => ndjsonResponse(body)));
+
+    /** @type {string[]} */
+    const deltas = [];
+    /** @type {string[]} */
+    const reasoningDeltas = [];
+    const result = await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "2+2?" }],
+      signal: new AbortController().signal,
+      onDelta: (c) => deltas.push(c),
+      onReasoningDelta: (c) => reasoningDeltas.push(c),
+    });
+
+    expect(reasoningDeltas).toEqual(["Hmm", "..."]);
+    expect(deltas).toEqual(["4"]);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: "4",
+      reasoning: "Hmm...",
+    });
+  });
+
+  it("round-trips prior message.reasoning as thinking", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello", reasoning: "prior" },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello", thinking: "prior" },
+    ]);
   });
 
   it("reassembles NDJSON lines split across chunks and flushes a final line", async () => {

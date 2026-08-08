@@ -3,7 +3,7 @@ const ROLES = new Set(["system", "user", "assistant"]);
 /**
  * Validate an InferenceRequest from a page script.
  * @param {unknown} request
- * @returns {{ ok: true, value: { method: "chat", messages: Array<{role: string, content: string}> } } | { ok: false, message: string }}
+ * @returns {{ ok: true, value: { method: "chat", messages: Array<{role: string, content: string, reasoning?: string}> } } | { ok: false, message: string }}
  */
 export function validateInferenceRequest(request) {
   if (request == null || typeof request !== "object" || Array.isArray(request)) {
@@ -36,7 +36,20 @@ export function validateInferenceRequest(request) {
     if (typeof m.content !== "string") {
       return { ok: false, message: `messages[${i}].content must be a string.` };
     }
-    messages.push({ role: m.role, content: m.content });
+    /** @type {{ role: string, content: string, reasoning?: string }} */
+    const normalized = { role: m.role, content: m.content };
+    if ("reasoning" in m) {
+      if (typeof m.reasoning !== "string") {
+        return {
+          ok: false,
+          message: `messages[${i}].reasoning must be a string when present.`,
+        };
+      }
+      if (m.reasoning) {
+        normalized.reasoning = m.reasoning;
+      }
+    }
+    messages.push(normalized);
   }
 
   if ("signal" in req && req.signal != null) {

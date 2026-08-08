@@ -38,6 +38,47 @@ function defaultMapStatus(status, detail, label) {
 }
 
 /**
+ * Map IPA messages to OpenAI-compat chat messages.
+ * Intentionally omits `reasoning`: many Chat Completions servers (OpenAI,
+ * vLLM, TRT-LLM, etc.) reject unknown message fields with HTTP 400.
+ * Inbound reasoning is still extracted from streamed deltas.
+ * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
+ * @returns {Array<{ role: string, content: string }>}
+ */
+export function mapMessagesForOpenAICompat(messages) {
+  return messages.map((m) => ({ role: m.role, content: m.content }));
+}
+
+/**
+ * Prefer reasoning_content (DeepSeek-native) when both string fields exist.
+ * Falls back to OpenRouter delta.reasoning_details[].text / .summary.
+ * @param {Record<string, unknown> | undefined} delta
+ * @returns {string}
+ */
+export function extractOpenAICompatReasoningDelta(delta) {
+  if (!delta || typeof delta !== "object") return "";
+  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+    return delta.reasoning_content;
+  }
+  if (typeof delta.reasoning === "string" && delta.reasoning) {
+    return delta.reasoning;
+  }
+  const details = delta.reasoning_details;
+  if (!Array.isArray(details)) return "";
+  let out = "";
+  for (const detail of details) {
+    if (!detail || typeof detail !== "object") continue;
+    const d = /** @type {Record<string, unknown>} */ (detail);
+    if (typeof d.text === "string" && d.text) {
+      out += d.text;
+    } else if (typeof d.summary === "string" && d.summary) {
+      out += d.summary;
+    }
+  }
+  return out;
+}
+
+/**
  * Stream an OpenAI-compatible chat completion.
  *
  * Lines that do not start with `data:` are ignored (covers OpenRouter's
@@ -47,14 +88,15 @@ function defaultMapStatus(status, detail, label) {
  *   url: string,
  *   apiKey?: string,
  *   model: string,
- *   messages: Array<{ role: string, content: string }>,
+ *   messages: Array<{ role: string, content: string, reasoning?: string }>,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
+ *   onReasoningDelta?: (content: string) => void,
  *   label: string,
  *   mapStatus?: (status: number, detail: string, label: string) => { code: string, message: string },
  *   extraHeaders?: Record<string, string>,
  * }} args
- * @returns {Promise<{ model: string, message: { role: "assistant", content: string }, usage?: { inputTokens?: number, outputTokens?: number } }>}
+ * @returns {Promise<{ model: string, message: { role: "assistant", content: string, reasoning?: string }, usage?: { inputTokens?: number, outputTokens?: number } }>}
  */
 export async function streamOpenAICompatChat({
   url,
@@ -63,6 +105,7 @@ export async function streamOpenAICompatChat({
   messages,
   signal,
   onDelta,
+  onReasoningDelta,
   label,
   mapStatus = defaultMapStatus,
   extraHeaders = {},
@@ -83,7 +126,7 @@ export async function streamOpenAICompatChat({
       headers,
       body: JSON.stringify({
         model,
-        messages,
+        messages: mapMessagesForOpenAICompat(messages),
         stream: true,
         stream_options: { include_usage: true },
       }),
@@ -119,6 +162,7 @@ export async function streamOpenAICompatChat({
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let reasoning = "";
   let resolvedModel = model;
   /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
   let usage;
@@ -166,7 +210,14 @@ export async function streamOpenAICompatChat({
     }
 
     const choice = parsed.choices?.[0];
-    const delta = choice?.delta?.content;
+    const deltaObj = choice?.delta;
+    const reasoningDelta = extractOpenAICompatReasoningDelta(deltaObj);
+    if (reasoningDelta) {
+      reasoning += reasoningDelta;
+      onReasoningDelta?.(reasoningDelta);
+    }
+
+    const delta = deltaObj?.content;
     if (typeof delta === "string" && delta.length > 0) {
       content += delta;
       onDelta(delta);
@@ -218,9 +269,15 @@ export async function streamOpenAICompatChat({
     }
   }
 
+  /** @type {{ role: "assistant", content: string, reasoning?: string }} */
+  const message = { role: "assistant", content };
+  if (reasoning) {
+    message.reasoning = reasoning;
+  }
+
   return {
     model: resolvedModel,
-    message: { role: "assistant", content },
+    message,
     usage,
   };
 }
