@@ -132,6 +132,8 @@ export const ollamaProvider = {
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Ollama enables thinking by default for supported models; omit `think`
+        // unless we add an explicit user control. See docs.ollama.com/capabilities/thinking.
         body: JSON.stringify({
           model,
           messages: mapMessagesForOllama(messages),
