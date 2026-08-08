@@ -38,21 +38,15 @@ function defaultMapStatus(status, detail, label) {
 }
 
 /**
- * Map IPA messages to OpenAI-compat chat messages, round-tripping reasoning
- * via both common field names (DeepSeek/Qwen: reasoning_content; OpenRouter: reasoning).
+ * Map IPA messages to OpenAI-compat chat messages.
+ * Intentionally omits `reasoning`: many Chat Completions servers (OpenAI,
+ * vLLM, TRT-LLM, etc.) reject unknown message fields with HTTP 400.
+ * Inbound reasoning is still extracted from streamed deltas.
  * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
- * @returns {Array<Record<string, string>>}
+ * @returns {Array<{ role: string, content: string }>}
  */
 export function mapMessagesForOpenAICompat(messages) {
-  return messages.map((m) => {
-    /** @type {Record<string, string>} */
-    const out = { role: m.role, content: m.content };
-    if (typeof m.reasoning === "string" && m.reasoning) {
-      out.reasoning = m.reasoning;
-      out.reasoning_content = m.reasoning;
-    }
-    return out;
-  });
+  return messages.map((m) => ({ role: m.role, content: m.content }));
 }
 
 /**

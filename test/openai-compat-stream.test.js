@@ -203,7 +203,7 @@ describe("streamOpenAICompatChat", () => {
     expect(reasoningDeltas).toEqual(["a"]);
   });
 
-  it("round-trips prior message.reasoning as reasoning and reasoning_content", async () => {
+  it("strips prior message.reasoning from outbound OpenAI-compat messages", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"ok"}}]}\ndata: [DONE]\n')
     );
@@ -224,12 +224,7 @@ describe("streamOpenAICompatChat", () => {
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual([
       { role: "user", content: "hi" },
-      {
-        role: "assistant",
-        content: "hello",
-        reasoning: "prior thought",
-        reasoning_content: "prior thought",
-      },
+      { role: "assistant", content: "hello" },
     ]);
   });
 
@@ -474,19 +469,14 @@ describe("extractOpenAICompatReasoningDelta", () => {
 });
 
 describe("mapMessagesForOpenAICompat", () => {
-  it("copies reasoning onto both provider fields", () => {
+  it("maps role/content and drops reasoning", () => {
     expect(
       mapMessagesForOpenAICompat([
         { role: "assistant", content: "hi", reasoning: "why" },
         { role: "user", content: "ok" },
       ])
     ).toEqual([
-      {
-        role: "assistant",
-        content: "hi",
-        reasoning: "why",
-        reasoning_content: "why",
-      },
+      { role: "assistant", content: "hi" },
       { role: "user", content: "ok" },
     ]);
   });
