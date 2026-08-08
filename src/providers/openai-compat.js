@@ -100,7 +100,7 @@ export function createOpenAICompatProvider(endpoint) {
       return models;
     },
 
-    async streamChat({ apiKey, model, messages, signal, onDelta }) {
+    async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
       if (!model) {
         throwInference(
           "unavailable",
@@ -117,6 +117,7 @@ export function createOpenAICompatProvider(endpoint) {
         messages,
         signal,
         onDelta,
+        onReasoningDelta,
         label,
       });
     },

@@ -12,6 +12,14 @@
 
 /**
  * @typedef {{
+ *   role: string,
+ *   content: string,
+ *   reasoning?: string,
+ * }} ChatMessage
+ */
+
+/**
+ * @typedef {{
  *   id: string,
  *   label: string,
  *   requiresApiKey: boolean,
@@ -22,10 +30,15 @@
  *   streamChat: (args: {
  *     apiKey?: string,
  *     model: string,
- *     messages: Array<{ role: string, content: string }>,
+ *     messages: ChatMessage[],
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
- *   }) => Promise<{ model: string, message: { role: "assistant", content: string }, usage?: { inputTokens?: number, outputTokens?: number } }>
+ *     onReasoningDelta?: (content: string) => void,
+ *   }) => Promise<{
+ *     model: string,
+ *     message: { role: "assistant", content: string, reasoning?: string },
+ *     usage?: { inputTokens?: number, outputTokens?: number },
+ *   }>
  * }} Provider
  */
 

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { streamOpenAICompatChat } from "../src/providers/openai-compat-stream.js";
+import {
+  extractOpenAICompatReasoningDelta,
+  mapMessagesForOpenAICompat,
+  streamOpenAICompatChat,
+} from "../src/providers/openai-compat-stream.js";
 
 /**
  * @param {unknown} body
@@ -92,6 +96,7 @@ describe("streamOpenAICompatChat", () => {
       message: { role: "assistant", content: "Hello!" },
       usage: { inputTokens: 4, outputTokens: 2 },
     });
+    expect(result.message).not.toHaveProperty("reasoning");
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0];
@@ -105,6 +110,102 @@ describe("streamOpenAICompatChat", () => {
       stream: true,
       stream_options: { include_usage: true },
     });
+  });
+
+  it("streams reasoning_content and content separately; omits reasoning when absent", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning_content":"Let me "}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":"think."}}]}',
+      'data: {"choices":[{"delta":{"content":"42"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const deltas = [];
+    /** @type {string[]} */
+    const reasoningDeltas = [];
+    const result = await streamOpenAICompatChat(
+      baseArgs({
+        onDelta: (c) => deltas.push(c),
+        onReasoningDelta: (c) => reasoningDeltas.push(c),
+      })
+    );
+
+    expect(reasoningDeltas).toEqual(["Let me ", "think."]);
+    expect(deltas).toEqual(["42"]);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: "42",
+      reasoning: "Let me think.",
+    });
+  });
+
+  it("maps OpenRouter-style delta.reasoning when reasoning_content is absent", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning":"step1"}}]}',
+      'data: {"choices":[{"delta":{"content":"ans"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const reasoningDeltas = [];
+    const result = await streamOpenAICompatChat(
+      baseArgs({ onReasoningDelta: (c) => reasoningDeltas.push(c) })
+    );
+
+    expect(reasoningDeltas).toEqual(["step1"]);
+    expect(result.message.reasoning).toBe("step1");
+    expect(result.message.content).toBe("ans");
+  });
+
+  it("prefers reasoning_content over reasoning when both are present", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning_content":"a","reasoning":"b"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const reasoningDeltas = [];
+    await streamOpenAICompatChat(
+      baseArgs({ onReasoningDelta: (c) => reasoningDeltas.push(c) })
+    );
+    expect(reasoningDeltas).toEqual(["a"]);
+  });
+
+  it("round-trips prior message.reasoning as reasoning and reasoning_content", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse('data: {"choices":[{"delta":{"content":"ok"}}]}\ndata: [DONE]\n')
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAICompatChat(
+      baseArgs({
+        messages: [
+          { role: "user", content: "hi" },
+          {
+            role: "assistant",
+            content: "hello",
+            reasoning: "prior thought",
+          },
+        ],
+      })
+    );
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "hello",
+        reasoning: "prior thought",
+        reasoning_content: "prior thought",
+      },
+    ]);
   });
 
   it("omits Authorization when apiKey is absent and merges extraHeaders", async () => {
@@ -316,5 +417,33 @@ describe("streamOpenAICompatChat", () => {
       code: "provider_error",
       message: "Example response had no body",
     });
+  });
+});
+
+describe("extractOpenAICompatReasoningDelta", () => {
+  it("reads reasoning_content and reasoning string fields", () => {
+    expect(extractOpenAICompatReasoningDelta({ reasoning_content: "a" })).toBe("a");
+    expect(extractOpenAICompatReasoningDelta({ reasoning: "b" })).toBe("b");
+    expect(extractOpenAICompatReasoningDelta({})).toBe("");
+    expect(extractOpenAICompatReasoningDelta(undefined)).toBe("");
+  });
+});
+
+describe("mapMessagesForOpenAICompat", () => {
+  it("copies reasoning onto both provider fields", () => {
+    expect(
+      mapMessagesForOpenAICompat([
+        { role: "assistant", content: "hi", reasoning: "why" },
+        { role: "user", content: "ok" },
+      ])
+    ).toEqual([
+      {
+        role: "assistant",
+        content: "hi",
+        reasoning: "why",
+        reasoning_content: "why",
+      },
+      { role: "user", content: "ok" },
+    ]);
   });
 });

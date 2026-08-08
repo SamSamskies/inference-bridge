@@ -64,6 +64,8 @@ for await (const chunk of window.inference.request({
 })) {
   if (chunk.type === "accepted") {
     console.log("accepted");
+  } else if (chunk.type === "reasoning_delta") {
+    console.log("reasoning", chunk.content);
   } else if (chunk.type === "delta") {
     console.log("delta", chunk.content);
   } else if (chunk.type === "done") {
@@ -218,9 +220,11 @@ npm run package
 - [ ] Remember + Deny blocks the origin; later requests fail with `permission_denied` without prompting
 - [ ] Unblock in Options restores the permission prompt
 - [ ] Allow once works without persisting; Remember + Allow appears under Options with provider + model
-- [ ] Streaming yields one `accepted` chunk, then `delta` chunks, then a single `done`
-- [ ] `accepted` arrives after Allow (or silent persistent grant), before the first `delta`/`done`
+- [ ] Streaming yields one `accepted` chunk, then optional `reasoning_delta` / `delta` chunks, then a single `done`
+- [ ] `accepted` arrives after Allow (or silent persistent grant), before the first `reasoning_delta`/`delta`/`done`
 - [ ] `done.message.content` matches concatenated deltas
+- [ ] `done.message.reasoning` matches concatenated `reasoning_delta`s when present; omitted otherwise
+- [ ] Reasoning models (e.g. OpenRouter Qwen / Ollama thinking) stream `reasoning_delta` before answer `delta`s
 - [ ] AbortSignal / tab close produces `aborted`
 - [ ] Empty OpenAI / OpenRouter API key (that provider selected) yields `unavailable` with a setup hint
 - [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions

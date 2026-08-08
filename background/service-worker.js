@@ -452,6 +452,17 @@ async function handleStart(port, msg, onStreamId) {
           controller.abort();
         }
       },
+      onReasoningDelta: (content) => {
+        if (controller.signal.aborted) return;
+        try {
+          entry.port.postMessage({
+            type: "chunk",
+            chunk: { type: "reasoning_delta", content },
+          });
+        } catch {
+          controller.abort();
+        }
+      },
     });
 
     if (controller.signal.aborted) {

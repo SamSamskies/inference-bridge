@@ -89,6 +89,22 @@ export async function listOllamaModels({ signal } = {}) {
   return names;
 }
 
+/**
+ * Map IPA messages to Ollama chat messages, round-tripping reasoning as `thinking`.
+ * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
+ * @returns {Array<Record<string, string>>}
+ */
+export function mapMessagesForOllama(messages) {
+  return messages.map((m) => {
+    /** @type {Record<string, string>} */
+    const out = { role: m.role, content: m.content };
+    if (typeof m.reasoning === "string" && m.reasoning) {
+      out.thinking = m.reasoning;
+    }
+    return out;
+  });
+}
+
 /** @typedef {import("./types.js").Provider} Provider */
 
 /** @type {Provider} */
@@ -101,7 +117,7 @@ export const ollamaProvider = {
 
   listModels: listOllamaModels,
 
-  async streamChat({ model, messages, signal, onDelta }) {
+  async streamChat({ model, messages, signal, onDelta, onReasoningDelta }) {
     if (!model) {
       throwInference(
         "unavailable",
@@ -118,7 +134,7 @@ export const ollamaProvider = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          messages,
+          messages: mapMessagesForOllama(messages),
           stream: true,
         }),
         signal,
@@ -158,6 +174,7 @@ export const ollamaProvider = {
     const decoder = new TextDecoder();
     let buffer = "";
     let content = "";
+    let reasoning = "";
     let resolvedModel = model;
     /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
     let usage;
@@ -182,6 +199,12 @@ export const ollamaProvider = {
 
       if (typeof parsed.model === "string" && parsed.model) {
         resolvedModel = parsed.model;
+      }
+
+      const thinking = parsed.message?.thinking;
+      if (typeof thinking === "string" && thinking.length > 0) {
+        reasoning += thinking;
+        onReasoningDelta?.(thinking);
       }
 
       const delta = parsed.message?.content;
@@ -247,9 +270,15 @@ export const ollamaProvider = {
       }
     }
 
+    /** @type {{ role: "assistant", content: string, reasoning?: string }} */
+    const message = { role: "assistant", content };
+    if (reasoning) {
+      message.reasoning = reasoning;
+    }
+
     return {
       model: resolvedModel,
-      message: { role: "assistant", content },
+      message,
       usage,
     };
   },
