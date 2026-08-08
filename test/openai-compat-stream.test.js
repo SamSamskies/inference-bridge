@@ -162,6 +162,31 @@ describe("streamOpenAICompatChat", () => {
     expect(result.message.content).toBe("ans");
   });
 
+  it("maps OpenRouter delta.reasoning_details text into reasoning_delta", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","format":"unknown","index":0}]}}]}',
+      'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Let me ","index":0}]}}]}',
+      'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"think.","index":0}]}}]}',
+      'data: {"choices":[{"delta":{"content":"42"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const reasoningDeltas = [];
+    const result = await streamOpenAICompatChat(
+      baseArgs({ onReasoningDelta: (c) => reasoningDeltas.push(c) })
+    );
+
+    expect(reasoningDeltas).toEqual(["Let me ", "think."]);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: "42",
+      reasoning: "Let me think.",
+    });
+  });
+
   it("prefers reasoning_content over reasoning when both are present", async () => {
     const sse = [
       'data: {"choices":[{"delta":{"reasoning_content":"a","reasoning":"b"}}]}',
@@ -426,6 +451,25 @@ describe("extractOpenAICompatReasoningDelta", () => {
     expect(extractOpenAICompatReasoningDelta({ reasoning: "b" })).toBe("b");
     expect(extractOpenAICompatReasoningDelta({})).toBe("");
     expect(extractOpenAICompatReasoningDelta(undefined)).toBe("");
+  });
+
+  it("reads OpenRouter reasoning_details text and summary; skips empty/encrypted", () => {
+    expect(
+      extractOpenAICompatReasoningDelta({
+        reasoning_details: [
+          { type: "reasoning.text", format: "x", index: 0 },
+          { type: "reasoning.text", text: "a", index: 0 },
+          { type: "reasoning.summary", summary: "b", index: 1 },
+          { type: "reasoning.encrypted", data: "secret", index: 2 },
+        ],
+      })
+    ).toBe("ab");
+    expect(
+      extractOpenAICompatReasoningDelta({
+        reasoning_content: "prefer",
+        reasoning_details: [{ type: "reasoning.text", text: "ignored" }],
+      })
+    ).toBe("prefer");
   });
 });
 

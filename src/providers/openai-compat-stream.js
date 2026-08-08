@@ -57,6 +57,7 @@ export function mapMessagesForOpenAICompat(messages) {
 
 /**
  * Prefer reasoning_content (DeepSeek-native) when both string fields exist.
+ * Falls back to OpenRouter delta.reasoning_details[].text / .summary.
  * @param {Record<string, unknown> | undefined} delta
  * @returns {string}
  */
@@ -68,7 +69,19 @@ export function extractOpenAICompatReasoningDelta(delta) {
   if (typeof delta.reasoning === "string" && delta.reasoning) {
     return delta.reasoning;
   }
-  return "";
+  const details = delta.reasoning_details;
+  if (!Array.isArray(details)) return "";
+  let out = "";
+  for (const detail of details) {
+    if (!detail || typeof detail !== "object") continue;
+    const d = /** @type {Record<string, unknown>} */ (detail);
+    if (typeof d.text === "string" && d.text) {
+      out += d.text;
+    } else if (typeof d.summary === "string" && d.summary) {
+      out += d.summary;
+    }
+  }
+  return out;
 }
 
 /**
