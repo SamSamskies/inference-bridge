@@ -43,7 +43,8 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject `chrome-extension://` origins |
 | `https://api.openai.com/*` | Call the OpenAI Chat Completions API |
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
-| `https://openrouter.ai/*` | Call the OpenRouter models catalog and Chat Completions API || `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |
+| `https://openrouter.ai/*` | Call the OpenRouter models catalog and Chat Completions API |
+| `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |
 | Optional `http://*/*`, `https://*/*` | Not granted at install. When the user adds an OpenAI-compatible server, Chrome prompts for **that endpoint’s origin only** |
 
 Content scripts inject `window.inference` into top-level HTTP(S) pages so web apps can request inference. Injection is limited to secure contexts (`https:` or loopback `http:`).
