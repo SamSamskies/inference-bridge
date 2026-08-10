@@ -37,6 +37,11 @@ void ensureOllamaOriginBypass().catch(() => {});
  *   phase: StreamPhase,
  *   portDisconnected?: boolean,
  *   announced?: boolean,
+ *   pendingTool?: {
+ *     id: string,
+ *     resolve: (result: string) => void,
+ *     reject: (err: Error) => void,
+ *   },
  * }>} */
 const activeStreams = new Map();
 
@@ -53,10 +58,19 @@ function nextStreamId() {
  * @returns {never}
  */
 function throwInference(code, message) {
+  throw inferenceError(code, message);
+}
+
+/**
+ * @param {string} code
+ * @param {string} message
+ * @returns {Error & { code: string }}
+ */
+function inferenceError(code, message) {
   const error = new Error(message);
   error.name = "InferenceError";
   /** @type {any} */ (error).code = code;
-  throw error;
+  return error;
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -126,6 +140,22 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === "abort") {
       const id = typeof msg.streamId === "string" ? msg.streamId : boundStreamId;
       if (id) abortStream(id, "Request aborted");
+      return;
+    }
+    if (msg.type === "tool-result") {
+      // Page executed a tool (extension-driven loop); resume the provider.
+      const id = typeof msg.streamId === "string" ? msg.streamId : boundStreamId;
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (
+        entry?.pendingTool &&
+        msg.toolCallId === entry.pendingTool.id &&
+        entry.port === port
+      ) {
+        const { resolve } = entry.pendingTool;
+        entry.pendingTool = null;
+        resolve(typeof msg.result === "string" ? msg.result : "");
+      }
+      return;
     }
   });
 
@@ -440,6 +470,7 @@ async function handleStart(port, msg, onStreamId) {
       apiKey: settings.apiKeys[provider.id],
       model,
       messages: validated.value.messages,
+      tools: validated.value.tools,
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;
@@ -462,6 +493,14 @@ async function handleStart(port, msg, onStreamId) {
         } catch {
           controller.abort();
         }
+      },
+      // Extension-driven tool loop: emit a tool_call chunk, ask the page to
+      // execute the tool, and feed the result back to the provider.
+      runTool: async (toolCall) => {
+        if (controller.signal.aborted) {
+          throwInference("aborted", "Request aborted");
+        }
+        return runToolForStream(streamId, entry, toolCall);
       },
     });
 
@@ -498,6 +537,72 @@ async function handleStart(port, msg, onStreamId) {
 }
 
 /**
+ * Stream a `tool_call` chunk to the page, ask the injected bridge to execute
+ * the page-provided tool function, and return the serialized result.
+ * @param {string} streamId
+ * @param {{
+ *   port: chrome.runtime.Port,
+ *   controller: AbortController,
+ *   pendingTool?: {
+ *     id: string,
+ *     resolve: (result: string) => void,
+ *     reject: (err: Error) => void,
+ *   },
+ * }} entry
+ * @param {{ id?: string, name: string, arguments: Record<string, unknown> }} toolCall
+ * @returns {Promise<string>}
+ */
+async function runToolForStream(streamId, entry, toolCall) {
+  if (entry.controller.signal.aborted) {
+    throwInference("aborted", "Request aborted");
+  }
+
+  // Let the page observe the invocation before (or while) it executes.
+  try {
+    entry.port.postMessage({
+      type: "chunk",
+      chunk: { type: "tool_call", toolCall },
+    });
+  } catch {
+    throwInference("aborted", "Request aborted");
+  }
+
+  const result = await new Promise((resolve, reject) => {
+    if (entry.pendingTool) {
+      reject(inferenceError("provider_error", "Concurrent tool execution"));
+      return;
+    }
+    entry.pendingTool = {
+      id: toolCall.id || "",
+      resolve,
+      reject,
+    };
+    try {
+      entry.port.postMessage({
+        type: "execute-tool",
+        streamId,
+        toolCallId: toolCall.id || "",
+        name: toolCall.name,
+        arguments: toolCall.arguments || {},
+      });
+    } catch (err) {
+      entry.pendingTool = null;
+      reject(
+        inferenceError(
+          "unavailable",
+          err instanceof Error ? err.message : "Extension unavailable"
+        )
+      );
+    }
+  });
+
+  if (entry.controller.signal.aborted) {
+    throwInference("aborted", "Request aborted");
+  }
+  return result;
+}
+
+/**
  * @param {string} streamId
  * @param {string} reason
  */
@@ -505,6 +610,17 @@ function abortStream(streamId, reason) {
   const entry = activeStreams.get(streamId);
   cancelApproval(streamId);
   if (!entry) return;
+
+  // Reject an in-flight tool execution so the provider loop unwinds cleanly.
+  if (entry.pendingTool) {
+    const { reject } = entry.pendingTool;
+    entry.pendingTool = null;
+    try {
+      reject(inferenceError("aborted", reason));
+    } catch {
+      // ignore
+    }
+  }
 
   activeStreams.delete(streamId);
   try {

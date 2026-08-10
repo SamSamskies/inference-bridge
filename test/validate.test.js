@@ -52,13 +52,19 @@ describe("validateInferenceRequest", () => {
     expect(
       validateInferenceRequest({
         method: "chat",
-        messages: [{ role: "tool", content: "x" }],
+        messages: [{ role: "system", content: "x", tool_calls: [] }],
       }).ok
     ).toBe(false);
     expect(
       validateInferenceRequest({
         method: "chat",
         messages: [{ role: "user", content: 42 }],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "tool", content: 42 }],
       }).ok
     ).toBe(false);
   });
@@ -118,6 +124,132 @@ describe("validateInferenceRequest", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.value).not.toHaveProperty("signal");
+  });
+
+  it("accepts MCP-style tools and strips unknown fields", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          name: "get_weather",
+          description: "Weather lookup",
+          inputSchema: { type: "object", properties: { city: { type: "string" } } },
+          extra: 1,
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.tools).toEqual([
+      {
+        name: "get_weather",
+        description: "Weather lookup",
+        inputSchema: { type: "object", properties: { city: { type: "string" } } },
+      },
+    ]);
+  });
+
+  it("omits tools from value when absent", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value).not.toHaveProperty("tools");
+  });
+
+  it("rejects invalid tools", () => {
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        tools: "nope",
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{}],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ name: "", description: 3, inputSchema: "x" }],
+      }).ok
+    ).toBe(false);
+  });
+
+  it("round-trips tool-role messages and assistant tool_calls", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          tool_calls: [
+            { id: "call_1", name: "get_weather", arguments: { city: "NYC" } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "20" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.messages).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", name: "get_weather", arguments: { city: "NYC" } }],
+      },
+      { role: "tool", content: "20", tool_call_id: "call_1" },
+    ]);
+  });
+
+  it("parses string tool_calls arguments into an object", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            { name: "get_weather", arguments: '{"city":"NYC"}' },
+          ],
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.messages[0].tool_calls[0].arguments).toEqual({
+      city: "NYC",
+    });
+  });
+
+  it("rejects tool_calls on non-assistant messages and malformed calls", () => {
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "x", tool_calls: [] }],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [
+          { role: "assistant", content: "x", tool_calls: [{ name: "t", arguments: 5 }] },
+        ],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [
+          { role: "assistant", content: "x", tool_calls: [{ name: "t", arguments: "not-json" }] },
+        ],
+      }).ok
+    ).toBe(false);
   });
 });
 

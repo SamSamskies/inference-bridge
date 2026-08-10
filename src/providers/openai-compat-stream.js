@@ -1,7 +1,12 @@
 /**
  * Shared OpenAI-compatible chat Completions SSE streaming helper.
- * Used by OpenAI and OpenRouter adapters.
+ * Used by OpenAI, OpenRouter, and user-configured compat adapters.
  */
+
+import { runToolLoop } from "./tool-loop.js";
+
+/** @typedef {import("./types.js").ToolCall} ToolCall */
+/** @typedef {import("./types.js").ToolDefinition} ToolDefinition */
 
 /**
  * @param {string} code
@@ -42,11 +47,49 @@ function defaultMapStatus(status, detail, label) {
  * Intentionally omits `reasoning`: many Chat Completions servers (OpenAI,
  * vLLM, TRT-LLM, etc.) reject unknown message fields with HTTP 400.
  * Inbound reasoning is still extracted from streamed deltas.
- * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
- * @returns {Array<{ role: string, content: string }>}
+ * Round-trips assistant `tool_calls` and `tool` role results.
+ * @param {Array<{ role: string, content: string, reasoning?: string, tool_call_id?: string, tool_calls?: Array<{id?: string, name: string, arguments?: Record<string, unknown>}> }>} messages
+ * @returns {Array<Record<string, unknown>>}
  */
 export function mapMessagesForOpenAICompat(messages) {
-  return messages.map((m) => ({ role: m.role, content: m.content }));
+  return messages.map((m) => {
+    /** @type {Record<string, unknown>} */
+    const out = { role: m.role, content: m.content };
+    if (
+      m.role === "assistant" &&
+      Array.isArray(m.tool_calls) &&
+      m.tool_calls.length > 0
+    ) {
+      out.tool_calls = m.tool_calls.map((c) => ({
+        ...(c.id ? { id: c.id } : {}),
+        type: "function",
+        function: {
+          name: c.name,
+          arguments: JSON.stringify(c.arguments ?? {}),
+        },
+      }));
+    }
+    if (m.role === "tool" && typeof m.tool_call_id === "string" && m.tool_call_id) {
+      out.tool_call_id = m.tool_call_id;
+    }
+    return out;
+  });
+}
+
+/**
+ * Map MCP-style tool definitions to the OpenAI `tools` array shape.
+ * @param {ToolDefinition[]} tools
+ * @returns {Array<Record<string, unknown>>}
+ */
+export function mapToolsForOpenAICompat(tools) {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      ...(tool.description ? { description: tool.description } : {}),
+      ...(tool.inputSchema ? { parameters: tool.inputSchema } : {}),
+    },
+  }));
 }
 
 /**
@@ -79,16 +122,15 @@ export function extractOpenAICompatReasoningDelta(delta) {
 }
 
 /**
- * Stream an OpenAI-compatible chat completion.
- *
- * Lines that do not start with `data:` are ignored (covers OpenRouter's
- * `: OPENROUTER PROCESSING` SSE keep-alive comments).
+ * Stream a single OpenAI-compatible chat completion turn.
+ * Streams content/reasoning deltas and reassembles any streamed tool_calls.
  *
  * @param {{
  *   url: string,
  *   apiKey?: string,
  *   model: string,
- *   messages: Array<{ role: string, content: string, reasoning?: string }>,
+ *   messages: Array<Record<string, unknown>>,
+ *   tools?: ToolDefinition[],
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
@@ -96,13 +138,20 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *   mapStatus?: (status: number, detail: string, label: string) => { code: string, message: string },
  *   extraHeaders?: Record<string, string>,
  * }} args
- * @returns {Promise<{ model: string, message: { role: "assistant", content: string, reasoning?: string }, usage?: { inputTokens?: number, outputTokens?: number } }>}
+ * @returns {Promise<{
+ *   model: string,
+ *   content: string,
+ *   reasoning: string,
+ *   usage?: { inputTokens?: number, outputTokens?: number },
+ *   toolCalls?: ToolCall[],
+ * }>}
  */
-export async function streamOpenAICompatChat({
+async function streamOpenAICompatChatTurn({
   url,
   apiKey,
   model,
   messages,
+  tools,
   signal,
   onDelta,
   onReasoningDelta,
@@ -127,6 +176,9 @@ export async function streamOpenAICompatChat({
       body: JSON.stringify({
         model,
         messages: mapMessagesForOpenAICompat(messages),
+        ...(tools && tools.length > 0
+          ? { tools: mapToolsForOpenAICompat(tools) }
+          : {}),
         stream: true,
         stream_options: { include_usage: true },
       }),
@@ -166,6 +218,8 @@ export async function streamOpenAICompatChat({
   let resolvedModel = model;
   /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
   let usage;
+  /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+  const toolCalls = new Map();
 
   /**
    * @param {string} line
@@ -222,6 +276,27 @@ export async function streamOpenAICompatChat({
       content += delta;
       onDelta(delta);
     }
+
+    // Tool calls stream in deltas keyed by index; id/name arrive once, the
+    // arguments string is split across deltas and must be concatenated.
+    if (Array.isArray(deltaObj?.tool_calls)) {
+      for (const tc of deltaObj.tool_calls) {
+        if (!tc || typeof tc !== "object") continue;
+        const index = typeof tc.index === "number" ? tc.index : 0;
+        let entry = toolCalls.get(index);
+        if (!entry) {
+          entry = { id: "", name: "", arguments: "" };
+          toolCalls.set(index, entry);
+        }
+        if (typeof tc.id === "string" && tc.id) entry.id = tc.id;
+        if (typeof tc.function?.name === "string" && tc.function.name) {
+          entry.name = tc.function.name;
+        }
+        if (typeof tc.function?.arguments === "string") {
+          entry.arguments += tc.function.arguments;
+        }
+      }
+    }
   }
 
   /**
@@ -269,15 +344,101 @@ export async function streamOpenAICompatChat({
     }
   }
 
-  /** @type {{ role: "assistant", content: string, reasoning?: string }} */
-  const message = { role: "assistant", content };
-  if (reasoning) {
-    message.reasoning = reasoning;
+  /** @type {ToolCall[] | undefined} */
+  let resolvedToolCalls;
+  if (toolCalls.size > 0) {
+    resolvedToolCalls = [...toolCalls.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, entry]) => {
+        let args;
+        try {
+          args = JSON.parse(entry.arguments || "{}");
+        } catch {
+          args = {};
+        }
+        return {
+          ...(entry.id ? { id: entry.id } : {}),
+          name: entry.name,
+          arguments:
+            args && typeof args === "object" && !Array.isArray(args)
+              ? args
+              : {},
+        };
+      });
   }
 
   return {
     model: resolvedModel,
-    message,
+    content,
+    reasoning,
     usage,
+    ...(resolvedToolCalls && resolvedToolCalls.length > 0
+      ? { toolCalls: resolvedToolCalls }
+      : {}),
+  };
+}
+
+/**
+ * Stream an OpenAI-compatible chat completion, running the full tool-calling
+ * loop when the model requests tool calls. When a turn ends in tool_calls the
+ * given `runTool` callback executes each call on the page and the result is
+ * fed back to the model for the next turn.
+ *
+ * Lines that do not start with `data:` are ignored (covers OpenRouter's
+ * `: OPENROUTER PROCESSING` SSE keep-alive comments).
+ *
+ * @param {{
+ *   url: string,
+ *   apiKey?: string,
+ *   model: string,
+ *   messages: Array<{ role: string, content: string, reasoning?: string, tool_call_id?: string, tool_calls?: Array<{id?: string, name: string, arguments?: Record<string, unknown>}> }>,
+ *   tools?: ToolDefinition[],
+ *   signal: AbortSignal,
+ *   onDelta: (content: string) => void,
+ *   onReasoningDelta?: (content: string) => void,
+ *   runTool?: (call: ToolCall) => Promise<string>,
+ *   label: string,
+ *   mapStatus?: (status: number, detail: string, label: string) => { code: string, message: string },
+ *   extraHeaders?: Record<string, string>,
+ * }} args
+ * @returns {Promise<{ model: string, message: { role: "assistant", content: string, reasoning?: string, tool_calls?: Array<ToolCall & { result?: string }> }, usage?: { inputTokens?: number, outputTokens?: number } }>}
+ */
+export async function streamOpenAICompatChat({
+  url,
+  apiKey,
+  model,
+  messages,
+  tools,
+  signal,
+  onDelta,
+  onReasoningDelta,
+  runTool,
+  label,
+  mapStatus,
+  extraHeaders,
+}) {
+  const result = await runToolLoop({
+    initialMessages: /** @type {Array<Record<string, unknown>>} */ (messages),
+    runTool,
+    turn: (msgs) =>
+      streamOpenAICompatChatTurn({
+        url,
+        apiKey,
+        model,
+        messages: msgs,
+        tools,
+        signal,
+        onDelta,
+        onReasoningDelta,
+        label,
+        mapStatus,
+        extraHeaders,
+      }),
+  });
+
+  return {
+    model: result.model || model,
+    message: result.message,
+    usage: result.usage,
   };
 }

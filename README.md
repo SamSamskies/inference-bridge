@@ -9,6 +9,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 ## Features
 
 - `window.inference.request()` for streaming text chat
+- **Experimental** tool calling: pass MCP-style function definitions and let the page's own functions answer the model mid-stream (extension drives the loop)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), OpenRouter (BYOK), and local Ollama support
@@ -129,6 +130,47 @@ try {
 }
 ```
 
+### Tools (experimental)
+
+Pass an array of MCP-style function definitions to `request()`. Attach an
+`execute` function to each definition — it runs in the page and its result is
+fed back to the model automatically, so `request()` yields a single final
+`done` (plus `tool_call` chunks so you can observe invocations):
+
+```js
+const weather = {
+  name: "get_weather",
+  description: "Get the temperature for a city.",
+  inputSchema: {
+    type: "object",
+    properties: { city: { type: "string" } },
+    required: ["city"],
+  },
+  execute: async ({ city }) => {
+    const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(city)}`);
+    return await res.text();
+  },
+};
+
+for await (const chunk of window.inference.request({
+  method: "chat",
+  messages: [{ role: "user", content: "What's the weather in New York?" }],
+  tools: [weather],
+})) {
+  if (chunk.type === "tool_call") {
+    console.log("using tool", chunk.toolCall.name, chunk.toolCall.arguments);
+  } else if (chunk.type === "delta") {
+    console.log("delta", chunk.content);
+  } else if (chunk.type === "done") {
+    console.log("done", chunk.message, chunk.usage);
+  }
+}
+```
+
+`done.message.tool_calls` lists every executed call as
+`{ id?, name, arguments, result }`. Only the `name` / `description` /
+`inputSchema` fields are sent to the provider — executors never leave the page.
+
 Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) (chat, social Ask AI, and more). Source lives in the [specification repository](https://github.com/SamSamskies/inference-provider-api/tree/main/examples).
 
 ## Security
@@ -188,13 +230,15 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Spec contract (`window.inference.request`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Tools / vision / audio / embeddings | Not implemented; treat as future experimental candidates |
+| Tools | Experimental (extension-driven loop; OpenAI / OpenRouter / OpenAI-compatible / Ollama) |
+| Vision / audio / embeddings | Not implemented; treat as future experimental candidates |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
 ## Experimental Features
 
 - **Named OpenAI-compatible endpoints** — Configure multiple servers (name, base URL, optional API key) in Options. Each appears in the provider picker as `Name (experimental)`. Chat uses `/v1/chat/completions`; models use a select from `GET /v1/models` when available, with free-text fallback if listing fails. Host access is requested per origin on save (`optional_host_permissions`). Does not expand the page-facing IPA. Not a substitute for the built-in Ollama provider.
+- **Tool calling** — `request()` accepts an array of MCP-style function definitions (`{ name, description?, inputSchema? }`). Definitions are passed to the provider as callable tools; an optional page-attached `execute(args)` function runs in the MAIN world. When the model requests a tool call, the extension streams a `tool_call` chunk, runs the page function, feeds the result back, and continues until the model finishes — `request()` returns a single `done`. Multi-turn `tool` / assistant-`tool_calls` messages are also accepted for manual round-trips. Out of the current IPA spec draft (tool calling is listed as out of scope); treat as experimental.
 
 ## Development
 
@@ -242,7 +286,7 @@ npm run package
 ### Current limitations
 
 - Built-in providers are OpenAI, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are experimental and user-configured
-- Text chat only (no tools, images, embeddings, speech)
+- Text chat plus experimental tool calling (no images, embeddings, speech)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property

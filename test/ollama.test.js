@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   listOllamaModels,
+  mapMessagesForOllama,
+  mapToolsForOllama,
   ollamaProvider,
   OLLAMA_BASE_URL,
 } from "../src/providers/ollama.js";
@@ -420,6 +422,220 @@ describe("ollamaProvider.streamChat", () => {
       name: "InferenceError",
       code: "unavailable",
       message: "Failed to fetch",
+    });
+  });
+});
+
+describe("mapMessagesForOllama", () => {
+  it("round-trips assistant tool_calls (dropping ids) and keeps tool results", () => {
+    expect(
+      mapMessagesForOllama([
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "c1", name: "get_weather", arguments: { city: "NYC" } }],
+        },
+        { role: "tool", tool_call_id: "c1", content: "20" },
+      ])
+    ).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ function: { name: "get_weather", arguments: { city: "NYC" } } }],
+      },
+      { role: "tool", content: "20" },
+    ]);
+  });
+});
+
+describe("mapToolsForOllama", () => {
+  it("maps MCP-style definitions to the Ollama tools shape", () => {
+    expect(
+      mapToolsForOllama([
+        { name: "get_weather", description: "Weather lookup" },
+        {
+          name: "with_schema",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ])
+    ).toEqual([
+      {
+        type: "function",
+        function: { name: "get_weather", description: "Weather lookup" },
+      },
+      {
+        type: "function",
+        function: {
+          name: "with_schema",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ]);
+  });
+});
+
+describe("ollamaProvider tool calling", () => {
+  it("sends tools in the request body", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "llama3.2:latest",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          name: "get_weather",
+          description: "Weather lookup",
+          inputSchema: { type: "object" },
+        },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "get_weather",
+          description: "Weather lookup",
+          parameters: { type: "object" },
+        },
+      },
+    ]);
+  });
+
+  it("executes tool_calls via runTool and feeds results back", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ndjsonResponse(
+          [
+            JSON.stringify({ message: { role: "assistant", content: "" }, done: false }),
+            JSON.stringify({
+              message: {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  { function: { name: "get_weather", arguments: { city: "NYC" } } },
+                ],
+              },
+              done: true,
+              prompt_eval_count: 5,
+              eval_count: 1,
+            }),
+            "",
+          ].join("\n")
+        )
+      )
+      .mockResolvedValueOnce(
+        ndjsonResponse(
+          [
+            JSON.stringify({
+              message: { role: "assistant", content: "It is 20°C in NYC." },
+              done: true,
+              prompt_eval_count: 8,
+              eval_count: 3,
+            }),
+            "",
+          ].join("\n")
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runTool = vi.fn(async () => "20");
+    const result = await ollamaProvider.streamChat({
+      model: "llama3.2:latest",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "get_weather" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+      runTool,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(runTool).toHaveBeenCalledTimes(1);
+    expect(runTool).toHaveBeenCalledWith({
+      name: "get_weather",
+      arguments: { city: "NYC" },
+    });
+    expect(result.message.content).toBe("It is 20°C in NYC.");
+    expect(result.message.tool_calls).toEqual([
+      { name: "get_weather", arguments: { city: "NYC" }, result: "20" },
+    ]);
+    expect(result.usage).toEqual({ inputTokens: 13, outputTokens: 4 });
+
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(secondBody.messages).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { function: { name: "get_weather", arguments: { city: "NYC" } } },
+        ],
+      },
+      { role: "tool", content: "20" },
+    ]);
+  });
+
+  it("parses string tool arguments from the stream into objects", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ndjsonResponse(
+          [
+            JSON.stringify({
+              message: {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  {
+                    function: {
+                      name: "get_weather",
+                      arguments: '{"city":"NYC"}',
+                    },
+                  },
+                ],
+              },
+              done: true,
+            }),
+            "",
+          ].join("\n")
+        )
+      )
+      .mockResolvedValueOnce(
+        ndjsonResponse(
+          JSON.stringify({
+            message: { role: "assistant", content: "done" },
+            done: true,
+          }) + "\n"
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runTool = vi.fn(async () => "20");
+    await ollamaProvider.streamChat({
+      model: "llama3.2:latest",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "get_weather" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+      runTool,
+    });
+
+    expect(runTool).toHaveBeenCalledWith({
+      name: "get_weather",
+      arguments: { city: "NYC" },
     });
   });
 });

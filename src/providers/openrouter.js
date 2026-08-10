@@ -105,7 +105,7 @@ export const openrouterProvider = {
 
   listModels: listOpenRouterModels,
 
-  async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
+  async streamChat({ apiKey, model, messages, tools, signal, onDelta, onReasoningDelta, runTool }) {
     if (!model) {
       throwInference(
         "unavailable",
@@ -118,9 +118,11 @@ export const openrouterProvider = {
       apiKey,
       model,
       messages,
+      tools,
       signal,
       onDelta,
       onReasoningDelta,
+      runTool,
       label: "OpenRouter",
       mapStatus: mapOpenRouterStatus,
     });

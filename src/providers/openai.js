@@ -34,15 +34,17 @@ export const openaiProvider = {
   models: OPENAI_MODELS,
   defaultModel: "gpt-5.6-luna",
 
-  async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
+  async streamChat({ apiKey, model, messages, tools, signal, onDelta, onReasoningDelta, runTool }) {
     return streamOpenAICompatChat({
       url: OPENAI_URL,
       apiKey,
       model,
       messages,
+      tools,
       signal,
       onDelta,
       onReasoningDelta,
+      runTool,
       label: "OpenAI",
     });
   },

@@ -19,6 +19,12 @@
   const pending = new Map();
   /** @type {Map<string, (data: any) => void>} */
   const streamHandlers = new Map();
+  /**
+   * Page-provided tool executors, keyed by streamId then tool name.
+   * Executors live in the MAIN world only — they never cross to the extension.
+   * @type {Map<string, Map<string, (args: any) => any>>}
+   */
+  const toolExecutors = new Map();
 
   /**
    * @param {string} code
@@ -51,6 +57,12 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
 
+    // Extension-driven tool loop: run the page-provided executor and reply.
+    if (data.type === "execute-tool") {
+      void handleExecuteTool(data);
+      return;
+    }
+
     if (typeof data.id === "string" && pending.has(data.id)) {
       const settle = pending.get(data.id);
       pending.delete(data.id);
@@ -60,6 +72,42 @@
 
     if (typeof data.streamId === "string" && streamHandlers.has(data.streamId)) {
       streamHandlers.get(data.streamId)(data);
+    }
+  }
+
+  /**
+   * Execute a tool on the page and report the serialized result back to the
+   * extension so the provider can continue its tool-calling loop.
+   * @param {{ streamId: string, toolCallId: string, name: string, arguments: any }} data
+   */
+  async function handleExecuteTool(data) {
+    const executors = toolExecutors.get(data.streamId);
+    const executor = executors?.get(data.name);
+    let result;
+    if (typeof executor === "function") {
+      try {
+        result = await executor(data.arguments);
+      } catch (err) {
+        result = { error: err instanceof Error ? err.message : String(err) };
+      }
+    } else {
+      result = { error: `Tool "${data.name}" is not available on this page.` };
+    }
+    const serialized =
+      typeof result === "string"
+        ? result
+        : result == null
+          ? "null"
+          : JSON.stringify(result);
+    try {
+      bridgePort.postMessage({
+        type: "tool-result",
+        streamId: data.streamId,
+        toolCallId: data.toolCallId,
+        result: serialized,
+      });
+    } catch {
+      // ignore — page may have navigated away
     }
   }
 
@@ -143,6 +191,7 @@
         function cleanupListeners() {
           if (streamId) {
             streamHandlers.delete(streamId);
+            toolExecutors.delete(streamId);
           }
           if (onAbort && signal) {
             signal.removeEventListener("abort", onAbort);
@@ -204,6 +253,38 @@
             request && typeof request === "object" ? { ...request } : {};
           delete serializable.signal;
 
+          // Tools carry page functions (executors) that must not cross the
+          // bridge. Send only the MCP-style definitions and keep the executors
+          // here for the extension's tool-calling loop.
+          let executors;
+          if (Array.isArray(serializable.tools)) {
+            executors = new Map();
+            const cleanTools = [];
+            for (const tool of serializable.tools) {
+              if (!tool || typeof tool !== "object") continue;
+              /** @type {{ name?: string, description?: string, inputSchema?: object }} */
+              const def = {};
+              if (typeof tool.name === "string" && tool.name) {
+                def.name = tool.name;
+              }
+              if (typeof tool.description === "string") {
+                def.description = tool.description;
+              }
+              if (
+                tool.inputSchema &&
+                typeof tool.inputSchema === "object" &&
+                !Array.isArray(tool.inputSchema)
+              ) {
+                def.inputSchema = tool.inputSchema;
+              }
+              cleanTools.push(def);
+              if (typeof tool.execute === "function") {
+                executors.set(def.name, tool.execute);
+              }
+            }
+            serializable.tools = cleanTools;
+          }
+
           // Register AbortSignal before the round-trip so abort during start
           // marks the iterator closed; abortRemote runs once streamId exists.
           if (signal) {
@@ -234,6 +315,9 @@
 
           state = "open";
           streamHandlers.set(streamId, onStreamData);
+          if (executors && executors.size > 0) {
+            toolExecutors.set(streamId, executors);
+          }
 
           if (signal?.aborted) {
             abortRemote();

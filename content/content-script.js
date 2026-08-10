@@ -35,6 +35,26 @@
           // ignore
         }
       }
+      return;
+    }
+
+    // Page executed a tool (extension-driven loop); hand the result to the
+    // service worker so the provider can continue.
+    if (data.type === "tool-result") {
+      const port = ports.get(data.streamId);
+      if (port) {
+        try {
+          port.postMessage({
+            type: "tool-result",
+            streamId: data.streamId,
+            toolCallId: data.toolCallId,
+            result: data.result,
+          });
+        } catch {
+          // ignore
+        }
+      }
+      return;
     }
   };
 
@@ -177,6 +197,24 @@
             });
           }
           cleanup();
+          return;
+        }
+
+        // Service worker asks the page to run a tool; relay to the MAIN-world
+        // bridge, which holds the page-provided executor.
+        if (msg.type === "execute-tool") {
+          try {
+            bridgePort.postMessage({
+              type: "execute-tool",
+              streamId: msg.streamId,
+              toolCallId: msg.toolCallId,
+              name: msg.name,
+              arguments: msg.arguments,
+            });
+          } catch {
+            // ignore
+          }
+          return;
         }
       });
 
