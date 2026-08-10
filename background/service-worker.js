@@ -167,9 +167,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "list-providers") {
     /**
      * @param {import("../src/providers/types.js").Provider[]} all
-     * @param {Record<string, string>} [apiKeys]
+     * @param {Record<string, string> | null | undefined} [apiKeys]
+     *   Map when settings loaded; omit/`null` means unknown (do not claim hasApiKey: false).
      */
-    const serializeProviders = (all, apiKeys = {}) =>
+    const serializeProviders = (all, apiKeys) =>
       all.map((p) => ({
         id: p.id,
         label: p.label,
@@ -177,7 +178,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         optionalApiKey: Boolean(
           /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
         ),
-        hasApiKey: Boolean(apiKeys[p.id]),
+        ...(apiKeys
+          ? { hasApiKey: Boolean(apiKeys[p.id]) }
+          : {}),
         defaultModel: p.defaultModel,
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
@@ -190,11 +193,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     void listAllProviders()
       .then(async (all) => {
-        let apiKeys = {};
+        /** @type {Record<string, string> | null} */
+        let apiKeys = null;
         try {
           ({ apiKeys } = await getSettings());
         } catch {
-          // Approval can still list providers; hasApiKey stays false.
+          // Keep listing; omit hasApiKey so Allow is not falsely disabled.
         }
         sendResponse({ providers: serializeProviders(all, apiKeys) });
       })

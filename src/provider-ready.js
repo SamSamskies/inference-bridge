@@ -16,8 +16,9 @@ export function isApprovalProviderReady(provider, status = {}) {
     return Boolean(status.ollamaAvailable);
   }
   // Compat endpoints may work without a key; required-key BYOK needs one saved.
+  // Missing hasApiKey means settings were unread — do not block Allow (stream still enforces).
   if (provider.requiresApiKey && !provider.optionalApiKey) {
-    return Boolean(provider.hasApiKey);
+    return provider.hasApiKey !== false;
   }
   return true;
 }
@@ -48,7 +49,7 @@ export function approvalProviderSetupHint(provider, status = {}) {
   if (
     provider.requiresApiKey &&
     !provider.optionalApiKey &&
-    !provider.hasApiKey
+    provider.hasApiKey === false
   ) {
     return `${provider.label} needs an API key — add one in Options to enable it.`;
   }

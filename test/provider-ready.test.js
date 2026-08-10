@@ -44,6 +44,15 @@ describe("isApprovalProviderReady", () => {
     ).toBe(false);
   });
 
+  it("does not block Allow when hasApiKey is unknown", () => {
+    expect(
+      isApprovalProviderReady({
+        id: "anthropic",
+        requiresApiKey: true,
+      })
+    ).toBe(true);
+  });
+
   it("allows optionalApiKey compat endpoints without a key", () => {
     expect(
       isApprovalProviderReady({
@@ -94,6 +103,14 @@ describe("approvalProviderSetupHint", () => {
         label: "OpenAI",
         requiresApiKey: true,
         hasApiKey: true,
+      })
+    ).toBe("");
+
+    expect(
+      approvalProviderSetupHint({
+        id: "anthropic",
+        label: "Anthropic",
+        requiresApiKey: true,
       })
     ).toBe("");
   });
