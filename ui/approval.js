@@ -534,19 +534,30 @@ async function decide(action) {
   }
 }
 
+/**
+ * Re-fetch provider list so hasApiKey stays current if Options saves a key
+ * while this popup remains open.
+ * @returns {Promise<boolean>} true when at least one provider was loaded
+ */
+async function refreshProviders() {
+  const providersResponse = await chrome.runtime.sendMessage({
+    type: "list-providers",
+  });
+  const next = Array.isArray(providersResponse?.providers)
+    ? providersResponse.providers
+    : [];
+  if (next.length === 0) return false;
+  providers = next;
+  return true;
+}
+
 async function load() {
   if (!requestId) {
     showError("Missing request id.");
     return;
   }
 
-  const providersResponse = await chrome.runtime.sendMessage({
-    type: "list-providers",
-  });
-  providers = Array.isArray(providersResponse?.providers)
-    ? providersResponse.providers
-    : [];
-  if (providers.length === 0) {
+  if (!(await refreshProviders())) {
     showError("No inference providers are available.");
     return;
   }
@@ -587,6 +598,15 @@ async function load() {
       : providers.find((p) => p.id === providerId)?.defaultModel || undefined;
   await loadModelsForProvider(providerId, preferredModel);
 }
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.apiKeys) return;
+  void refreshProviders().then((ok) => {
+    if (!ok) return;
+    updateProviderHint();
+    updateAllowEnabled();
+  });
+});
 
 providerSelect.addEventListener("change", () => {
   const provider = providers.find((p) => p.id === providerSelect.value);
