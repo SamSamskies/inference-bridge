@@ -94,6 +94,37 @@ describe("mapMessagesForAnthropic", () => {
       });
     }
   });
+
+  it("merges consecutive same-role messages", () => {
+    expect(
+      mapMessagesForAnthropic([
+        { role: "user", content: "One" },
+        { role: "user", content: "Two" },
+        { role: "assistant", content: "A" },
+        { role: "assistant", content: "B" },
+        { role: "user", content: "Three" },
+      ])
+    ).toEqual({
+      messages: [
+        { role: "user", content: "One\n\nTwo" },
+        { role: "assistant", content: "A\n\nB" },
+        { role: "user", content: "Three" },
+      ],
+    });
+  });
+
+  it("merges same-role turns that were separated only by system messages", () => {
+    expect(
+      mapMessagesForAnthropic([
+        { role: "user", content: "Hi" },
+        { role: "system", content: "Note" },
+        { role: "user", content: "Again" },
+      ])
+    ).toEqual({
+      system: "Note",
+      messages: [{ role: "user", content: "Hi\n\nAgain" }],
+    });
+  });
 });
 
 describe("mapAnthropicStatus", () => {

@@ -55,6 +55,7 @@ export function mapAnthropicStatus(status, detail) {
 /**
  * Map IPA messages to Anthropic Messages API shape.
  * System roles become a top-level `system` string; outbound `reasoning` is dropped.
+ * Consecutive same-role turns are merged so the result alternates user/assistant.
  * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
  * @returns {{ system?: string, messages: Array<{ role: string, content: string }> }}
  */
@@ -69,6 +70,14 @@ export function mapMessagesForAnthropic(messages) {
       if (typeof m.content === "string" && m.content) {
         systemParts.push(m.content);
       }
+      continue;
+    }
+    const last = mapped[mapped.length - 1];
+    if (last && last.role === m.role) {
+      last.content =
+        last.content && m.content
+          ? `${last.content}\n\n${m.content}`
+          : last.content || m.content;
       continue;
     }
     mapped.push({ role: m.role, content: m.content });
