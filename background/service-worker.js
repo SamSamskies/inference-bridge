@@ -165,7 +165,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
-    const serializeProviders = (all) =>
+    /**
+     * @param {import("../src/providers/types.js").Provider[]} all
+     * @param {Record<string, string>} [apiKeys]
+     */
+    const serializeProviders = (all, apiKeys = {}) =>
       all.map((p) => ({
         id: p.id,
         label: p.label,
@@ -173,6 +177,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         optionalApiKey: Boolean(
           /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
         ),
+        hasApiKey: Boolean(apiKeys[p.id]),
         defaultModel: p.defaultModel,
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
@@ -184,8 +189,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }));
 
     void listAllProviders()
-      .then((all) => {
-        sendResponse({ providers: serializeProviders(all) });
+      .then(async (all) => {
+        let apiKeys = {};
+        try {
+          ({ apiKeys } = await getSettings());
+        } catch {
+          // Approval can still list providers; hasApiKey stays false.
+        }
+        sendResponse({ providers: serializeProviders(all, apiKeys) });
       })
       .catch((err) => {
         // Built-ins do not depend on settings/compat; keep them available.

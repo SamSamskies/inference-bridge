@@ -4,6 +4,10 @@ import {
   populateModelSelect,
   usesModelAutosuggest,
 } from "./model-input.js";
+import {
+  approvalProviderSetupHint,
+  isApprovalProviderReady,
+} from "../src/provider-ready.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -28,7 +32,7 @@ try {
 
 const originEl = document.getElementById("origin");
 const providerSelect = document.getElementById("provider");
-const ollamaHint = document.getElementById("ollamaHint");
+const providerHint = document.getElementById("providerHint");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
 const modelInput = document.getElementById("modelInput");
@@ -42,7 +46,14 @@ const rememberHint = document.getElementById("rememberHint");
 const allowBtn = document.getElementById("allow");
 const denyBtn = document.getElementById("deny");
 
-/** @type {Array<{ id: string, label: string, defaultModel: string }>} */
+/** @type {Array<{
+ *   id: string,
+ *   label: string,
+ *   defaultModel: string,
+ *   requiresApiKey?: boolean,
+ *   optionalApiKey?: boolean,
+ *   hasApiKey?: boolean,
+ * }>} */
 let providers = [];
 
 /** Whether the current provider has a usable model selection. */
@@ -89,14 +100,21 @@ function setModelHint(message) {
   modelHint.textContent = message;
 }
 
-function updateOllamaHint(_providerId) {
-  if (!ollamaStatus.available) {
-    ollamaHint.hidden = false;
-    ollamaHint.textContent = ollamaStatus.message;
+function updateProviderHint(providerId = providerSelect.value) {
+  const provider = providers.find((p) => p.id === providerId);
+  const hint = provider
+    ? approvalProviderSetupHint(provider, {
+        ollamaAvailable: ollamaStatus.available,
+        ollamaMessage: ollamaStatus.message,
+      })
+    : "";
+  if (!hint) {
+    providerHint.hidden = true;
+    providerHint.textContent = "";
     return;
   }
-  ollamaHint.hidden = true;
-  ollamaHint.textContent = "";
+  providerHint.hidden = false;
+  providerHint.textContent = hint;
 }
 
 /**
@@ -168,10 +186,16 @@ function updateAllowEnabled() {
     return;
   }
   const providerId = providerSelect.value;
+  const provider = providers.find((p) => p.id === providerId);
+  const providerReady = provider
+    ? isApprovalProviderReady(provider, {
+        ollamaAvailable: ollamaStatus.available,
+      })
+    : false;
   const valid = isModelValid(readModelValue(providerId), currentModels, {
     allowUnknown: allowUnknownFor(providerId),
   });
-  allowBtn.disabled = !modelsReady || !valid;
+  allowBtn.disabled = !providerReady || !modelsReady || !valid;
 }
 
 /**
@@ -210,7 +234,7 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
-        "Ollama is unavailable at http://localhost:11434, so this option is disabled. Install and start Ollama (and pull a model) to enable it.",
+        "Ollama is unavailable at http://localhost:11434. Install and start Ollama (and pull a model) to use it.",
     };
     return ollamaStatus;
   }
@@ -221,7 +245,7 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
-        "Ollama is running but has no models installed, so this option is disabled. Run ollama pull gemma4, then try again.",
+        "Ollama is running but has no models installed. Run ollama pull gemma4, then try again.",
     };
     return ollamaStatus;
   }
@@ -235,26 +259,25 @@ async function refreshOllamaStatus() {
 }
 
 /**
- * Map a stored/preferred provider id onto one that exists in the select and is
- * currently choosable. Unknown ids (and unavailable Ollama) must not be
- * returned as-is: the browser would select the first option while callers keep
- * the stale id, and loadModelsForProvider would then bail on the mismatch.
+ * Prefer the requested provider when it exists (even if not ready for Allow),
+ * so the setup hint can explain a missing key / Ollama downtime. Unknown ids
+ * fall back to a ready provider when possible.
  * @param {string} selectedId
  * @returns {string}
  */
 function resolveSelectableProviderId(selectedId) {
-  /** @param {{ id: string }} p */
-  const isChoosable = (p) => p.id !== "ollama" || ollamaStatus.available;
-  const fallback =
-    providers.find((p) => p.id === "openai" && isChoosable(p))?.id ||
-    providers.find(isChoosable)?.id ||
-    "";
-  const known = providers.some((p) => p.id === selectedId);
-  let effectiveId = known ? selectedId : fallback;
-  if (!providers.some((p) => p.id === effectiveId && isChoosable(p))) {
-    effectiveId = fallback;
+  if (providers.some((p) => p.id === selectedId)) {
+    return selectedId;
   }
-  return effectiveId;
+  const status = { ollamaAvailable: ollamaStatus.available };
+  return (
+    providers.find(
+      (p) => p.id === "openai" && isApprovalProviderReady(p, status)
+    )?.id ||
+    providers.find((p) => isApprovalProviderReady(p, status))?.id ||
+    providers[0]?.id ||
+    ""
+  );
 }
 
 /**
@@ -268,11 +291,8 @@ function fillProviders(selectedId) {
   for (const provider of providers) {
     const option = document.createElement("option");
     option.value = provider.id;
-    const unavailable = provider.id === "ollama" && !ollamaStatus.available;
-    option.disabled = unavailable;
-    option.textContent = unavailable
-      ? `${provider.label} (unavailable)`
-      : provider.label;
+    // Keep unready providers selectable so the hint can explain why Allow is off.
+    option.textContent = provider.label;
     if (provider.id === effectiveId) option.selected = true;
     providerSelect.append(option);
   }
@@ -288,7 +308,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   modelsReady = false;
   currentModels = [];
   updateAllowEnabled();
-  updateOllamaHint(providerId);
+  updateProviderHint(providerId);
   setModelHint("Loading models…");
   populateModelControl(providerId, [], preferredModel, {
     allowUnknown: true,
@@ -460,6 +480,17 @@ async function decide(action) {
   const model = readModelValue(providerId);
 
   if (action === "allow") {
+    const provider = providers.find((p) => p.id === providerId);
+    if (
+      !provider ||
+      !isApprovalProviderReady(provider, {
+        ollamaAvailable: ollamaStatus.available,
+      })
+    ) {
+      updateProviderHint(providerId);
+      updateAllowEnabled();
+      return;
+    }
     if (
       !isModelValid(model, currentModels, {
         allowUnknown: allowUnknownFor(providerId),
@@ -540,8 +571,10 @@ async function load() {
       ? request.providerId
       : providers[0].id;
   const providerId = fillProviders(requestedId);
+  updateProviderHint(providerId);
   renderPreview(request.messages || []);
   updateRememberHint();
+
   // Prefer the pending request's model (global default, last-used, or preferred)
   // even when it is a free-typed slug that fails the stricter plausibility check.
   const requestModel =
