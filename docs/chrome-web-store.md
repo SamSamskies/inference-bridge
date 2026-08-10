@@ -44,7 +44,7 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Route `window.inference` chat to OpenAI, OpenRouter, or Ollama — keys stay in the extension. |
+| Summary | Route `window.inference` chat to OpenAI, OpenRouter, Ollama, or your own OpenAI-compatible server — keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -55,13 +55,14 @@ unzip -l dist/inference-bridge-*.zip
 ```
 Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
 
-Bring your own OpenAI or OpenRouter key, or run local Ollama. API keys stay in the extension; page scripts never see them.
+Bring your own OpenAI or OpenRouter key, run local Ollama, or add an experimental OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
-• OpenAI, OpenRouter, or local Ollama
-• Local Ollama works without special OLLAMA_ORIGINS setup
+• OpenAI, OpenRouter, local Ollama, or named OpenAI-compatible endpoints
+• Optional host access is requested only for each custom server origin you save
+• Local Ollama and other loopback servers work without special ORIGINS setup
 • Injects only on https and localhost pages
 
 Official reference for the experimental Inference Provider API:
