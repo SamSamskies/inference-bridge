@@ -205,9 +205,11 @@ function updateApiKeyField(providerId) {
   apiKeyInput.placeholder =
     provider.id === "openrouter"
       ? "sk-or-..."
-      : provider.optionalApiKey
-        ? "Leave blank if not required"
-        : "sk-...";
+      : provider.id === "anthropic"
+        ? "sk-ant-..."
+        : provider.optionalApiKey
+          ? "Leave blank if not required"
+          : "sk-...";
   apiKeyInput.value = apiKeyDrafts[provider.id] || "";
   apiKeyInput.type = "password";
   toggleApiKeyButton.textContent = "Show";

@@ -35,7 +35,11 @@ describe("getSettings", () => {
       apiKeys: {},
       defaultProviderId: "openai",
       defaultModel: "gpt-5.6-luna",
-      defaultModels: { openai: "gpt-5.6-luna", openrouter: "openrouter/auto" },
+      defaultModels: {
+        openai: "gpt-5.6-luna",
+        anthropic: "claude-sonnet-5",
+        openrouter: "openrouter/auto",
+      },
       compatEndpoints: [],
       allowedOrigins: {},
       blockedOrigins: {},
@@ -209,6 +213,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
     expect(settings.defaultModel).toBe("openrouter/free");
     expect(settings.defaultModels).toEqual({
       openai: "gpt-4.1-nano",
+      anthropic: "claude-sonnet-5",
       openrouter: "openrouter/free",
     });
   });
@@ -255,6 +260,22 @@ describe("isPlausibleModelForProvider", () => {
     expect(isPlausibleModelForProvider("compat:abc", "local-model")).toBe(true);
     expect(isPlausibleModelForProvider("compat:abc", "org/model")).toBe(true);
     expect(isPlausibleModelForProvider("compat:abc", "")).toBe(false);
+  });
+
+  it("accepts Claude ids for Anthropic and rejects slash or OpenAI ids", () => {
+    expect(isPlausibleModelForProvider("anthropic", "claude-sonnet-5")).toBe(
+      true
+    );
+    expect(
+      isPlausibleModelForProvider("anthropic", "claude-opus-4-20250514")
+    ).toBe(true);
+    expect(
+      isPlausibleModelForProvider("anthropic", "anthropic/claude-sonnet-5")
+    ).toBe(false);
+    expect(isPlausibleModelForProvider("anthropic", "gpt-5.6-luna")).toBe(
+      false
+    );
+    expect(isPlausibleModelForProvider("anthropic", "")).toBe(false);
   });
 });
 

@@ -17,9 +17,9 @@ beforeEach(() => {
 });
 
 describe("provider registry", () => {
-  it("registers openai, ollama, and openrouter", () => {
+  it("registers openai, anthropic, openrouter, and ollama", () => {
     const ids = listProviders().map((p) => p.id).sort();
-    expect(ids).toEqual(["ollama", "openai", "openrouter"]);
+    expect(ids).toEqual(["anthropic", "ollama", "openai", "openrouter"]);
     expect(getDefaultProvider().id).toBe("openai");
     expect(getProvider("missing")).toBeUndefined();
   });
@@ -49,6 +49,7 @@ describe("provider registry", () => {
     try {
       const all = await listAllProviders();
       expect(all.map((p) => p.id).sort()).toEqual([
+        "anthropic",
         "ollama",
         "openai",
         "openrouter",
@@ -76,5 +77,18 @@ describe("provider registry", () => {
     expect(openrouter.label).toBe("OpenRouter");
     expect(typeof openrouter.listModels).toBe("function");
     expect(openrouter.defaultModel).toBe("openrouter/auto");
+  });
+
+  it("exposes Anthropic with curated models and requiresApiKey", async () => {
+    const anthropic = getProvider("anthropic");
+    expect(anthropic).toBeDefined();
+    expect(anthropic.requiresApiKey).toBe(true);
+    expect(anthropic.label).toBe("Anthropic");
+    expect(anthropic.defaultModel).toBe("claude-sonnet-5");
+    expect(typeof anthropic.listModels).toBe("undefined");
+    const models = await resolveProviderModels(anthropic);
+    expect(models).toContainEqual({ id: "claude-fable-5" });
+    expect(models).toContainEqual({ id: "claude-sonnet-5" });
+    expect(models).toContainEqual({ id: "claude-opus-5" });
   });
 });

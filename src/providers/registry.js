@@ -3,6 +3,7 @@
  */
 
 import { openaiProvider } from "./openai.js";
+import { anthropicProvider } from "./anthropic.js";
 import { ollamaProvider } from "./ollama.js";
 import { openrouterProvider } from "./openrouter.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
@@ -14,8 +15,9 @@ import { getSettings } from "../storage.js";
 /** @type {Map<string, Provider>} */
 const providers = new Map([
   [openaiProvider.id, openaiProvider],
-  [ollamaProvider.id, ollamaProvider],
+  [anthropicProvider.id, anthropicProvider],
   [openrouterProvider.id, openrouterProvider],
+  [ollamaProvider.id, ollamaProvider],
 ]);
 
 /**
