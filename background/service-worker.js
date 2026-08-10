@@ -445,6 +445,10 @@ async function handleStart(port, msg, onStreamId) {
       throwInference("unavailable", "No model selected for this provider.");
     }
 
+    // Provider-specific message-shape checks (e.g. Anthropic rejects
+    // assistant-first threads) must fail here, before `accepted` is sent.
+    provider.preflightMessages?.(validated.value.messages);
+
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
     livePort.postMessage({
       type: "chunk",

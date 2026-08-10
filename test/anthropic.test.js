@@ -166,6 +166,32 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.models).toContain("claude-sonnet-5");
   });
 
+  it("rejects assistant-first threads in preflight, before any provider work", () => {
+    try {
+      anthropicProvider.preflightMessages?.([
+        { role: "assistant", content: "Hello! How can I help?" },
+        { role: "user", content: "Hi" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message:
+          "Anthropic requires the first non-system message to be from the user",
+      });
+    }
+  });
+
+  it("accepts user-first threads in preflight", () => {
+    expect(() =>
+      anthropicProvider.preflightMessages?.([
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "Hi" },
+      ])
+    ).not.toThrow();
+  });
+
   it("streams text_delta chunks and maps usage from message events", async () => {
     const sse = [
       "event: message_start",

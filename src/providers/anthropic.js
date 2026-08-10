@@ -129,6 +129,16 @@ export const anthropicProvider = {
   models: ANTHROPIC_MODELS,
   defaultModel: "claude-sonnet-5",
 
+  /**
+   * Anthropic rejects threads with no non-system turn or an assistant-first
+   * turn. Surface that as invalid_request before the `accepted` chunk instead
+   * of mid-stream.
+   * @param {import("./types.js").ChatMessage[]} messages
+   */
+  preflightMessages(messages) {
+    mapMessagesForAnthropic(messages);
+  },
+
   async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
     const mapped = mapMessagesForAnthropic(messages);
 
