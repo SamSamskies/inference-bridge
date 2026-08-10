@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inference Bridge",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
   "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
