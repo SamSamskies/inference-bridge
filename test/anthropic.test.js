@@ -81,6 +81,19 @@ describe("mapMessagesForAnthropic", () => {
       messages: [{ role: "user", content: "Hi" }],
     });
   });
+
+  it("rejects system-only requests that would leave messages empty", () => {
+    try {
+      mapMessagesForAnthropic([{ role: "system", content: "Be brief." }]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message: "Anthropic requires at least one non-system message",
+      });
+    }
+  });
 });
 
 describe("mapAnthropicStatus", () => {

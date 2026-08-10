@@ -74,6 +74,13 @@ export function mapMessagesForAnthropic(messages) {
     mapped.push({ role: m.role, content: m.content });
   }
 
+  if (mapped.length === 0) {
+    throwInference(
+      "invalid_request",
+      "Anthropic requires at least one non-system message"
+    );
+  }
+
   /** @type {{ system?: string, messages: Array<{ role: string, content: string }> }} */
   const out = { messages: mapped };
   if (systemParts.length > 0) {
