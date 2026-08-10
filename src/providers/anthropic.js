@@ -89,6 +89,12 @@ export function mapMessagesForAnthropic(messages) {
       "Anthropic requires at least one non-system message"
     );
   }
+  if (mapped[0].role !== "user") {
+    throwInference(
+      "invalid_request",
+      "Anthropic requires the first non-system message to be from the user"
+    );
+  }
 
   /** @type {{ system?: string, messages: Array<{ role: string, content: string }> }} */
   const out = { messages: mapped };

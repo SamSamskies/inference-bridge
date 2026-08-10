@@ -95,6 +95,24 @@ describe("mapMessagesForAnthropic", () => {
     }
   });
 
+  it("rejects requests whose first non-system turn is assistant", () => {
+    try {
+      mapMessagesForAnthropic([
+        { role: "system", content: "Be brief." },
+        { role: "assistant", content: "Hello" },
+        { role: "user", content: "Hi" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message:
+          "Anthropic requires the first non-system message to be from the user",
+      });
+    }
+  });
+
   it("merges consecutive same-role messages", () => {
     expect(
       mapMessagesForAnthropic([
