@@ -45,7 +45,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | Provider | Auth | Notes |
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
-| Anthropic | API key in Options | Curated Claude list + free-text; Messages API (not Chat Completions) |
+| Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
 | OpenAI-compatible (experimental) | Optional API key | User-named endpoints; select from `GET /v1/models` when available, free-text fallback; chat via `/v1/chat/completions` |
@@ -79,7 +79,7 @@ for await (const chunk of window.inference.request({
 ### Anthropic
 
 1. Create an API key at [console.anthropic.com](https://console.anthropic.com/)
-2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5`; pick another Claude model or type a free-text id), and click **Save**
+2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5`; pick another Claude model from the list), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 
 Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`POST /v1/messages`), not OpenAI Chat Completions.
