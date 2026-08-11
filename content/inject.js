@@ -107,8 +107,10 @@
   /**
    * Lazy AsyncIterable — the extension call starts when iteration begins.
    * @param {any} request
+   * @param {{ experimental?: boolean }} [options]
    */
-  function createStream(request) {
+  function createStream(request, options = {}) {
+    const experimental = options.experimental === true;
     const signal = request && typeof request === "object" ? request.signal : undefined;
 
     return {
@@ -220,6 +222,7 @@
           const started = await sendToExtension({
             type: "start",
             request: serializable,
+            ...(experimental ? { experimental: true } : {}),
           });
 
           streamId = started.streamId;
@@ -318,6 +321,11 @@
       request(request) {
         return createStream(request);
       },
+      experimental: Object.freeze({
+        request(request) {
+          return createStream(request, { experimental: true });
+        },
+      }),
     }),
     writable: false,
     configurable: false,

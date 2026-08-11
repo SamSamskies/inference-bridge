@@ -5,6 +5,7 @@
 import { serializeInferenceError } from "../src/errors.js";
 import {
   validateInferenceRequest,
+  validateExperimentalInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
 import { getSettings } from "../src/storage.js";
@@ -338,7 +339,10 @@ async function handleStart(port, msg, onStreamId) {
       return null;
     }
 
-    const validated = validateInferenceRequest(msg.request);
+    const experimental = msg.experimental === true;
+    const validated = experimental
+      ? validateExperimentalInferenceRequest(msg.request)
+      : validateInferenceRequest(msg.request);
     if (!validated.ok) {
       sendError("invalid_request", validated.message);
       activeStreams.delete(streamId);
