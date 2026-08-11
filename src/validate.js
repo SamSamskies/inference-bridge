@@ -50,11 +50,19 @@ function rejectStableToolFields(req, messages) {
   }
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (m && typeof m === "object" && !Array.isArray(m) && "tool_calls" in m) {
+    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+    if ("tool_calls" in m) {
       return {
         ok: false,
         message:
           'messages[].tool_calls is only available via window.inference.experimental.request.',
+      };
+    }
+    if ("tool_call_id" in m) {
+      return {
+        ok: false,
+        message:
+          'messages[].tool_call_id is only available via window.inference.experimental.request.',
       };
     }
   }

@@ -64,7 +64,7 @@ describe("validateInferenceRequest", () => {
     ).toBe(false);
   });
 
-  it("rejects tools, tool_choice, and tool_calls (experimental-only)", () => {
+  it("rejects tools, tool_choice, tool_calls, and tool_call_id (experimental-only)", () => {
     const tools = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
@@ -99,6 +99,15 @@ describe("validateInferenceRequest", () => {
     });
     expect(toolCalls.ok).toBe(false);
     expect(toolCalls.message).toMatch(/experimental/);
+
+    const toolCallId = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        { role: "assistant", content: "ok", tool_call_id: "call_1" },
+      ],
+    });
+    expect(toolCallId.ok).toBe(false);
+    expect(toolCallId.message).toMatch(/experimental/);
   });
 
   it("strips unknown fields and keeps system/user/assistant", () => {
