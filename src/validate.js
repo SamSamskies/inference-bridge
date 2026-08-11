@@ -389,14 +389,27 @@ export function validateExperimentalInferenceRequest(request) {
     }
 
     if (m.role === "assistant") {
-      if (!(typeof m.content === "string" || m.content === null)) {
+      // Chat Completions often omits content when only tool_calls are present.
+      /** @type {string | null} */
+      let content;
+      if (!("content" in m)) {
+        if (!("tool_calls" in m)) {
+          return {
+            ok: false,
+            message: `messages[${i}].content must be a string or null.`,
+          };
+        }
+        content = null;
+      } else if (!(typeof m.content === "string" || m.content === null)) {
         return {
           ok: false,
           message: `messages[${i}].content must be a string or null.`,
         };
+      } else {
+        content = m.content;
       }
       /** @type {ExperimentalMessage} */
-      const normalized = { role: "assistant", content: m.content };
+      const normalized = { role: "assistant", content };
       if ("tool_calls" in m) {
         const toolCalls = validateToolCalls(m.tool_calls, `messages[${i}].tool_calls`);
         if (!toolCalls.ok) return toolCalls;

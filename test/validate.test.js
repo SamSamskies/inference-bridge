@@ -278,6 +278,36 @@ describe("validateExperimentalInferenceRequest", () => {
     ]);
   });
 
+  it("normalizes omitted assistant content to null when tool_calls are present", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.messages[0]).toEqual({
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "get_weather", arguments: "{}" },
+        },
+      ],
+    });
+  });
+
   it("accepts function-shaped tool_choice", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
