@@ -22,6 +22,11 @@ import {
   resolveProviderModels,
 } from "../src/providers/registry.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
+import {
+  canAcceptRebind,
+  canAcceptStartedAck,
+  decidePortDisconnect,
+} from "../src/stream-rebind.js";
 
 // Drop chrome-extension Origin so local Ollama does not 403 chat requests.
 // Provider calls await their own retry; this eager attempt must not create an
@@ -86,7 +91,7 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === "started-ack") {
       const id = typeof msg.streamId === "string" ? msg.streamId : "";
       const entry = id ? activeStreams.get(id) : undefined;
-      if (entry && entry.phase === "awaiting_permission" && entry.port === port) {
+      if (canAcceptStartedAck(entry, port)) {
         entry.announced = true;
         boundStreamId = id;
       }
@@ -96,13 +101,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const id = typeof msg.streamId === "string" ? msg.streamId : "";
       const entry = id ? activeStreams.get(id) : undefined;
       const senderTabId = port.sender?.tab?.id;
-      // Only the originating tab may rebind — streamId alone must not let
-      // another tab take over an awaiting_permission stream.
-      const sameTab =
-        entry?.tabId != null &&
-        senderTabId != null &&
-        senderTabId === entry.tabId;
-      if (entry && entry.phase === "awaiting_permission" && sameTab) {
+      if (canAcceptRebind(entry, senderTabId)) {
         entry.port = port;
         entry.portDisconnected = false;
         // Rebind proves the content script has streamId (started-ack may have
@@ -132,14 +131,9 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => {
     if (!boundStreamId) return;
     const entry = activeStreams.get(boundStreamId);
-    // Ignore disconnect from a superseded port after a successful rebind —
-    // otherwise portDisconnected flips true again and Approve waits forever.
-    if (entry && entry.port !== port) return;
-    // While the approval popup is open, a brief port drop must not cancel the
-    // pending decision — the content script may rebind, and a late Approve
-    // should still resolve. Only after the content script acks "started"
-    // (announced); before that it has no streamId and cannot rebind.
-    if (entry?.phase === "awaiting_permission" && entry.announced) {
+    const decision = decidePortDisconnect(entry, port);
+    if (decision === "ignore") return;
+    if (decision === "soft_hold") {
       entry.portDisconnected = true;
       return;
     }
