@@ -110,6 +110,29 @@ describe("validateInferenceRequest", () => {
     expect(toolCallId.message).toMatch(/experimental/);
   });
 
+  it("ignores undefined tool fields on the stable path (option spreads)", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "assistant",
+          content: "ok",
+          tool_calls: undefined,
+          tool_call_id: undefined,
+        },
+      ],
+      tools: undefined,
+      tool_choice: undefined,
+    });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        method: "chat",
+        messages: [{ role: "assistant", content: "ok" }],
+      },
+    });
+  });
+
   it("strips unknown fields and keeps system/user/assistant", () => {
     const result = validateInferenceRequest({
       method: "chat",

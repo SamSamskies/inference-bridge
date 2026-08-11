@@ -34,14 +34,16 @@ const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
  * @returns {{ ok: false, message: string } | null}
  */
 function rejectStableToolFields(req, messages) {
-  if ("tools" in req) {
+  // Treat undefined as absent so spreads like `{ ...opts, tools: undefined }`
+  // do not trip the stable path.
+  if (req.tools !== undefined) {
     return {
       ok: false,
       message:
         'tools is only available via window.inference.experimental.request.',
     };
   }
-  if ("tool_choice" in req) {
+  if (req.tool_choice !== undefined) {
     return {
       ok: false,
       message:
@@ -51,14 +53,14 @@ function rejectStableToolFields(req, messages) {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (!m || typeof m !== "object" || Array.isArray(m)) continue;
-    if ("tool_calls" in m) {
+    if (m.tool_calls !== undefined) {
       return {
         ok: false,
         message:
           'messages[].tool_calls is only available via window.inference.experimental.request.',
       };
     }
-    if ("tool_call_id" in m) {
+    if (m.tool_call_id !== undefined) {
       return {
         ok: false,
         message:
