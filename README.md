@@ -148,7 +148,7 @@ Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/
 - Does not inject into `file:` pages
 - Permission is per HTTP(S) origin and records the chosen provider + model
 - Request validation happens in the extension before any provider call
-- OpenAI / OpenRouter credentials are read only inside the service worker
+- OpenAI / Anthropic / OpenRouter credentials are read only inside the service worker
 - Ollama traffic stays on `http://localhost:11434` / `http://127.0.0.1:11434`
 - Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
 - Optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves

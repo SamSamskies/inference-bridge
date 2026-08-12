@@ -105,9 +105,9 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the README manual checklist on a clean profile:
 
 1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
-2. Confirm OpenAI, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
+2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
-4. Confirm install-time host permissions remain OpenAI / OpenRouter / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
+4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
 
 ## Submit (manual)
 
