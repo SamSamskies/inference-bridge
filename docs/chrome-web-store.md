@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, OpenRouter, local Ollama, or experimental OpenAI-compatible servers). Keep listing copy focused on that purpose.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, Anthropic, OpenRouter, local Ollama, or experimental OpenAI-compatible servers). Keep listing copy focused on that purpose.
 
 ## Versioning
 
@@ -44,7 +44,7 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Route `window.inference` chat to OpenAI, OpenRouter, Ollama, or your own OpenAI-compatible server — keys stay in the extension. |
+| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Ollama, or your own OpenAI-compatible server — keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -55,12 +55,12 @@ unzip -l dist/inference-bridge-*.zip
 ```
 Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
 
-Bring your own OpenAI or OpenRouter key, run local Ollama, or add an experimental OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
+Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an experimental OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
-• OpenAI, OpenRouter, local Ollama, or named OpenAI-compatible endpoints
+• OpenAI, Anthropic, OpenRouter, local Ollama, or named OpenAI-compatible endpoints
 • Optional host access is requested only for each custom server origin you save
 • Local Ollama and other loopback servers work without special ORIGINS setup
 • Injects only on https and localhost pages
@@ -77,6 +77,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
+- **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
 - **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an experimental OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.

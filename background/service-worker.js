@@ -159,7 +159,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
-    const serializeProviders = (all) =>
+    /**
+     * @param {import("../src/providers/types.js").Provider[]} all
+     * @param {Record<string, string> | null | undefined} [apiKeys]
+     *   Map when settings loaded; omit/`null` means unknown (do not claim hasApiKey: false).
+     */
+    const serializeProviders = (all, apiKeys) =>
       all.map((p) => ({
         id: p.id,
         label: p.label,
@@ -167,6 +172,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         optionalApiKey: Boolean(
           /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
         ),
+        ...(apiKeys
+          ? { hasApiKey: Boolean(apiKeys[p.id]) }
+          : {}),
         defaultModel: p.defaultModel,
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
@@ -178,8 +186,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }));
 
     void listAllProviders()
-      .then((all) => {
-        sendResponse({ providers: serializeProviders(all) });
+      .then(async (all) => {
+        /** @type {Record<string, string> | null} */
+        let apiKeys = null;
+        try {
+          ({ apiKeys } = await getSettings());
+        } catch {
+          // Keep listing; omit hasApiKey so Allow is not falsely disabled.
+        }
+        sendResponse({ providers: serializeProviders(all, apiKeys) });
       })
       .catch((err) => {
         // Built-ins do not depend on settings/compat; keep them available.
@@ -423,6 +438,10 @@ async function handleStart(port, msg, onStreamId) {
       }
       throwInference("unavailable", "No model selected for this provider.");
     }
+
+    // Provider-specific message-shape checks (e.g. Anthropic rejects
+    // assistant-first threads) must fail here, before `accepted` is sent.
+    provider.preflightMessages?.(validated.value.messages);
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
     livePort.postMessage({

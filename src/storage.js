@@ -20,6 +20,7 @@ const DEFAULTS = Object.freeze({
   /** @type {Readonly<Record<string, string>>} */
   defaultModels: Object.freeze({
     openai: "gpt-5.6-luna",
+    anthropic: "claude-sonnet-5",
     openrouter: "openrouter/auto",
   }),
   /** @type {readonly CompatEndpoint[]} */
@@ -48,10 +49,11 @@ export function isCompatProviderId(providerId) {
 
 /**
  * OpenRouter catalog ids are always `org/model`. OpenAI's curated list has no
- * slash. Reject cross-contaminated prefs (e.g. gpt-5.6-luna stored under
- * openrouter after an older single-defaultModel save). Ollama accepts local
- * tags (`gemma4`, `llama3.2:latest`, `user/model`) but not OpenAI curated ids.
- * Named OpenAI-compatible endpoints accept any non-empty model string.
+ * slash. Anthropic ids are `claude-…` without a provider slash. Reject
+ * cross-contaminated prefs (e.g. gpt-5.6-luna stored under openrouter after an
+ * older single-defaultModel save). Ollama accepts local tags (`gemma4`,
+ * `llama3.2:latest`, `user/model`) but not OpenAI curated ids. Named
+ * OpenAI-compatible endpoints accept any non-empty model string.
  * @param {string} providerId
  * @param {string} model
  * @returns {boolean}
@@ -62,6 +64,9 @@ export function isPlausibleModelForProvider(providerId, model) {
   if (isCompatProviderId(providerId)) return true;
   if (providerId === "openrouter") return trimmed.includes("/");
   if (providerId === "openai") return !trimmed.includes("/");
+  if (providerId === "anthropic") {
+    return trimmed.startsWith("claude-") && !trimmed.includes("/");
+  }
   if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
   return true;
 }

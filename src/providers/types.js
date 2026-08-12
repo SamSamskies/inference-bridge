@@ -27,6 +27,7 @@
  *   defaultModel: string,
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   preflightMessages?: (messages: ChatMessage[]) => void,
  *   streamChat: (args: {
  *     apiKey?: string,
  *     model: string,

@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **OpenRouter**, local **Ollama**, or experimental **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, or experimental **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -11,7 +11,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - `window.inference.request()` for streaming text chat
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
-- OpenAI (BYOK), OpenRouter (BYOK), and local Ollama support
+- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
 - Experimental named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
@@ -34,6 +34,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 6. Open the extension **Options** page (or click the toolbar icon)
 7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
+   - **Anthropic** — paste your Anthropic API key and choose a Claude model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — no API key; models are listed from your local Ollama install
    - **OpenAI-compatible (experimental)** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
@@ -44,11 +45,12 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | Provider | Auth | Notes |
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
+| Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
 | OpenAI-compatible (experimental) | Optional API key | User-named endpoints; select from `GET /v1/models` when available, free-text fallback; chat via `/v1/chat/completions` |
 
-To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js)), register it in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the experimental named-endpoint UI instead.
+To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/anthropic.js`](src/providers/anthropic.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); Anthropic uses a dedicated Messages API adapter). Models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js). Register the provider in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the experimental named-endpoint UI instead.
 
 ## Try it
 
@@ -73,6 +75,14 @@ for await (const chunk of window.inference.request({
   }
 }
 ```
+
+### Anthropic
+
+1. Create an API key at [console.anthropic.com](https://console.anthropic.com/)
+2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5`; pick another Claude model from the list), and click **Save**
+3. Run the snippet above on an HTTPS or localhost page
+
+Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`POST /v1/messages`), not OpenAI Chat Completions.
 
 ### OpenRouter
 
@@ -170,6 +180,7 @@ If you are building your own IPA extension with local providers, follow the Orig
       openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
       openai-compat.js           # factory for user-named OpenAI-compatible servers
       openai.js                  # OpenAI streaming adapter
+      anthropic.js               # Anthropic Messages API streaming adapter
       openrouter.js              # OpenRouter /api/v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
   ui/
@@ -226,7 +237,7 @@ npm run package
 - [ ] `done.message.reasoning` matches concatenated `reasoning_delta`s when present; omitted otherwise
 - [ ] Reasoning models (e.g. OpenRouter Qwen / Ollama thinking) stream `reasoning_delta` before answer `delta`s
 - [ ] AbortSignal / tab close produces `aborted`
-- [ ] Empty OpenAI / OpenRouter API key (that provider selected) yields `unavailable` with a setup hint
+- [ ] Empty OpenAI / Anthropic / OpenRouter API key (that provider selected) yields `unavailable` with a setup hint
 - [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions
 - [ ] OpenRouter router models (e.g. `openrouter/free`) work; `done.model` may report the underlying model
 - [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
@@ -241,7 +252,7 @@ npm run package
 
 ### Current limitations
 
-- Built-in providers are OpenAI, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are experimental and user-configured
+- Built-in providers are OpenAI, Anthropic, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are experimental and user-configured
 - Text chat only (no tools, images, embeddings, speech)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
