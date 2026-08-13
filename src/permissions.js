@@ -44,15 +44,18 @@ import {
 export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * @type {Map<string, {
+ * @type {Map<string, Array<{
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
  *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
- * }>}
+ * }>>}
  */
 const toolEpisodes = new Map();
+
+/** Soft cap so parallel same-origin Allow-once flows cannot grow without bound. */
+const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
@@ -69,7 +72,7 @@ export function clearToolEpisodes() {
 }
 
 /**
- * Drop the short-lived tools episode for an origin (e.g. Options revoke).
+ * Drop the short-lived tools episodes for an origin (e.g. Options revoke).
  * @param {string} origin
  */
 export function forgetToolEpisode(origin) {
@@ -95,6 +98,29 @@ export function onAllowedOriginsStorageChanged(changes, areaName) {
 
 /**
  * @param {string} origin
+ * @param {number} now
+ * @returns {Array<{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   messagesPrefix: ChatMessage[],
+ *   expiresAt: number,
+ * }>}
+ */
+function liveToolEpisodes(origin, now) {
+  const list = toolEpisodes.get(origin);
+  if (!list || list.length === 0) return [];
+  const live = list.filter((episode) => episode.expiresAt > now);
+  if (live.length === 0) {
+    toolEpisodes.delete(origin);
+    return [];
+  }
+  if (live.length !== list.length) toolEpisodes.set(origin, live);
+  return live;
+}
+
+/**
+ * @param {string} origin
  * @param {{
  *   providerId: string,
  *   model: string,
@@ -106,14 +132,35 @@ export function onAllowedOriginsStorageChanged(changes, areaName) {
 function rememberToolEpisode(origin, episode, now = Date.now()) {
   if (!episode.toolFingerprint) return;
   if (!Array.isArray(episode.messages) || episode.messages.length === 0) return;
-  toolEpisodes.set(origin, {
+
+  const next = {
     providerId: normalizeProviderId(episode.providerId),
     model: episode.model,
     toolFingerprint: episode.toolFingerprint,
     // Snapshot so later mutations of the caller's array cannot widen the prefix.
     messagesPrefix: episode.messages.map((m) => structuredClone(m)),
     expiresAt: now + TOOL_EPISODE_TTL_MS,
+  };
+
+  const list = liveToolEpisodes(origin, now);
+  // Update the episode this turn continues (or an exact prefix rematch); otherwise
+  // keep a separate entry so another tab's Allow-once is not overwritten.
+  const replaceAt = list.findIndex((existing) => {
+    if (isMessageHistoryExtension(episode.messages, existing.messagesPrefix)) {
+      return true;
+    }
+    if (existing.messagesPrefix.length !== episode.messages.length) return false;
+    return existing.messagesPrefix.every(
+      (m, i) => JSON.stringify(m) === JSON.stringify(episode.messages[i])
+    );
   });
+  if (replaceAt >= 0) {
+    list[replaceAt] = next;
+  } else {
+    list.push(next);
+    while (list.length > MAX_TOOL_EPISODES_PER_ORIGIN) list.shift();
+  }
+  toolEpisodes.set(origin, list);
 }
 
 /**
@@ -126,36 +173,43 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
  * @returns {{ providerId: string, model: string, toolFingerprint: string } | null}
  */
 function matchingToolEpisode(origin, args, now = Date.now()) {
-  const episode = toolEpisodes.get(origin);
-  if (!episode) return null;
-  if (episode.expiresAt <= now) {
-    toolEpisodes.delete(origin);
-    return null;
-  }
-  // Same-origin callers can fabricate assistant tool_calls + tool results.
-  // Require a strict extension of the approved message history so an
-  // unrelated thread cannot reuse this Allow-once episode.
-  if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
-    return null;
-  }
-  if (!isToolEpisodeContinuation(args.messages)) {
-    return null;
-  }
-  // Follow-ups may omit `tools`. Bind to this episode via the trailing
-  // tool_calls fingerprint so an empty request cannot reuse another flow's
-  // Allow-once episode on the same origin.
+  const list = liveToolEpisodes(origin, now);
+  if (list.length === 0) return null;
+  if (!isToolEpisodeContinuation(args.messages)) return null;
+
+  // Follow-ups may omit `tools`. Bind via trailing tool_calls fingerprint so
+  // an empty request cannot reuse another flow's Allow-once episode.
   const requestFp =
     args.toolFingerprint || fingerprintTrailingToolCalls(args.messages);
-  if (
-    !requestFp ||
-    !isToolFingerprintCovered(requestFp, episode.toolFingerprint)
-  ) {
-    return null;
+  if (!requestFp) return null;
+
+  // Prefer the longest matching prefix when parallel episodes exist on one origin.
+  /** @type {{ providerId: string, model: string, toolFingerprint: string, prefixLen: number } | null} */
+  let best = null;
+  for (const episode of list) {
+    // Same-origin callers can fabricate assistant tool_calls + tool results.
+    // Require a strict extension of the approved message history so an
+    // unrelated thread cannot reuse this Allow-once episode.
+    if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
+      continue;
+    }
+    if (!isToolFingerprintCovered(requestFp, episode.toolFingerprint)) {
+      continue;
+    }
+    if (!best || episode.messagesPrefix.length > best.prefixLen) {
+      best = {
+        providerId: episode.providerId,
+        model: episode.model,
+        toolFingerprint: episode.toolFingerprint,
+        prefixLen: episode.messagesPrefix.length,
+      };
+    }
   }
+  if (!best) return null;
   return {
-    providerId: episode.providerId,
-    model: episode.model,
-    toolFingerprint: episode.toolFingerprint,
+    providerId: best.providerId,
+    model: best.model,
+    toolFingerprint: best.toolFingerprint,
   };
 }
 

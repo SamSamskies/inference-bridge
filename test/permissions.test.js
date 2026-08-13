@@ -795,6 +795,114 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5b")).toBeNull();
   });
 
+  it("keeps separate allow_once episodes per message history on one origin", async () => {
+    const origin = "https://episode-parallel.example";
+    const austinMessages = [{ role: "user", content: "Weather in Austin?" }];
+    const seattleMessages = [{ role: "user", content: "Weather in Seattle?" }];
+    const austinFollowUp = [
+      ...austinMessages,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_austin",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_austin", content: '{"tempC":22}' },
+    ];
+    const seattleFollowUp = [
+      ...seattleMessages,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_seattle",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Seattle"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_seattle", content: '{"tempC":14}' },
+    ];
+
+    const turnA = ensurePermission({
+      requestId: "rt5parallel-a",
+      origin,
+      messages: austinMessages,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5parallel-a");
+    resolveApproval("rt5parallel-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA).resolves.toMatchObject({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const turnB = ensurePermission({
+      requestId: "rt5parallel-b",
+      origin,
+      messages: seattleMessages,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5parallel-b");
+    resolveApproval("rt5parallel-b", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB).resolves.toMatchObject({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5parallel-a2",
+        origin,
+        messages: austinFollowUp,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5parallel-a2")).toBeNull();
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5parallel-b2",
+        origin,
+        messages: seattleFollowUp,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: true,
+    });
+    expect(getPendingApproval("rt5parallel-b2")).toBeNull();
+  });
+
   it("skips allow_once episode follow-ups that omit tools", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5c",
