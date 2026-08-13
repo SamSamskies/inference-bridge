@@ -4,8 +4,14 @@
  */
 
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
+import { filterFunctionTools } from "./openai-compat-stream.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
+
+/** @typedef {import("./types.js").ChatMessage} ChatMessage */
+/** @typedef {import("./types.js").Tool} Tool */
+/** @typedef {import("./types.js").ToolCall} ToolCall */
+/** @typedef {import("./types.js").ToolChoice} ToolChoice */
 
 /**
  * @param {string} code
@@ -34,6 +40,29 @@ function rethrowNetwork(err, signal) {
       ? err.message
       : "Network error contacting Ollama. Is it running on localhost:11434?"
   );
+}
+
+/**
+ * Parse IPA JSON-string arguments into an object for Ollama's native shape.
+ * @param {unknown} args
+ * @returns {Record<string, unknown>}
+ */
+export function parseArgumentsForOllama(args) {
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return /** @type {Record<string, unknown>} */ (parsed);
+      }
+    } catch {
+      // fall through
+    }
+    return {};
+  }
+  if (args != null && typeof args === "object" && !Array.isArray(args)) {
+    return /** @type {Record<string, unknown>} */ (args);
+  }
+  return {};
 }
 
 /**
@@ -90,19 +119,124 @@ export async function listOllamaModels({ signal } = {}) {
 }
 
 /**
- * Map IPA messages to Ollama chat messages, round-tripping reasoning as `thinking`.
- * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
- * @returns {Array<Record<string, string>>}
+ * Map IPA / experimental messages to Ollama chat messages.
+ * Round-trips reasoning as `thinking`, assistant `tool_calls` (object args),
+ * and `role: "tool"` results via `tool_name` (Ollama has no tool_call_id).
+ * @param {ChatMessage[]} messages
+ * @returns {Array<Record<string, unknown>>}
  */
 export function mapMessagesForOllama(messages) {
+  /** @type {Map<string, string>} */
+  const toolCallIdToName = new Map();
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    for (const c of m.tool_calls) {
+      if (typeof c?.id === "string" && c.id && typeof c.function?.name === "string") {
+        toolCallIdToName.set(c.id, c.function.name);
+      }
+    }
+  }
+
   return messages.map((m) => {
-    /** @type {Record<string, string>} */
-    const out = { role: m.role, content: m.content };
+    /** @type {Record<string, unknown>} */
+    const out = {
+      role: m.role,
+      // Ollama requires string content; IPA may use null when only tool_calls.
+      content: m.content == null ? "" : m.content,
+    };
     if (typeof m.reasoning === "string" && m.reasoning) {
       out.thinking = m.reasoning;
     }
+    if (
+      m.role === "assistant" &&
+      Array.isArray(m.tool_calls) &&
+      m.tool_calls.length > 0
+    ) {
+      out.tool_calls = m.tool_calls.map((c) => ({
+        type: "function",
+        function: {
+          name: c.function.name,
+          arguments: parseArgumentsForOllama(c.function.arguments),
+        },
+      }));
+    }
+    if (m.role === "tool") {
+      const name =
+        typeof m.tool_call_id === "string" && m.tool_call_id
+          ? toolCallIdToName.get(m.tool_call_id)
+          : undefined;
+      if (name) {
+        out.tool_name = name;
+      }
+    }
     return out;
   });
+}
+
+/**
+ * Normalize streamed Ollama tool_calls into IPA ToolCall entries.
+ * Accumulates by index (tc.index or function.index); missing indices append.
+ * Arguments may arrive as objects (native) or JSON strings (compat-ish streams).
+ * Synthetic ids (`ollama_call_${index}`) are assigned when Ollama omits them.
+ * @param {Map<number, { id: string, name: string, arguments: string }>} toolCallsByIndex
+ * @param {unknown[]} rawCalls
+ */
+export function accumulateOllamaToolCalls(toolCallsByIndex, rawCalls) {
+  for (const tc of rawCalls) {
+    if (!tc || typeof tc !== "object") continue;
+    const call = /** @type {Record<string, unknown>} */ (tc);
+    const fn =
+      call.function && typeof call.function === "object"
+        ? /** @type {Record<string, unknown>} */ (call.function)
+        : null;
+    const index =
+      typeof call.index === "number"
+        ? call.index
+        : typeof fn?.index === "number"
+          ? /** @type {number} */ (fn.index)
+          : toolCallsByIndex.size;
+
+    let entry = toolCallsByIndex.get(index);
+    if (!entry) {
+      entry = { id: "", name: "", arguments: "" };
+      toolCallsByIndex.set(index, entry);
+    }
+
+    if (typeof call.id === "string" && call.id) {
+      entry.id = call.id;
+    }
+
+    if (!fn) continue;
+
+    if (typeof fn.name === "string" && fn.name) {
+      entry.name = fn.name;
+    }
+
+    if (typeof fn.arguments === "string") {
+      entry.arguments += fn.arguments;
+    } else if (fn.arguments != null && typeof fn.arguments === "object") {
+      // Native Ollama sends a complete arguments object (often once per index).
+      entry.arguments = JSON.stringify(fn.arguments);
+    }
+  }
+}
+
+/**
+ * @param {Map<number, { id: string, name: string, arguments: string }>} toolCallsByIndex
+ * @returns {ToolCall[]}
+ */
+export function finalizeOllamaToolCalls(toolCallsByIndex) {
+  return [...toolCallsByIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, entry]) => ({
+      id: entry.id || `ollama_call_${index}`,
+      type: /** @type {"function"} */ ("function"),
+      function: {
+        name: entry.name,
+        arguments: entry.arguments || "{}",
+      },
+    }))
+    .filter((c) => c.function.name);
 }
 
 /** @typedef {import("./types.js").Provider} Provider */
@@ -114,10 +248,20 @@ export const ollamaProvider = {
   requiresApiKey: false,
   // Placeholder until /api/tags is queried; never used as a hardcoded catalog.
   defaultModel: "",
+  supportsFunctionTools: true,
+  hostedTools: Object.freeze([]),
 
   listModels: listOllamaModels,
 
-  async streamChat({ model, messages, signal, onDelta, onReasoningDelta }) {
+  async streamChat({
+    model,
+    messages,
+    tools,
+    tool_choice,
+    signal,
+    onDelta,
+    onReasoningDelta,
+  }) {
     if (!model) {
       throwInference(
         "unavailable",
@@ -127,18 +271,29 @@ export const ollamaProvider = {
 
     await ensureOllamaOriginBypass();
 
+    const functionTools = filterFunctionTools(tools);
+
     let response;
     try {
+      /** @type {Record<string, unknown>} */
+      const body = {
+        model,
+        messages: mapMessagesForOllama(messages),
+        stream: true,
+      };
+      if (functionTools) {
+        body.tools = functionTools;
+        if (tool_choice !== undefined) {
+          body.tool_choice = tool_choice;
+        }
+      }
+
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Ollama enables thinking by default for supported models; omit `think`
         // unless we add an explicit user control. See docs.ollama.com/capabilities/thinking.
-        body: JSON.stringify({
-          model,
-          messages: mapMessagesForOllama(messages),
-          stream: true,
-        }),
+        body: JSON.stringify(body),
         signal,
       });
     } catch (err) {
@@ -180,6 +335,8 @@ export const ollamaProvider = {
     let resolvedModel = model;
     /** @type {{ inputTokens?: number, outputTokens?: number } | undefined} */
     let usage;
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const toolCallsByIndex = new Map();
 
     /**
      * @param {string} line
@@ -213,6 +370,10 @@ export const ollamaProvider = {
       if (typeof delta === "string" && delta.length > 0) {
         content += delta;
         onDelta(delta);
+      }
+
+      if (Array.isArray(parsed.message?.tool_calls) && parsed.message.tool_calls.length > 0) {
+        accumulateOllamaToolCalls(toolCallsByIndex, parsed.message.tool_calls);
       }
 
       if (parsed.done) {
@@ -272,10 +433,14 @@ export const ollamaProvider = {
       }
     }
 
-    /** @type {{ role: "assistant", content: string, reasoning?: string }} */
+    /** @type {{ role: "assistant", content: string, reasoning?: string, tool_calls?: ToolCall[] }} */
     const message = { role: "assistant", content };
     if (reasoning) {
       message.reasoning = reasoning;
+    }
+    const tool_calls = finalizeOllamaToolCalls(toolCallsByIndex);
+    if (tool_calls.length > 0) {
+      message.tool_calls = tool_calls;
     }
 
     return {

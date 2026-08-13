@@ -79,11 +79,13 @@ describe("provider registry", () => {
     expect(openrouter.defaultModel).toBe("openrouter/auto");
   });
 
-  it("marks OpenAI and OpenRouter as supporting function tools", () => {
+  it("marks OpenAI, OpenRouter, and Ollama as supporting function tools", () => {
     expect(getProvider("openai")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openrouter")?.supportsFunctionTools).toBe(true);
+    expect(getProvider("ollama")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openai")?.hostedTools).toEqual([]);
     expect(getProvider("openrouter")?.hostedTools).toEqual([]);
+    expect(getProvider("ollama")?.hostedTools).toEqual([]);
   });
 
   it("exposes Anthropic with curated models and requiresApiKey", async () => {

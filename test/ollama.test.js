@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  accumulateOllamaToolCalls,
+  finalizeOllamaToolCalls,
   listOllamaModels,
+  mapMessagesForOllama,
   ollamaProvider,
   OLLAMA_BASE_URL,
+  parseArgumentsForOllama,
 } from "../src/providers/ollama.js";
 
 /**
@@ -421,5 +425,290 @@ describe("ollamaProvider.streamChat", () => {
       code: "unavailable",
       message: "Failed to fetch",
     });
+  });
+
+  it("forwards function tools and tool_choice; strips hosted web_search", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                function: {
+                  index: 0,
+                  name: "get_weather",
+                  arguments: { city: "Austin" },
+                },
+              },
+            ],
+          },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [
+        { type: "web_search" },
+        {
+          type: "function",
+          function: { name: "get_weather", parameters: { type: "object" } },
+        },
+      ],
+      tool_choice: "auto",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        function: { name: "get_weather", parameters: { type: "object" } },
+      },
+    ]);
+    expect(body.tool_choice).toBe("auto");
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "ollama_call_0",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+  });
+
+  it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
+    const body = [
+      JSON.stringify({
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_1",
+              function: { name: "get_weather", arguments: '{"city":"' },
+            },
+          ],
+        },
+        done: false,
+      }),
+      JSON.stringify({
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              index: 0,
+              function: { arguments: 'NYC"}' },
+            },
+          ],
+        },
+        done: false,
+      }),
+      JSON.stringify({
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              index: 1,
+              function: { name: "get_time", arguments: {} },
+            },
+          ],
+        },
+        done: true,
+        prompt_eval_count: 4,
+        eval_count: 2,
+      }),
+      "",
+    ].join("\n");
+
+    vi.stubGlobal("fetch", vi.fn(async () => ndjsonResponse(body)));
+
+    const result = await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+      },
+      {
+        id: "ollama_call_1",
+        type: "function",
+        function: { name: "get_time", arguments: "{}" },
+      },
+    ]);
+    expect(result.usage).toEqual({ inputTokens: 4, outputTokens: 2 });
+  });
+
+  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "72F" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [
+        { role: "user", content: "weather in Austin?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_1",
+          content: JSON.stringify({ tempF: 72 }),
+        },
+      ],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "weather in Austin?" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: { city: "Austin" },
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_name: "get_weather",
+        content: '{"tempF":72}',
+      },
+    ]);
+  });
+});
+
+describe("mapMessagesForOllama / tool helpers", () => {
+  it("parses JSON-string arguments into objects", () => {
+    expect(parseArgumentsForOllama('{"city":"NYC"}')).toEqual({ city: "NYC" });
+    expect(parseArgumentsForOllama("{")).toEqual({});
+    expect(parseArgumentsForOllama({ city: "NYC" })).toEqual({ city: "NYC" });
+  });
+
+  it("round-trips assistant tool_calls and maps tool_call_id to tool_name", () => {
+    expect(
+      mapMessagesForOllama([
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: null,
+          reasoning: "plan",
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "c1", content: "20" },
+      ])
+    ).toEqual([
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "",
+        thinking: "plan",
+        tool_calls: [
+          {
+            type: "function",
+            function: { name: "get_weather", arguments: { city: "NYC" } },
+          },
+        ],
+      },
+      { role: "tool", tool_name: "get_weather", content: "20" },
+    ]);
+  });
+
+  it("accumulates and finalizes tool_calls by index", () => {
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const byIndex = new Map();
+    accumulateOllamaToolCalls(byIndex, [
+      {
+        function: {
+          index: 0,
+          name: "get_weather",
+          arguments: { city: "NYC" },
+        },
+      },
+      {
+        function: {
+          index: 1,
+          name: "get_time",
+          arguments: "{}",
+        },
+      },
+    ]);
+    expect(finalizeOllamaToolCalls(byIndex)).toEqual([
+      {
+        id: "ollama_call_0",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+      },
+      {
+        id: "ollama_call_1",
+        type: "function",
+        function: { name: "get_time", arguments: "{}" },
+      },
+    ]);
+  });
+
+  it("drops incomplete tool_calls missing a name", () => {
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const byIndex = new Map();
+    accumulateOllamaToolCalls(byIndex, [
+      { function: { arguments: "{}" } },
+      {
+        id: "call_ok",
+        function: { name: "ok", arguments: {} },
+      },
+    ]);
+    expect(finalizeOllamaToolCalls(byIndex)).toEqual([
+      {
+        id: "call_ok",
+        type: "function",
+        function: { name: "ok", arguments: "{}" },
+      },
+    ]);
   });
 });
