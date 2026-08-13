@@ -529,6 +529,9 @@ export async function ensurePermission(args) {
         once: false,
       };
     case "deny":
+      // Drop in-memory episodes so a denied ambiguous/re-prompted continuation
+      // cannot later auto-approve once sibling episodes diverge.
+      forgetToolEpisode(args.origin);
       return {
         allowed: false,
         providerId: chosenProviderId,

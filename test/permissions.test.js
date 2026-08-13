@@ -1312,6 +1312,120 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5race-a2")).toBeNull();
   });
 
+  it("forgets in-memory tool episodes when a re-prompted continuation is denied", async () => {
+    const origin = "https://episode-deny-clear.example";
+    const opening = [{ role: "user", content: "Weather in Austin?" }];
+    const followUpA = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_deny_a",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"a"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_deny_a", content: '{"tempC":22}' },
+    ];
+    const followUpB = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_deny_b",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"b"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_deny_b", content: '{"tempC":23}' },
+    ];
+
+    const turnA = ensurePermission({
+      requestId: "rt5deny-a",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5deny-a");
+    resolveApproval("rt5deny-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA).resolves.toMatchObject({ allowed: true, once: true });
+
+    const turnB = ensurePermission({
+      requestId: "rt5deny-b",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5deny-b");
+    resolveApproval("rt5deny-b", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB).resolves.toMatchObject({ allowed: true, once: true });
+
+    // Ambiguous same-opener follow-up — deny must clear both episodes.
+    const denied = ensurePermission({
+      requestId: "rt5deny-a2",
+      origin,
+      messages: followUpA,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5deny-a2");
+    resolveApproval("rt5deny-a2", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(denied).resolves.toMatchObject({ allowed: false });
+
+    // Sibling tab continues; without clearing, this would leave tab A's opener
+    // episode intact and the denied follow-up would later auto-approve.
+    const turnB2 = ensurePermission({
+      requestId: "rt5deny-b2",
+      origin,
+      messages: followUpB,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5deny-b2");
+    resolveApproval("rt5deny-b2", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB2).resolves.toMatchObject({ allowed: true, once: true });
+
+    const again = ensurePermission({
+      requestId: "rt5deny-a3",
+      origin,
+      messages: followUpA,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5deny-a3");
+    resolveApproval("rt5deny-a3", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(again).resolves.toMatchObject({ allowed: false });
+  });
+
   it("skips allow_once episode follow-ups that omit tools", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5c",
