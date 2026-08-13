@@ -69,6 +69,31 @@ export function clearToolEpisodes() {
 }
 
 /**
+ * Drop the short-lived tools episode for an origin (e.g. Options revoke).
+ * @param {string} origin
+ */
+export function forgetToolEpisode(origin) {
+  toolEpisodes.delete(origin);
+}
+
+/**
+ * chrome.storage.onChanged handler: drop episodes when Always-allow grants are removed.
+ * @param {object} changes
+ * @param {string} areaName
+ */
+export function onAllowedOriginsStorageChanged(changes, areaName) {
+  if (areaName !== "local" || !changes?.allowedOrigins) return;
+  const oldOrigins = changes.allowedOrigins.oldValue;
+  const newOrigins = changes.allowedOrigins.newValue;
+  if (!oldOrigins || typeof oldOrigins !== "object") return;
+  const next =
+    newOrigins && typeof newOrigins === "object" ? newOrigins : {};
+  for (const origin of Object.keys(oldOrigins)) {
+    if (!(origin in next)) forgetToolEpisode(origin);
+  }
+}
+
+/**
  * @param {string} origin
  * @param {{
  *   providerId: string,
@@ -402,6 +427,7 @@ export async function ensurePermission(args) {
       };
     }
     case "never":
+      forgetToolEpisode(args.origin);
       await blockOrigin(args.origin);
       return {
         allowed: false,

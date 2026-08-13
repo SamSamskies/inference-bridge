@@ -12,6 +12,19 @@ export function installChromeMock() {
   /** @type {Map<string, unknown>} */
   const store = new Map();
 
+  /** @type {Set<(changes: object, areaName: string) => void>} */
+  const storageChangedListeners = new Set();
+
+  /**
+   * @param {Record<string, { oldValue?: unknown, newValue?: unknown }>} changes
+   */
+  function emitStorageChanged(changes) {
+    if (Object.keys(changes).length === 0) return;
+    for (const listener of storageChangedListeners) {
+      listener(changes, "local");
+    }
+  }
+
   const storageLocal = {
     async get(keys) {
       const keyList = Array.isArray(keys) ? keys : [keys];
@@ -23,20 +36,42 @@ export function installChromeMock() {
       return out;
     },
     async set(values) {
+      /** @type {Record<string, { oldValue?: unknown, newValue?: unknown }>} */
+      const changes = {};
       for (const [key, value] of Object.entries(values)) {
-        store.set(key, structuredClone(value));
+        const had = store.has(key);
+        const oldValue = had ? structuredClone(store.get(key)) : undefined;
+        const newValue = structuredClone(value);
+        store.set(key, newValue);
+        changes[key] = had ? { oldValue, newValue } : { newValue };
       }
+      emitStorageChanged(changes);
     },
     async remove(keys) {
       const keyList = Array.isArray(keys) ? keys : [keys];
+      /** @type {Record<string, { oldValue?: unknown, newValue?: unknown }>} */
+      const changes = {};
       for (const key of keyList) {
+        if (!store.has(key)) continue;
+        changes[key] = { oldValue: structuredClone(store.get(key)) };
         store.delete(key);
       }
+      emitStorageChanged(changes);
     },
   };
 
   const chrome = {
-    storage: { local: storageLocal },
+    storage: {
+      local: storageLocal,
+      onChanged: {
+        addListener(listener) {
+          storageChangedListeners.add(listener);
+        },
+        removeListener(listener) {
+          storageChangedListeners.delete(listener);
+        },
+      },
+    },
     runtime: {
       lastError: undefined,
       getURL: (path) => `chrome-extension://test-id/${path}`,

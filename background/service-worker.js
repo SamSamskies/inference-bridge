@@ -15,6 +15,7 @@ import {
   getPendingApproval,
   handleApprovalWindowClosed,
   cancelApproval,
+  onAllowedOriginsStorageChanged,
 } from "../src/permissions.js";
 import {
   getProviderAsync,
@@ -33,6 +34,8 @@ import {
 // Provider calls await their own retry; this eager attempt must not create an
 // unhandled rejection if Chrome rejects the rule update during worker startup.
 void ensureOllamaOriginBypass().catch(() => {});
+
+chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 
 /** @typedef {"awaiting_permission" | "streaming"} StreamPhase */
 

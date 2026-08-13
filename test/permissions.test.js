@@ -6,6 +6,7 @@ import {
   ensurePermission,
   getPendingApproval,
   handleApprovalWindowClosed,
+  onAllowedOriginsStorageChanged,
   resolveApproval,
 } from "../src/permissions.js";
 import {
@@ -14,11 +15,13 @@ import {
   getOriginGrant,
   getOriginLastUsed,
   isOriginBlocked,
+  revokeOrigin,
   saveSettings,
   setOriginLastUsed,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
+chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 
 const weatherTools = [
   {
@@ -1037,6 +1040,46 @@ describe("ensurePermission with tools", () => {
       decision: "deny",
       providerId: "compat:lm",
       model: "local-model",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts episode follow-ups after Always-allow is revoked", async () => {
+    const origin = "https://episode-revoke.example";
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+
+    const turn1 = ensurePermission({
+      requestId: "rt8a",
+      origin,
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    // Always-allow with covering tools skips the prompt and seeds an episode.
+    await expect(turn1).resolves.toMatchObject({
+      allowed: true,
+      once: false,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    expect(getPendingApproval("rt8a")).toBeNull();
+
+    await revokeOrigin(origin);
+
+    const turn2 = ensurePermission({
+      requestId: "rt8b",
+      origin,
+      messages: weatherFollowUpMessages,
+      tools: weatherTools,
+    });
+    await waitForPending("rt8b");
+    resolveApproval("rt8b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
     });
     await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
