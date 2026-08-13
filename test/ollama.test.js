@@ -693,6 +693,27 @@ describe("mapMessagesForOllama / tool helpers", () => {
     ]);
   });
 
+  it("merges argument deltas that omit index into the in-progress call", () => {
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const byIndex = new Map();
+    accumulateOllamaToolCalls(byIndex, [
+      {
+        id: "call_1",
+        function: { name: "get_weather", arguments: '{"city":"' },
+      },
+    ]);
+    accumulateOllamaToolCalls(byIndex, [
+      { function: { arguments: 'NYC"}' } },
+    ]);
+    expect(finalizeOllamaToolCalls(byIndex)).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+      },
+    ]);
+  });
+
   it("keeps distinct parallel tool_calls when Ollama reuses index 0", () => {
     /** @type {Map<number, { id: string, name: string, arguments: string }>} */
     const byIndex = new Map();

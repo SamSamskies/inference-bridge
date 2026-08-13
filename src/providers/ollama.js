@@ -216,7 +216,8 @@ function isDistinctToolCallAtIndex(entry, call, fn) {
 
 /**
  * Normalize streamed Ollama tool_calls into IPA ToolCall entries.
- * Accumulates by index (tc.index or function.index); missing indices append.
+ * Accumulates by index (tc.index or function.index); missing index defaults
+ * to 0 so argument deltas continue the in-progress call (OpenAI-compat style).
  * When a chunk reuses an index for a distinct call (different id/name, or a
  * second native object-args payload), allocates the next free index instead
  * of overwriting — Ollama sometimes emits every parallel call as index 0.
@@ -238,7 +239,7 @@ export function accumulateOllamaToolCalls(toolCallsByIndex, rawCalls) {
         ? call.index
         : typeof fn?.index === "number"
           ? /** @type {number} */ (fn.index)
-          : toolCallsByIndex.size;
+          : 0;
 
     let entry = toolCallsByIndex.get(index);
     if (entry && isDistinctToolCallAtIndex(entry, call, fn)) {
