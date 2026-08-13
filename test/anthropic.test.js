@@ -6,6 +6,8 @@ import {
   anthropicProvider,
   mapAnthropicStatus,
   mapMessagesForAnthropic,
+  mapToolChoiceForAnthropic,
+  mapToolsForAnthropic,
 } from "../src/providers/anthropic.js";
 import { getProvider, listProviders } from "../src/providers/registry.js";
 
@@ -143,6 +145,152 @@ describe("mapMessagesForAnthropic", () => {
       messages: [{ role: "user", content: "Hi\n\nAgain" }],
     });
   });
+
+  it("maps assistant tool_calls to tool_use blocks and tool results to user tool_result", () => {
+    expect(
+      mapMessagesForAnthropic([
+        { role: "user", content: "Weather in Austin?" },
+        {
+          role: "assistant",
+          content: "Checking.",
+          tool_calls: [
+            {
+              id: "toolu_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "toolu_1",
+          content: '{"temp":72}',
+        },
+      ])
+    ).toEqual({
+      messages: [
+        { role: "user", content: "Weather in Austin?" },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Checking." },
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "get_weather",
+              input: { city: "Austin" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: '{"temp":72}',
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("merges consecutive tool results into one user message", () => {
+    expect(
+      mapMessagesForAnthropic([
+        { role: "user", content: "Do both" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "toolu_a",
+              type: "function",
+              function: { name: "a", arguments: "{}" },
+            },
+            {
+              id: "toolu_b",
+              type: "function",
+              function: { name: "b", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "toolu_a", content: "ra" },
+        { role: "tool", tool_call_id: "toolu_b", content: "rb" },
+      ])
+    ).toEqual({
+      messages: [
+        { role: "user", content: "Do both" },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "toolu_a", name: "a", input: {} },
+            { type: "tool_use", id: "toolu_b", name: "b", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_a", content: "ra" },
+            { type: "tool_result", tool_use_id: "toolu_b", content: "rb" },
+          ],
+        },
+      ],
+    });
+  });
+});
+
+describe("mapToolsForAnthropic / mapToolChoiceForAnthropic", () => {
+  it("maps Bridge function tools to Anthropic tools", () => {
+    expect(
+      mapToolsForAnthropic([
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "Weather lookup",
+            parameters: {
+              type: "object",
+              properties: { city: { type: "string" } },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: { name: "noop" },
+        },
+      ])
+    ).toEqual([
+      {
+        name: "get_weather",
+        description: "Weather lookup",
+        input_schema: {
+          type: "object",
+          properties: { city: { type: "string" } },
+        },
+      },
+      {
+        name: "noop",
+        input_schema: { type: "object", properties: {} },
+      },
+    ]);
+  });
+
+  it("maps tool_choice auto/none/required/named function", () => {
+    expect(mapToolChoiceForAnthropic("auto")).toEqual({ type: "auto" });
+    expect(mapToolChoiceForAnthropic("none")).toEqual({ type: "none" });
+    expect(mapToolChoiceForAnthropic("required")).toEqual({ type: "any" });
+    expect(
+      mapToolChoiceForAnthropic({
+        type: "function",
+        function: { name: "get_weather" },
+      })
+    ).toEqual({ type: "tool", name: "get_weather" });
+  });
 });
 
 describe("mapAnthropicStatus", () => {
@@ -164,6 +312,8 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5");
     expect(anthropicProvider.models).toContain("claude-fable-5");
     expect(anthropicProvider.models).toContain("claude-sonnet-5");
+    expect(anthropicProvider.supportsFunctionTools).toBe(true);
+    expect(anthropicProvider.hostedTools).toEqual([]);
   });
 
   it("rejects assistant-first threads in preflight, before any provider work", () => {
@@ -397,5 +547,221 @@ describe("anthropicProvider", () => {
       name: "InferenceError",
       code: "aborted",
     });
+  });
+
+  it("forwards function tools and tool_choice; strips hosted web_search", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_start",
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}',
+          "",
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"city\\":\\"Austin\\"}"}}',
+          "",
+          "event: content_block_stop",
+          'data: {"type":"content_block_stop","index":0}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [
+        { type: "web_search" },
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "Weather lookup",
+            parameters: {
+              type: "object",
+              properties: { city: { type: "string" } },
+            },
+          },
+        },
+      ],
+      tool_choice: "auto",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([
+      {
+        name: "get_weather",
+        description: "Weather lookup",
+        input_schema: {
+          type: "object",
+          properties: { city: { type: "string" } },
+        },
+      },
+    ]);
+    expect(body.tool_choice).toEqual({ type: "auto" });
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "toolu_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+  });
+
+  it("omits tools and tool_choice when only hosted web_search is present", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      tool_choice: "auto",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
+  it("accumulates streamed tool_use input_json_delta into done.message.tool_calls", async () => {
+    const sse = [
+      "event: content_block_delta",
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Sure."}}',
+      "",
+      "event: content_block_start",
+      'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_a","name":"get_weather","input":{}}}',
+      "",
+      "event: content_block_delta",
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"city\\":\\""}}',
+      "",
+      "event: content_block_delta",
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"NYC\\"}"}}',
+      "",
+      "event: content_block_stop",
+      'data: {"type":"content_block_stop","index":1}',
+      "",
+      "event: content_block_start",
+      'data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_b","name":"get_time","input":{}}}',
+      "",
+      "event: content_block_stop",
+      'data: {"type":"content_block_stop","index":2}',
+      "",
+    ].join("\n");
+
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const deltas = [];
+    const result = await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: (c) => deltas.push(c),
+    });
+
+    expect(deltas).toEqual(["Sure."]);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: "Sure.",
+      tool_calls: [
+        {
+          id: "toolu_a",
+          type: "function",
+          function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+        },
+        {
+          id: "toolu_b",
+          type: "function",
+          function: { name: "get_time", arguments: "{}" },
+        },
+      ],
+    });
+  });
+
+  it("round-trips tool_result follow-up messages in the request body", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"72F"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [
+        { role: "user", content: "Weather?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "toolu_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "toolu_1",
+          content: '{"temp":72}',
+        },
+      ],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages).toEqual([
+      { role: "user", content: "Weather?" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "get_weather",
+            input: { city: "Austin" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: '{"temp":72}',
+          },
+        ],
+      },
+    ]);
+    expect(result.message).toEqual({ role: "assistant", content: "72F" });
   });
 });

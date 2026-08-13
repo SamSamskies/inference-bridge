@@ -79,13 +79,15 @@ describe("provider registry", () => {
     expect(openrouter.defaultModel).toBe("openrouter/auto");
   });
 
-  it("marks OpenAI, OpenRouter, Ollama, and compat endpoints as supporting function tools", async () => {
+  it("marks OpenAI, OpenRouter, Ollama, Anthropic, and compat endpoints as supporting function tools", async () => {
     expect(getProvider("openai")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openrouter")?.supportsFunctionTools).toBe(true);
     expect(getProvider("ollama")?.supportsFunctionTools).toBe(true);
+    expect(getProvider("anthropic")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openai")?.hostedTools).toEqual([]);
     expect(getProvider("openrouter")?.hostedTools).toEqual([]);
     expect(getProvider("ollama")?.hostedTools).toEqual([]);
+    expect(getProvider("anthropic")?.hostedTools).toEqual([]);
 
     await saveCompatEndpoints([
       {
