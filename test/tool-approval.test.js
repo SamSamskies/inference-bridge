@@ -235,6 +235,57 @@ describe("isToolEpisodeContinuation", () => {
       ])
     ).toBe(false);
   });
+
+  it("rejects when only a subset of parallel tool_calls have results", () => {
+    expect(
+      isToolEpisodeContinuation([
+        { role: "user", content: "weather and time?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+            {
+              id: "c2",
+              type: "function",
+              function: { name: "get_time", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "c1", content: "{}" },
+      ])
+    ).toBe(false);
+  });
+
+  it("accepts when every parallel tool_call has a matching result", () => {
+    expect(
+      isToolEpisodeContinuation([
+        { role: "user", content: "weather and time?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+            {
+              id: "c2",
+              type: "function",
+              function: { name: "get_time", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "tool", tool_call_id: "c2", content: "{}" },
+      ])
+    ).toBe(true);
+  });
 });
 
 describe("summarizeToolsForPreview / hostedToolLabel", () => {

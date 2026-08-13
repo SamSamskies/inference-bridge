@@ -139,7 +139,8 @@ export function isMessageHistoryExtension(messages, prefix) {
 
 /**
  * Multi-turn function-tool follow-up: messages must *end* with tool results
- * that belong to the immediately preceding assistant tool_calls turn.
+ * that belong to the immediately preceding assistant tool_calls turn, and
+ * every call id from that turn must have a matching result.
  * Prior tool history alone (or a new user turn after tools) is not enough —
  * otherwise Allow once could be reused for unrelated requests.
  * @param {Array<{ role?: string, tool_calls?: unknown, tool_call_id?: string }> | undefined | null} messages
@@ -159,6 +160,8 @@ export function isToolEpisodeContinuation(messages) {
   }
   if (callIds.size === 0) return false;
 
+  /** @type {Set<string>} */
+  const seen = new Set();
   for (let j = i + 1; j < messages.length; j += 1) {
     const toolMessage = messages[j];
     const toolCallId =
@@ -168,9 +171,11 @@ export function isToolEpisodeContinuation(messages) {
         ? toolMessage.tool_call_id
         : "";
     if (!toolCallId || !callIds.has(toolCallId)) return false;
+    seen.add(toolCallId);
   }
 
-  return true;
+  // Partial multi-tool turns (only some call ids answered) are not continuations.
+  return seen.size === callIds.size;
 }
 
 /**
