@@ -11,10 +11,39 @@
  */
 
 /**
+ * OpenAI-style function tool call (arguments are a JSON string).
+ * @typedef {{
+ *   id: string,
+ *   type: "function",
+ *   function: { name: string, arguments: string },
+ * }} ToolCall
+ */
+
+/**
+ * Bridge-experimental tool definition. Hosted tools (e.g. web_search) are
+ * declared here for the capability matrix; Chat Completions adapters only
+ * forward `type: "function"` entries.
+ * @typedef {{
+ *   type: "function",
+ *   function: {
+ *     name: string,
+ *     description?: string,
+ *     parameters?: object,
+ *   },
+ * } | { type: "web_search" }} Tool
+ */
+
+/**
+ * @typedef {"auto" | "none" | "required" | { type: "function", function: { name: string } }} ToolChoice
+ */
+
+/**
  * @typedef {{
  *   role: string,
- *   content: string,
+ *   content: string | null,
  *   reasoning?: string,
+ *   tool_calls?: ToolCall[],
+ *   tool_call_id?: string,
  * }} ChatMessage
  */
 
@@ -25,6 +54,8 @@
  *   requiresApiKey: boolean,
  *   optionalApiKey?: boolean,
  *   defaultModel: string,
+ *   supportsFunctionTools?: boolean,
+ *   hostedTools?: readonly string[],
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
@@ -32,12 +63,19 @@
  *     apiKey?: string,
  *     model: string,
  *     messages: ChatMessage[],
+ *     tools?: Tool[],
+ *     tool_choice?: ToolChoice,
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
  *     onReasoningDelta?: (content: string) => void,
  *   }) => Promise<{
  *     model: string,
- *     message: { role: "assistant", content: string, reasoning?: string },
+ *     message: {
+ *       role: "assistant",
+ *       content: string,
+ *       reasoning?: string,
+ *       tool_calls?: ToolCall[],
+ *     },
  *     usage?: { inputTokens?: number, outputTokens?: number },
  *   }>
  * }} Provider

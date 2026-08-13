@@ -3,7 +3,10 @@
  * (LM Studio, llama.cpp, vLLM, LocalAI, proxies, etc.).
  */
 
-import { streamOpenAICompatChat } from "./openai-compat-stream.js";
+import {
+  filterFunctionTools,
+  streamOpenAICompatChat,
+} from "./openai-compat-stream.js";
 import {
   hasHostPermissionForBaseUrl,
 } from "../host-permissions.js";
@@ -58,6 +61,8 @@ export function createOpenAICompatProvider(endpoint) {
     optionalApiKey: true,
     baseUrl,
     defaultModel: "",
+    supportsFunctionTools: true,
+    hostedTools: Object.freeze([]),
 
     async listModels({ signal, apiKey } = {}) {
       // Host-permission failures must propagate: swallowing them as [] makes the
@@ -100,7 +105,16 @@ export function createOpenAICompatProvider(endpoint) {
       return models;
     },
 
-    async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
+    async streamChat({
+      apiKey,
+      model,
+      messages,
+      tools,
+      tool_choice,
+      signal,
+      onDelta,
+      onReasoningDelta,
+    }) {
       if (!model) {
         throwInference(
           "unavailable",
@@ -110,11 +124,18 @@ export function createOpenAICompatProvider(endpoint) {
 
       await ensureReady(baseUrl, label);
 
+      const functionTools = filterFunctionTools(tools);
       return streamOpenAICompatChat({
         url: chatUrl,
         apiKey,
         model,
         messages,
+        ...(functionTools
+          ? {
+              tools: functionTools,
+              ...(tool_choice !== undefined ? { tool_choice } : {}),
+            }
+          : {}),
         signal,
         onDelta,
         onReasoningDelta,

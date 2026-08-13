@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   extractOpenAICompatReasoningDelta,
+  filterFunctionTools,
   mapMessagesForOpenAICompat,
   streamOpenAICompatChat,
 } from "../src/providers/openai-compat-stream.js";
@@ -478,6 +479,206 @@ describe("mapMessagesForOpenAICompat", () => {
     ).toEqual([
       { role: "assistant", content: "hi" },
       { role: "user", content: "ok" },
+    ]);
+  });
+
+  it("round-trips assistant tool_calls and tool results", () => {
+    expect(
+      mapMessagesForOpenAICompat([
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "20" },
+      ])
+    ).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+          },
+        ],
+      },
+      { role: "tool", content: "20", tool_call_id: "call_1" },
+    ]);
+  });
+
+  it("omits tool_call_id from tool messages when absent", () => {
+    expect(mapMessagesForOpenAICompat([{ role: "tool", content: "20" }])).toEqual([
+      { role: "tool", content: "20" },
+    ]);
+  });
+});
+
+describe("filterFunctionTools", () => {
+  it("keeps function tools and drops hosted web_search", () => {
+    expect(
+      filterFunctionTools([
+        { type: "web_search" },
+        {
+          type: "function",
+          function: { name: "get_weather", description: "Weather" },
+        },
+      ])
+    ).toEqual([
+      {
+        type: "function",
+        function: { name: "get_weather", description: "Weather" },
+      },
+    ]);
+  });
+
+  it("returns undefined when no function tools remain", () => {
+    expect(filterFunctionTools([{ type: "web_search" }])).toBeUndefined();
+    expect(filterFunctionTools([])).toBeUndefined();
+    expect(filterFunctionTools(undefined)).toBeUndefined();
+  });
+});
+
+describe("streamOpenAICompatChat tool calling", () => {
+  it("sends tools and tool_choice in the request body", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"ok"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    const fetchMock = vi.fn(async () => sseResponse(sse));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAICompatChat(
+      baseArgs({
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "get_weather",
+              description: "Weather lookup",
+              parameters: { type: "object" },
+            },
+          },
+        ],
+        tool_choice: "auto",
+      })
+    );
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_weather",
+            description: "Weather lookup",
+            parameters: { type: "object" },
+          },
+        },
+      ],
+      tool_choice: "auto",
+    });
+  });
+
+  it("omits tool_choice when tools are absent", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse('data: {"choices":[{"delta":{"content":"x"}}]}\ndata: [DONE]\n')
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAICompatChat(
+      baseArgs({ tool_choice: "none" })
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
+  it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\\"city\\":"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"NYC\\"}"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"get_time","arguments":"{}"}}]}}]}',
+      'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":5,"completion_tokens":1}}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    /** @type {string[]} */
+    const deltas = [];
+    const result = await streamOpenAICompatChat(
+      baseArgs({
+        onDelta: (c) => deltas.push(c),
+        tools: [
+          { type: "function", function: { name: "get_weather" } },
+          { type: "function", function: { name: "get_time" } },
+        ],
+      })
+    );
+
+    expect(deltas).toEqual([]);
+    expect(result.message.content).toBe("");
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+      },
+      {
+        id: "call_2",
+        type: "function",
+        function: { name: "get_time", arguments: "{}" },
+      },
+    ]);
+    expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 1 });
+  });
+
+  it("drops incomplete tool_calls missing id or name", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_ok","type":"function","function":{"name":"ok","arguments":"{}"}}]}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    const result = await streamOpenAICompatChat(baseArgs());
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "call_ok",
+        type: "function",
+        function: { name: "ok", arguments: "{}" },
+      },
+    ]);
+  });
+
+  it("reassembles tool_call argument fragments split across reader chunks", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        chunkedSseResponse([
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"echo","arguments":"{\\"x\\":"}}]}}]}\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}\ndata: [DONE]\n',
+        ])
+      )
+    );
+
+    const result = await streamOpenAICompatChat(baseArgs());
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "c1",
+        type: "function",
+        function: { name: "echo", arguments: '{"x":1}' },
+      },
     ]);
   });
 });

@@ -1,0 +1,32 @@
+---
+description: Browser-first sample and smoke-test code for Inference Bridge
+alwaysApply: true
+---
+
+# Browser-first sample code
+
+Inference Bridge runs in **browsers** (page `window.inference`, extension content scripts). Sample code, smoke tests, README snippets, and issue examples must work in DevTools / web pages — not Node.js.
+
+## Do
+
+- Use `console.log` (or DOM updates) for streaming output
+- Assume `window.inference` / `window.inference.experimental`
+- Prefer paste-ready console or `<script type="module">` snippets
+
+## Do not
+
+- Use Node APIs: `process`, `process.stdout`, `require`, `fs`, `__dirname`, `Buffer` (unless polyfilled and clearly labeled)
+- Assume a terminal or CLI environment
+- Mix Node and browser idioms in the same example
+
+```js
+// ❌ BAD
+if (chunk.type === "delta") {
+  process.stdout?.write?.(chunk.content) ?? console.log(chunk.content);
+}
+
+// ✅ GOOD
+if (chunk.type === "delta") {
+  console.log("[delta]", chunk.content);
+}
+```

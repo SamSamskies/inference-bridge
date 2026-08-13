@@ -234,4 +234,109 @@ describe("openrouterProvider.streamChat", () => {
       code: "aborted",
     });
   });
+
+  it("forwards function tools and tool_choice; strips hosted web_search", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{}"}}]}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [
+        { type: "web_search" },
+        {
+          type: "function",
+          function: { name: "get_weather", parameters: { type: "object" } },
+        },
+      ],
+      tool_choice: "auto",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        function: { name: "get_weather", parameters: { type: "object" } },
+      },
+    ]);
+    expect(body.tool_choice).toBe("auto");
+    expect(result.message.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: "{}" },
+      },
+    ]);
+  });
+
+  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [
+        { role: "user", content: "weather in Austin?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_1",
+          content: JSON.stringify({ tempF: 72 }),
+        },
+      ],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "weather in Austin?" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        content: '{"tempF":72}',
+      },
+    ]);
+  });
 });
