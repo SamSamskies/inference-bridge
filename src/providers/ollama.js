@@ -174,8 +174,52 @@ export function mapMessagesForOllama(messages) {
 }
 
 /**
+ * Next free map key at or above `start` (avoids colliding with sparse indices).
+ * @param {Map<number, unknown>} toolCallsByIndex
+ * @param {number} start
+ * @returns {number}
+ */
+function nextFreeToolCallIndex(toolCallsByIndex, start) {
+  let index = start;
+  while (toolCallsByIndex.has(index)) index += 1;
+  return index;
+}
+
+/**
+ * True when this chunk is a distinct tool call reusing an occupied index
+ * (Ollama quirk: parallel calls often all stream as index 0).
+ * @param {{ id: string, name: string, arguments: string }} entry
+ * @param {Record<string, unknown>} call
+ * @param {Record<string, unknown> | null} fn
+ * @returns {boolean}
+ */
+function isDistinctToolCallAtIndex(entry, call, fn) {
+  const incomingId = typeof call.id === "string" && call.id ? call.id : "";
+  if (incomingId && entry.id && incomingId !== entry.id) return true;
+
+  const incomingName = typeof fn?.name === "string" && fn.name ? fn.name : "";
+  if (incomingName && entry.name && incomingName !== entry.name) return true;
+
+  // Native Ollama: a second complete object-args call at the same index.
+  if (
+    entry.name &&
+    entry.arguments &&
+    incomingName &&
+    fn?.arguments != null &&
+    typeof fn.arguments === "object"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Normalize streamed Ollama tool_calls into IPA ToolCall entries.
  * Accumulates by index (tc.index or function.index); missing indices append.
+ * When a chunk reuses an index for a distinct call (different id/name, or a
+ * second native object-args payload), allocates the next free index instead
+ * of overwriting — Ollama sometimes emits every parallel call as index 0.
  * Arguments may arrive as objects (native) or JSON strings (compat-ish streams).
  * Synthetic ids (`ollama_call_${index}`) are assigned when Ollama omits them.
  * @param {Map<number, { id: string, name: string, arguments: string }>} toolCallsByIndex
@@ -189,7 +233,7 @@ export function accumulateOllamaToolCalls(toolCallsByIndex, rawCalls) {
       call.function && typeof call.function === "object"
         ? /** @type {Record<string, unknown>} */ (call.function)
         : null;
-    const index =
+    let index =
       typeof call.index === "number"
         ? call.index
         : typeof fn?.index === "number"
@@ -197,6 +241,10 @@ export function accumulateOllamaToolCalls(toolCallsByIndex, rawCalls) {
           : toolCallsByIndex.size;
 
     let entry = toolCallsByIndex.get(index);
+    if (entry && isDistinctToolCallAtIndex(entry, call, fn)) {
+      index = nextFreeToolCallIndex(toolCallsByIndex, toolCallsByIndex.size);
+      entry = undefined;
+    }
     if (!entry) {
       entry = { id: "", name: "", arguments: "" };
       toolCallsByIndex.set(index, entry);

@@ -693,6 +693,51 @@ describe("mapMessagesForOllama / tool helpers", () => {
     ]);
   });
 
+  it("keeps distinct parallel tool_calls when Ollama reuses index 0", () => {
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const byIndex = new Map();
+    accumulateOllamaToolCalls(byIndex, [
+      {
+        index: 0,
+        id: "call_a",
+        function: { name: "file_write", arguments: '{"path":"a.py"}' },
+      },
+    ]);
+    accumulateOllamaToolCalls(byIndex, [
+      {
+        index: 0,
+        id: "call_b",
+        function: { name: "file_write", arguments: '{"path":"b.py"}' },
+      },
+    ]);
+    accumulateOllamaToolCalls(byIndex, [
+      {
+        function: {
+          index: 0,
+          name: "get_weather",
+          arguments: { city: "NYC" },
+        },
+      },
+    ]);
+    expect(finalizeOllamaToolCalls(byIndex)).toEqual([
+      {
+        id: "call_a",
+        type: "function",
+        function: { name: "file_write", arguments: '{"path":"a.py"}' },
+      },
+      {
+        id: "call_b",
+        type: "function",
+        function: { name: "file_write", arguments: '{"path":"b.py"}' },
+      },
+      {
+        id: "ollama_call_2",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"NYC"}' },
+      },
+    ]);
+  });
+
   it("drops incomplete tool_calls missing a name", () => {
     /** @type {Map<number, { id: string, name: string, arguments: string }>} */
     const byIndex = new Map();
