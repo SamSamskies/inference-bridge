@@ -76,7 +76,7 @@ describe("isToolFingerprintCovered", () => {
 });
 
 describe("isToolEpisodeContinuation", () => {
-  it("requires assistant tool_calls and a tool result", () => {
+  it("requires a trailing assistant tool_calls turn with matching tool results", () => {
     expect(
       isToolEpisodeContinuation([
         { role: "user", content: "weather?" },
@@ -113,6 +113,46 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
+      ])
+    ).toBe(false);
+  });
+
+  it("rejects when a new user turn follows prior tool traffic", () => {
+    expect(
+      isToolEpisodeContinuation([
+        { role: "user", content: "weather?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "user", content: "now book a flight" },
+      ])
+    ).toBe(false);
+  });
+
+  it("rejects tool results that do not match the preceding tool_calls", () => {
+    expect(
+      isToolEpisodeContinuation([
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "other", content: "{}" },
       ])
     ).toBe(false);
   });

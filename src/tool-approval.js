@@ -59,28 +59,59 @@ export function isToolFingerprintCovered(requestFp, grantedFp) {
 }
 
 /**
- * Multi-turn function-tool follow-up: assistant tool_calls + role tool results.
+ * Multi-turn function-tool follow-up: messages must *end* with tool results
+ * that belong to the immediately preceding assistant tool_calls turn.
+ * Prior tool history alone (or a new user turn after tools) is not enough —
+ * otherwise Allow once could be reused for unrelated requests.
  * @param {Array<{ role?: string, tool_calls?: unknown, tool_call_id?: string }> | undefined | null} messages
  * @returns {boolean}
  */
 export function isToolEpisodeContinuation(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return false;
-  let hasAssistantToolCalls = false;
-  let hasToolResult = false;
-  for (const message of messages) {
-    if (!message || typeof message !== "object") continue;
-    if (
-      message.role === "assistant" &&
-      Array.isArray(message.tool_calls) &&
-      message.tool_calls.length > 0
-    ) {
-      hasAssistantToolCalls = true;
+
+  let i = messages.length - 1;
+  while (i >= 0) {
+    const message = messages[i];
+    if (!message || typeof message !== "object" || message.role !== "tool") {
+      break;
     }
-    if (message.role === "tool") {
-      hasToolResult = true;
-    }
+    i -= 1;
   }
-  return hasAssistantToolCalls && hasToolResult;
+  // Need at least one trailing tool result.
+  if (i === messages.length - 1) return false;
+
+  const assistant = messages[i];
+  if (
+    !assistant ||
+    typeof assistant !== "object" ||
+    assistant.role !== "assistant" ||
+    !Array.isArray(assistant.tool_calls) ||
+    assistant.tool_calls.length === 0
+  ) {
+    return false;
+  }
+
+  /** @type {Set<string>} */
+  const callIds = new Set();
+  for (const call of assistant.tool_calls) {
+    if (!call || typeof call !== "object") continue;
+    const id = /** @type {{ id?: unknown }} */ (call).id;
+    if (typeof id === "string" && id) callIds.add(id);
+  }
+  if (callIds.size === 0) return false;
+
+  for (let j = i + 1; j < messages.length; j += 1) {
+    const toolMessage = messages[j];
+    const toolCallId =
+      toolMessage &&
+      typeof toolMessage === "object" &&
+      typeof toolMessage.tool_call_id === "string"
+        ? toolMessage.tool_call_id
+        : "";
+    if (!toolCallId || !callIds.has(toolCallId)) return false;
+  }
+
+  return true;
 }
 
 /**
