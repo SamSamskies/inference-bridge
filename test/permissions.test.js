@@ -862,6 +862,51 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5f")).toBeNull();
   });
 
+  it("does not reuse an episode for a different tool continuation that omits tools", async () => {
+    const turn1 = ensurePermission({
+      requestId: "rt5g",
+      origin: "https://episode-bleed.example",
+      messages: [{ role: "user", content: "Weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt5g");
+    resolveApproval("rt5g", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const otherToolFollowUp = [
+      { role: "user", content: "What time is it?" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_time",
+            type: "function",
+            function: { name: "get_time", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_time", content: '{"hh":12}' },
+    ];
+
+    const turn2 = ensurePermission({
+      requestId: "rt5h",
+      origin: "https://episode-bleed.example",
+      messages: otherToolFollowUp,
+    });
+    await waitForPending("rt5h");
+    resolveApproval("rt5h", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
   it("still prompts when tools are present but messages are not a continuation", async () => {
     const turn1 = ensurePermission({
       requestId: "rt6a",

@@ -59,15 +59,12 @@ export function isToolFingerprintCovered(requestFp, grantedFp) {
 }
 
 /**
- * Multi-turn function-tool follow-up: messages must *end* with tool results
- * that belong to the immediately preceding assistant tool_calls turn.
- * Prior tool history alone (or a new user turn after tools) is not enough —
- * otherwise Allow once could be reused for unrelated requests.
- * @param {Array<{ role?: string, tool_calls?: unknown, tool_call_id?: string }> | undefined | null} messages
- * @returns {boolean}
+ * Index of the assistant message that owns trailing tool results, or -1.
+ * @param {Array<{ role?: string, tool_calls?: unknown }> | undefined | null} messages
+ * @returns {number}
  */
-export function isToolEpisodeContinuation(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return false;
+function trailingToolCallsAssistantIndex(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return -1;
 
   let i = messages.length - 1;
   while (i >= 0) {
@@ -78,7 +75,7 @@ export function isToolEpisodeContinuation(messages) {
     i -= 1;
   }
   // Need at least one trailing tool result.
-  if (i === messages.length - 1) return false;
+  if (i === messages.length - 1) return -1;
 
   const assistant = messages[i];
   if (
@@ -88,12 +85,53 @@ export function isToolEpisodeContinuation(messages) {
     !Array.isArray(assistant.tool_calls) ||
     assistant.tool_calls.length === 0
   ) {
-    return false;
+    return -1;
   }
+  return i;
+}
 
+/**
+ * Fingerprint of function names on the trailing assistant tool_calls turn.
+ * Used when a follow-up omits `tools` so episode matching still binds to the
+ * tools actually being continued — not any episode on the origin.
+ * @param {Array<{ role?: string, tool_calls?: unknown }> | undefined | null} messages
+ * @returns {string}
+ */
+export function fingerprintTrailingToolCalls(messages) {
+  const i = trailingToolCallsAssistantIndex(messages);
+  if (i < 0 || !messages) return "";
+
+  const assistant = messages[i];
+  /** @type {Set<string>} */
+  const ids = new Set();
+  for (const call of assistant.tool_calls || []) {
+    if (!call || typeof call !== "object") continue;
+    const fn = /** @type {{ function?: { name?: unknown } }} */ (call).function;
+    const name =
+      fn && typeof fn === "object" && typeof fn.name === "string" && fn.name
+        ? fn.name
+        : "";
+    if (name) ids.add(`fn:${name}`);
+  }
+  return [...ids].sort().join("|");
+}
+
+/**
+ * Multi-turn function-tool follow-up: messages must *end* with tool results
+ * that belong to the immediately preceding assistant tool_calls turn.
+ * Prior tool history alone (or a new user turn after tools) is not enough —
+ * otherwise Allow once could be reused for unrelated requests.
+ * @param {Array<{ role?: string, tool_calls?: unknown, tool_call_id?: string }> | undefined | null} messages
+ * @returns {boolean}
+ */
+export function isToolEpisodeContinuation(messages) {
+  const i = trailingToolCallsAssistantIndex(messages);
+  if (i < 0 || !messages) return false;
+
+  const assistant = messages[i];
   /** @type {Set<string>} */
   const callIds = new Set();
-  for (const call of assistant.tool_calls) {
+  for (const call of assistant.tool_calls || []) {
     if (!call || typeof call !== "object") continue;
     const id = /** @type {{ id?: unknown }} */ (call).id;
     if (typeof id === "string" && id) callIds.add(id);

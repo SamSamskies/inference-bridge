@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capabilityWarnings,
   fingerprintTools,
+  fingerprintTrailingToolCalls,
   hostedToolLabel,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
@@ -72,6 +73,41 @@ describe("isToolFingerprintCovered", () => {
     expect(isToolFingerprintCovered(fingerprintTools([weatherTool]), "")).toBe(
       false
     );
+  });
+});
+
+describe("fingerprintTrailingToolCalls", () => {
+  it("fingerprints function names from the trailing assistant tool_calls", () => {
+    expect(
+      fingerprintTrailingToolCalls([
+        { role: "user", content: "weather?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+            {
+              id: "c2",
+              type: "function",
+              function: { name: "get_time", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "tool", tool_call_id: "c2", content: "{}" },
+      ])
+    ).toBe("fn:get_time|fn:get_weather");
+  });
+
+  it("returns empty when messages are not a tool continuation", () => {
+    expect(fingerprintTrailingToolCalls([{ role: "user", content: "hi" }])).toBe(
+      ""
+    );
+    expect(fingerprintTrailingToolCalls(undefined)).toBe("");
   });
 });
 

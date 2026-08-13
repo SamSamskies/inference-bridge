@@ -18,6 +18,7 @@ import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
   fingerprintTools,
+  fingerprintTrailingToolCalls,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
 } from "./tool-approval.js";
@@ -96,10 +97,18 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
     toolEpisodes.delete(origin);
     return null;
   }
-  if (!isToolFingerprintCovered(args.toolFingerprint, episode.toolFingerprint)) {
+  if (!isToolEpisodeContinuation(args.messages)) {
     return null;
   }
-  if (!isToolEpisodeContinuation(args.messages)) {
+  // Follow-ups may omit `tools`. Bind to this episode via the trailing
+  // tool_calls fingerprint so an empty request cannot reuse another flow's
+  // Allow-once episode on the same origin.
+  const requestFp =
+    args.toolFingerprint || fingerprintTrailingToolCalls(args.messages);
+  if (
+    !requestFp ||
+    !isToolFingerprintCovered(requestFp, episode.toolFingerprint)
+  ) {
     return null;
   }
   return {
@@ -261,8 +270,9 @@ export async function ensurePermission(args) {
 
   // Short-lived SW episode: allow multi-turn function-tool follow-ups without
   // a second popup (same origin / covered fingerprint / continuing messages).
-  // Follow-ups may omit `tools` (empty request fp is covered); continuation
-  // still gates reuse. Provider/model come from the episode — not grant prefill.
+  // Follow-ups may omit `tools`; matching then uses trailing tool_calls so
+  // empty request fp cannot reuse another flow's episode. Provider/model come
+  // from the episode — not grant prefill.
   const episode = matchingToolEpisode(args.origin, {
     toolFingerprint,
     messages: args.messages,
