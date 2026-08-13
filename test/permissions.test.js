@@ -759,6 +759,81 @@ describe("ensurePermission with tools", () => {
     await expect(again).resolves.toMatchObject({ allowed: false });
   });
 
+  it("forgets in-memory tool episodes when Always-allow is granted without tools", async () => {
+    const origin = "https://tools-episode-clear.example";
+    const opening = [{ role: "user", content: "Weather in Austin?" }];
+    const followUp = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_ep_clear",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_ep_clear",
+        content: '{"tempC":22}',
+      },
+    ];
+
+    const turn1 = ensurePermission({
+      requestId: "rt4d",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt4d");
+    resolveApproval("rt4d", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const plain = ensurePermission({
+      requestId: "rt4e",
+      origin,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("rt4e");
+    resolveApproval("rt4e", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(plain).resolves.toMatchObject({ allowed: true, once: false });
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    // Old allow_once follow-up must re-prompt; episode should not survive the
+    // tools-less Always-allow.
+    const again = ensurePermission({
+      requestId: "rt4f",
+      origin,
+      messages: followUp,
+      tools: weatherTools,
+    });
+    await waitForPending("rt4f");
+    resolveApproval("rt4f", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(again).resolves.toMatchObject({ allowed: false });
+  });
+
   it("skips the second turn of an allow_once tools episode", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5a",

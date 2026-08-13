@@ -460,6 +460,11 @@ export async function ensurePermission(args) {
           model: chosenModel,
           ...(toolFingerprint ? { toolFingerprint } : {}),
         });
+        // Plain-chat Always-allow clears tools from storage; drop in-memory
+        // episodes so follow-ups cannot keep auto-approving after the narrow.
+        if (!toolFingerprint) {
+          forgetToolEpisode(args.origin);
+        }
       }
       if (toolFingerprint) {
         rememberToolEpisode(args.origin, {
