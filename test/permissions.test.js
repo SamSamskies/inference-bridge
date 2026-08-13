@@ -1054,22 +1054,27 @@ describe("ensurePermission with tools", () => {
       model: "gemma4",
     });
 
-    // Extend tab A first so its episode prefix diverges; tab B's opening
-    // episode must still be intact (not overwritten by the identical opener).
-    await expect(
-      ensurePermission({
-        requestId: "rt5same-a2",
-        origin,
-        messages: followUpA,
-        tools: weatherTools,
-      })
-    ).resolves.toEqual({
+    // First follow-up is ambiguous while both episodes still share the opener —
+    // re-prompt rather than binding the wrong provider. Remember must update
+    // the openai episode only so tab B's opening slot stays intact.
+    const turnA2 = ensurePermission({
+      requestId: "rt5same-a2",
+      origin,
+      messages: followUpA,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5same-a2");
+    resolveApproval("rt5same-a2", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA2).resolves.toEqual({
       allowed: true,
       providerId: "openai",
       model: "gpt-4o-mini",
       once: true,
     });
-    expect(getPendingApproval("rt5same-a2")).toBeNull();
 
     await expect(
       ensurePermission({
@@ -1085,6 +1090,120 @@ describe("ensurePermission with tools", () => {
       once: true,
     });
     expect(getPendingApproval("rt5same-b2")).toBeNull();
+  });
+
+  it("does not auto-bind the wrong provider when same-opener follow-ups race", async () => {
+    const origin = "https://episode-parallel-race.example";
+    const opening = [{ role: "user", content: "Weather in Austin?" }];
+    const followUpA = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_race_a",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"a"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_race_a", content: '{"tempC":22}' },
+    ];
+    const followUpB = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_race_b",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"b"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_race_b", content: '{"tempC":23}' },
+    ];
+
+    const turnA = ensurePermission({
+      requestId: "rt5race-a",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5race-a");
+    resolveApproval("rt5race-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA).resolves.toMatchObject({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const turnB = ensurePermission({
+      requestId: "rt5race-b",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5race-b");
+    resolveApproval("rt5race-b", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB).resolves.toMatchObject({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+    });
+
+    // B follows up first while both episodes still share the opening prefix.
+    // Ambiguous provider binding must re-prompt rather than steal tab A's episode.
+    const turnB2 = ensurePermission({
+      requestId: "rt5race-b2",
+      origin,
+      messages: followUpB,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5race-b2");
+    resolveApproval("rt5race-b2", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB2).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: true,
+    });
+
+    // Tab A's opening episode must still be intact for its follow-up.
+    await expect(
+      ensurePermission({
+        requestId: "rt5race-a2",
+        origin,
+        messages: followUpA,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5race-a2")).toBeNull();
   });
 
   it("skips allow_once episode follow-ups that omit tools", async () => {

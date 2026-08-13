@@ -147,9 +147,29 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
   // rematches must push a new entry so two tabs Allow-once on the same opening
   // message keep separate episodes (different provider/model) instead of
   // overwriting each other.
-  const replaceAt = list.findIndex((existing) =>
-    isMessageHistoryExtension(episode.messages, existing.messagesPrefix)
-  );
+  // Prefer the longest matching prefix; on a tie, the episode with the same
+  // provider/model so parallel same-opener tabs do not clobber each other.
+  let replaceAt = -1;
+  let bestPrefixLen = -1;
+  let bestProviderMatch = false;
+  for (let i = 0; i < list.length; i += 1) {
+    const existing = list[i];
+    if (!isMessageHistoryExtension(episode.messages, existing.messagesPrefix)) {
+      continue;
+    }
+    const prefixLen = existing.messagesPrefix.length;
+    const providerMatch =
+      existing.providerId === next.providerId && existing.model === next.model;
+    if (
+      replaceAt < 0 ||
+      prefixLen > bestPrefixLen ||
+      (prefixLen === bestPrefixLen && providerMatch && !bestProviderMatch)
+    ) {
+      replaceAt = i;
+      bestPrefixLen = prefixLen;
+      bestProviderMatch = providerMatch;
+    }
+  }
   if (replaceAt >= 0) {
     list[replaceAt] = next;
   } else {
@@ -180,8 +200,11 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   if (!requestFp) return null;
 
   // Prefer the longest matching prefix when parallel episodes exist on one origin.
-  /** @type {{ providerId: string, model: string, toolFingerprint: string, prefixLen: number } | null} */
-  let best = null;
+  // If several share that length but disagree on provider/model (two tabs
+  // Allow-once on the same opener), refuse to guess — re-prompt instead.
+  let bestPrefixLen = -1;
+  /** @type {Array<{ providerId: string, model: string, toolFingerprint: string }>} */
+  const tied = [];
   for (const episode of list) {
     // Same-origin callers can fabricate assistant tool_calls + tool results.
     // Require a strict extension of the approved message history so an
@@ -192,21 +215,29 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
     if (!isToolFingerprintCovered(requestFp, episode.toolFingerprint)) {
       continue;
     }
-    if (!best || episode.messagesPrefix.length > best.prefixLen) {
-      best = {
-        providerId: episode.providerId,
-        model: episode.model,
-        toolFingerprint: episode.toolFingerprint,
-        prefixLen: episode.messagesPrefix.length,
-      };
+    const prefixLen = episode.messagesPrefix.length;
+    const candidate = {
+      providerId: episode.providerId,
+      model: episode.model,
+      toolFingerprint: episode.toolFingerprint,
+    };
+    if (prefixLen > bestPrefixLen) {
+      bestPrefixLen = prefixLen;
+      tied.length = 0;
+      tied.push(candidate);
+    } else if (prefixLen === bestPrefixLen) {
+      tied.push(candidate);
     }
   }
-  if (!best) return null;
-  return {
-    providerId: best.providerId,
-    model: best.model,
-    toolFingerprint: best.toolFingerprint,
-  };
+  if (tied.length === 0) return null;
+
+  /** @type {Map<string, { providerId: string, model: string, toolFingerprint: string }>} */
+  const byBinding = new Map();
+  for (const candidate of tied) {
+    byBinding.set(`${candidate.providerId}\0${candidate.model}`, candidate);
+  }
+  if (byBinding.size !== 1) return null;
+  return byBinding.values().next().value;
 }
 
 /**
