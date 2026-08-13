@@ -728,6 +728,27 @@ describe("ensurePermission with tools", () => {
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
+  it("re-prompts plain Always-allow when omitted-tools continuation has no episode", async () => {
+    await grantOriginAlways("https://plain-forge-tools.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    clearToolEpisodes();
+
+    const pending = ensurePermission({
+      requestId: "rt3d",
+      origin: "https://plain-forge-tools.example",
+      messages: weatherFollowUpMessages,
+    });
+    await waitForPending("rt3d");
+    resolveApproval("rt3d", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("clears toolFingerprint when Always-allow is re-granted without tools", async () => {
     const withTools = ensurePermission({
       requestId: "rt4a",
@@ -1863,21 +1884,24 @@ describe("ensurePermission with tools", () => {
       })
     ).resolves.toBe(true);
 
-    // Omitting tools would otherwise reuse the stale Allow-once episode
-    // (openai) instead of the updated Always-allow grant.
-    await expect(
-      ensurePermission({
-        requestId: "rt8d",
-        origin,
-        messages: weatherFollowUpMessages,
-      })
-    ).resolves.toEqual({
-      allowed: true,
+    // Omitting tools must not reuse the stale Allow-once episode (openai), and
+    // must not ride plain Always-allow either — re-prompt with the updated grant.
+    const turn2 = ensurePermission({
+      requestId: "rt8d",
+      origin,
+      messages: weatherFollowUpMessages,
+    });
+    await waitForPending("rt8d");
+    expect(getPendingApproval("rt8d")).toMatchObject({
       providerId: "ollama",
       model: "gemma4",
-      once: false,
     });
-    expect(getPendingApproval("rt8d")).toBeNull();
+    resolveApproval("rt8d", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
 });
 

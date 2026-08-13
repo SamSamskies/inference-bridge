@@ -411,14 +411,10 @@ export async function ensurePermission(args) {
           messages: args.messages,
         });
         if (!episode) {
-          // Tools Always-allow must not treat unmatched tool continuations as
-          // plain chat — that would approve forged histories without the
-          // episode message-prefix check. Re-prompt instead.
-          const toolsGrantContinuation =
-            typeof existing.toolFingerprint === "string" &&
-            existing.toolFingerprint &&
-            isToolEpisodeContinuation(args.messages);
-          if (!toolsGrantContinuation) {
+          // Unmatched tool continuations must not ride Always-allow (plain or
+          // tools) — that would approve forged histories without the episode
+          // message-prefix check. Re-prompt instead.
+          if (!isToolEpisodeContinuation(args.messages)) {
             return {
               allowed: true,
               providerId: grantProviderId,
