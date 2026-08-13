@@ -143,17 +143,13 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
   };
 
   const list = liveToolEpisodes(origin, now);
-  // Update the episode this turn continues (or an exact prefix rematch); otherwise
-  // keep a separate entry so another tab's Allow-once is not overwritten.
-  const replaceAt = list.findIndex((existing) => {
-    if (isMessageHistoryExtension(episode.messages, existing.messagesPrefix)) {
-      return true;
-    }
-    if (existing.messagesPrefix.length !== episode.messages.length) return false;
-    return existing.messagesPrefix.every(
-      (m, i) => JSON.stringify(m) === JSON.stringify(episode.messages[i])
-    );
-  });
+  // Update only when this turn continues an existing episode. Exact-prefix
+  // rematches must push a new entry so two tabs Allow-once on the same opening
+  // message keep separate episodes (different provider/model) instead of
+  // overwriting each other.
+  const replaceAt = list.findIndex((existing) =>
+    isMessageHistoryExtension(episode.messages, existing.messagesPrefix)
+  );
   if (replaceAt >= 0) {
     list[replaceAt] = next;
   } else {

@@ -978,6 +978,115 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5parallel-b2")).toBeNull();
   });
 
+  it("keeps separate allow_once episodes when two tabs share the same opening message", async () => {
+    const origin = "https://episode-parallel-same.example";
+    const opening = [{ role: "user", content: "Weather in Austin?" }];
+    const followUpA = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_tab_a",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"a"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_tab_a", content: '{"tempC":22}' },
+    ];
+    const followUpB = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_tab_b",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin","tab":"b"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_tab_b", content: '{"tempC":23}' },
+    ];
+
+    const turnA = ensurePermission({
+      requestId: "rt5same-a",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5same-a");
+    resolveApproval("rt5same-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA).resolves.toMatchObject({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const turnB = ensurePermission({
+      requestId: "rt5same-b",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5same-b");
+    resolveApproval("rt5same-b", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB).resolves.toMatchObject({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+    });
+
+    // Extend tab A first so its episode prefix diverges; tab B's opening
+    // episode must still be intact (not overwritten by the identical opener).
+    await expect(
+      ensurePermission({
+        requestId: "rt5same-a2",
+        origin,
+        messages: followUpA,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5same-a2")).toBeNull();
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5same-b2",
+        origin,
+        messages: followUpB,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: true,
+    });
+    expect(getPendingApproval("rt5same-b2")).toBeNull();
+  });
+
   it("skips allow_once episode follow-ups that omit tools", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5c",
