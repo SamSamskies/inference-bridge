@@ -80,6 +80,23 @@ export function forgetToolEpisode(origin) {
 }
 
 /**
+ * Drop episodes whose approved prefix is extended by `messages` (deny of a
+ * re-prompted continuation). Leaves unrelated parallel same-origin episodes.
+ * @param {string} origin
+ * @param {ChatMessage[]} messages
+ * @param {number} [now]
+ */
+function forgetMatchingToolEpisodes(origin, messages, now = Date.now()) {
+  const list = liveToolEpisodes(origin, now);
+  if (list.length === 0) return;
+  const kept = list.filter(
+    (episode) => !isMessageHistoryExtension(messages, episode.messagesPrefix)
+  );
+  if (kept.length === 0) toolEpisodes.delete(origin);
+  else if (kept.length !== list.length) toolEpisodes.set(origin, kept);
+}
+
+/**
  * chrome.storage.onChanged handler: drop episodes when Always-allow grants are removed.
  * @param {object} changes
  * @param {string} areaName
@@ -529,9 +546,11 @@ export async function ensurePermission(args) {
         once: false,
       };
     case "deny":
-      // Drop in-memory episodes so a denied ambiguous/re-prompted continuation
-      // cannot later auto-approve once sibling episodes diverge.
-      forgetToolEpisode(args.origin);
+      // Drop only episodes this request could have matched so a denied
+      // ambiguous/re-prompted continuation cannot later auto-approve once
+      // sibling same-opener episodes diverge — without wiping unrelated
+      // parallel Allow-once flows on the same origin.
+      forgetMatchingToolEpisodes(args.origin, args.messages);
       return {
         allowed: false,
         providerId: chosenProviderId,

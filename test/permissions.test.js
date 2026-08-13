@@ -1426,6 +1426,118 @@ describe("ensurePermission with tools", () => {
     await expect(again).resolves.toMatchObject({ allowed: false });
   });
 
+  it("does not wipe unrelated same-origin tool episodes when another flow is denied", async () => {
+    const origin = "https://episode-deny-unrelated.example";
+    const openingA = [{ role: "user", content: "Weather in Austin?" }];
+    const openingB = [{ role: "user", content: "Weather in Boston?" }];
+    const followUpA = [
+      ...openingA,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_unrel_a",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_unrel_a", content: '{"tempC":22}' },
+    ];
+    const followUpB = [
+      ...openingB,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_unrel_b",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Boston"}',
+            },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_unrel_b", content: '{"tempC":18}' },
+    ];
+    // Wider tool set forces a re-prompt (episode fingerprint no longer covers).
+    const widerTools = [
+      ...weatherTools,
+      {
+        type: "function",
+        function: {
+          name: "get_time",
+          description: "Get time",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ];
+
+    const turnA = ensurePermission({
+      requestId: "rt5unrel-a",
+      origin,
+      messages: openingA,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5unrel-a");
+    resolveApproval("rt5unrel-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turnA).resolves.toMatchObject({ allowed: true, once: true });
+
+    const turnB = ensurePermission({
+      requestId: "rt5unrel-b",
+      origin,
+      messages: openingB,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5unrel-b");
+    resolveApproval("rt5unrel-b", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turnB).resolves.toMatchObject({ allowed: true, once: true });
+
+    const denied = ensurePermission({
+      requestId: "rt5unrel-a2",
+      origin,
+      messages: followUpA,
+      tools: widerTools,
+    });
+    await waitForPending("rt5unrel-a2");
+    resolveApproval("rt5unrel-a2", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(denied).resolves.toMatchObject({ allowed: false });
+
+    // Tab B's distinct message history must still auto-continue.
+    await expect(
+      ensurePermission({
+        requestId: "rt5unrel-b2",
+        origin,
+        messages: followUpB,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: true,
+    });
+    expect(getPendingApproval("rt5unrel-b2")).toBeNull();
+  });
+
   it("skips allow_once episode follow-ups that omit tools", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5c",
