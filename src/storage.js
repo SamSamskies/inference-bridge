@@ -6,7 +6,12 @@ import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
 
 /**
- * @typedef {{ allowedAt: number, providerId?: string, model?: string }} OriginGrant
+ * @typedef {{
+ *   allowedAt: number,
+ *   providerId?: string,
+ *   model?: string,
+ *   toolFingerprint?: string,
+ * }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  * @typedef {{ id: string, name: string, baseUrl: string }} CompatEndpoint
@@ -471,17 +476,35 @@ export async function isOriginBlocked(origin) {
 
 /**
  * @param {string} origin
- * @param {{ providerId: string, model: string }} options
+ * @param {{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint?: string,
+ * }} options
  */
-export async function grantOriginAlways(origin, { providerId, model }) {
+export async function grantOriginAlways(
+  origin,
+  { providerId, model, toolFingerprint }
+) {
   if (!isPersistableOriginKey(origin)) return;
   const { allowedOrigins, blockedOrigins } = await getSettings();
   delete blockedOrigins[origin];
-  allowedOrigins[origin] = {
+  const fp =
+    typeof toolFingerprint === "string" && toolFingerprint.trim()
+      ? toolFingerprint.trim()
+      : "";
+  /** @type {OriginGrant} */
+  const grant = {
     allowedAt: Date.now(),
     providerId: normalizeProviderId(providerId),
     model: typeof model === "string" && model.trim() ? model.trim() : undefined,
   };
+  // Plain-chat Always-allow must clear any prior tools fingerprint so tools
+  // cannot stay unlocked after a non-tools re-grant.
+  if (fp) {
+    grant.toolFingerprint = fp;
+  }
+  allowedOrigins[origin] = grant;
   await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
 }
 

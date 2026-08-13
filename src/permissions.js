@@ -16,18 +16,40 @@ import {
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
+import {
+  fingerprintTools,
+  isToolEpisodeContinuation,
+  isToolFingerprintCovered,
+} from "./tool-approval.js";
+
+/** @typedef {import("./providers/types.js").Tool} Tool */
+/** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
 
 /**
  * @typedef {{
  *   requestId: string,
  *   origin: string,
- *   messages: Array<{ role: string, content: string }>,
+ *   messages: ChatMessage[],
  *   providerId: string,
  *   model: string,
+ *   tools?: Tool[],
  * }} ApprovalRequest
  */
 
 /** @typedef {"allow_once" | "always" | "deny" | "never"} ApprovalDecision */
+
+/** Episode TTL for short-lived SW-side tools approval (ms). */
+export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * @type {Map<string, {
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   expiresAt: number,
+ * }>}
+ */
+const toolEpisodes = new Map();
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
@@ -35,6 +57,57 @@ import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
  *   windowId?: number,
  * }>} */
 const pendingApprovals = new Map();
+
+/**
+ * Test helper: clear in-memory tool episodes.
+ */
+export function clearToolEpisodes() {
+  toolEpisodes.clear();
+}
+
+/**
+ * @param {string} origin
+ * @param {{ providerId: string, model: string, toolFingerprint: string }} episode
+ * @param {number} [now]
+ */
+function rememberToolEpisode(origin, episode, now = Date.now()) {
+  if (!episode.toolFingerprint) return;
+  toolEpisodes.set(origin, {
+    providerId: normalizeProviderId(episode.providerId),
+    model: episode.model,
+    toolFingerprint: episode.toolFingerprint,
+    expiresAt: now + TOOL_EPISODE_TTL_MS,
+  });
+}
+
+/**
+ * @param {string} origin
+ * @param {{
+ *   toolFingerprint: string,
+ *   messages: ChatMessage[],
+ * }} args
+ * @param {number} [now]
+ * @returns {{ providerId: string, model: string, toolFingerprint: string } | null}
+ */
+function matchingToolEpisode(origin, args, now = Date.now()) {
+  const episode = toolEpisodes.get(origin);
+  if (!episode) return null;
+  if (episode.expiresAt <= now) {
+    toolEpisodes.delete(origin);
+    return null;
+  }
+  if (!isToolFingerprintCovered(args.toolFingerprint, episode.toolFingerprint)) {
+    return null;
+  }
+  if (!isToolEpisodeContinuation(args.messages)) {
+    return null;
+  }
+  return {
+    providerId: episode.providerId,
+    model: episode.model,
+    toolFingerprint: episode.toolFingerprint,
+  };
+}
 
 /**
  * Compat endpoints need optional host access. Built-ins are always ok here.
@@ -59,9 +132,10 @@ async function hasCompatHostAccess(provider) {
  * @param {{
  *   requestId: string,
  *   origin: string,
- *   messages: Array<{ role: string, content: string }>,
+ *   messages: ChatMessage[],
  *   preferredProviderId?: string,
  *   preferredModel?: string,
+ *   tools?: Tool[],
  * }} args
  * @returns {Promise<{
  *   allowed: boolean,
@@ -116,6 +190,9 @@ export async function ensurePermission(args) {
     provider.defaultModel ||
     "";
 
+  const tools = Array.isArray(args.tools) && args.tools.length > 0 ? args.tools : undefined;
+  const toolFingerprint = tools ? fingerprintTools(tools) : "";
+
   if (await isOriginBlocked(args.origin)) {
     return {
       allowed: false,
@@ -140,20 +217,62 @@ export async function ensurePermission(args) {
     const grantFallbackModel = grantProvider?.defaultModel || "";
     const grantModel = existing.model || grantFallbackModel;
 
-    // Compat endpoints need optional host access. If the user revoked it in
-    // Chrome site settings, do not honor the persistent grant — re-prompt so
-    // the request does not skip approval only to fail later in ensureReady.
     if (await hasCompatHostAccess(grantProvider)) {
-      return {
-        allowed: true,
-        providerId: grantProviderId,
-        model: grantModel,
-        once: false,
-      };
+      if (!toolFingerprint) {
+        // Plain chat: honor Always-allow as before.
+        return {
+          allowed: true,
+          providerId: grantProviderId,
+          model: grantModel,
+          once: false,
+        };
+      }
+
+      // Tools: Always-allow only skips the prompt when the grant already covers
+      // this tool set. Plain-chat grants (no toolFingerprint) still re-prompt.
+      if (
+        typeof existing.toolFingerprint === "string" &&
+        isToolFingerprintCovered(toolFingerprint, existing.toolFingerprint)
+      ) {
+        rememberToolEpisode(args.origin, {
+          providerId: grantProviderId,
+          model: grantModel,
+          toolFingerprint: existing.toolFingerprint,
+        });
+        return {
+          allowed: true,
+          providerId: grantProviderId,
+          model: grantModel,
+          once: false,
+        };
+      }
     }
 
     promptProviderId = grantProviderId;
     promptModel = grantModel;
+  }
+
+  // Short-lived SW episode: allow multi-turn function-tool follow-ups without
+  // a second popup (same origin / covered fingerprint / continuing messages).
+  // Provider/model come from the episode that was approved — not grant prefill.
+  if (toolFingerprint) {
+    const episode = matchingToolEpisode(args.origin, {
+      toolFingerprint,
+      messages: args.messages,
+    });
+    if (episode) {
+      rememberToolEpisode(args.origin, {
+        providerId: episode.providerId,
+        model: episode.model,
+        toolFingerprint: episode.toolFingerprint,
+      });
+      return {
+        allowed: true,
+        providerId: episode.providerId,
+        model: episode.model,
+        once: true,
+      };
+    }
   }
 
   const decision = await promptUser({
@@ -162,6 +281,7 @@ export async function ensurePermission(args) {
     messages: args.messages,
     providerId: promptProviderId,
     model: promptModel,
+    ...(tools ? { tools } : {}),
   });
 
   const chosenProviderId = normalizeProviderId(
@@ -218,6 +338,14 @@ export async function ensurePermission(args) {
         await grantOriginAlways(args.origin, {
           providerId: chosenProviderId,
           model: chosenModel,
+          ...(toolFingerprint ? { toolFingerprint } : {}),
+        });
+      }
+      if (toolFingerprint) {
+        rememberToolEpisode(args.origin, {
+          providerId: chosenProviderId,
+          model: chosenModel,
+          toolFingerprint,
         });
       }
       await setOriginLastUsed(args.origin, {

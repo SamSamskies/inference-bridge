@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
 import {
   cancelApproval,
+  clearToolEpisodes,
   ensurePermission,
   getPendingApproval,
   handleApprovalWindowClosed,
@@ -19,8 +20,36 @@ import {
 
 const chromeMock = installChromeMock();
 
+const weatherTools = [
+  {
+    type: "function",
+    function: {
+      name: "get_weather",
+      description: "Get weather",
+      parameters: { type: "object", properties: { city: { type: "string" } } },
+    },
+  },
+];
+
+const weatherFollowUpMessages = [
+  { role: "user", content: "Weather in Austin?" },
+  {
+    role: "assistant",
+    content: null,
+    tool_calls: [
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ],
+  },
+  { role: "tool", tool_call_id: "call_1", content: '{"tempC":22}' },
+];
+
 beforeEach(() => {
   chromeMock.reset();
+  clearToolEpisodes();
   vi.restoreAllMocks();
 });
 
@@ -574,6 +603,223 @@ describe("ensurePermission", () => {
       model: "my-custom-endpoint",
       once: true,
     });
+  });
+});
+
+describe("ensurePermission with tools", () => {
+  it("re-prompts Always-allow origins when tools are present", async () => {
+    await grantOriginAlways("https://tools.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt1",
+      origin: "https://tools.example",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt1");
+
+    expect(getPendingApproval("rt1")).toMatchObject({
+      origin: "https://tools.example",
+      tools: weatherTools,
+    });
+
+    resolveApproval("rt1", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips the prompt when Always-allow already covers the tool fingerprint", async () => {
+    const pending = ensurePermission({
+      requestId: "rt2a",
+      origin: "https://tools-grant.example",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt2a");
+    resolveApproval("rt2a", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: true, once: false });
+
+    const grant = await getOriginGrant("https://tools-grant.example");
+    expect(grant?.toolFingerprint).toBe("fn:get_weather");
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2b",
+        origin: "https://tools-grant.example",
+        messages: [{ role: "user", content: "again?" }],
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: false,
+    });
+    expect(getPendingApproval("rt2b")).toBeNull();
+  });
+
+  it("re-prompts when Always-allow tools grant does not cover new tools", async () => {
+    const pending = ensurePermission({
+      requestId: "rt3a",
+      origin: "https://tools-expand.example",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt3a");
+    resolveApproval("rt3a", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: true });
+
+    const expanded = ensurePermission({
+      requestId: "rt3b",
+      origin: "https://tools-expand.example",
+      messages: [{ role: "user", content: "time?" }],
+      tools: [
+        ...weatherTools,
+        { type: "function", function: { name: "get_time" } },
+      ],
+    });
+    await waitForPending("rt3b");
+    expect(getPendingApproval("rt3b")?.tools).toHaveLength(2);
+    resolveApproval("rt3b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(expanded).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("clears toolFingerprint when Always-allow is re-granted without tools", async () => {
+    const withTools = ensurePermission({
+      requestId: "rt4a",
+      origin: "https://tools-clear.example",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt4a");
+    resolveApproval("rt4a", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(withTools).resolves.toMatchObject({ allowed: true });
+    await expect(getOriginGrant("https://tools-clear.example")).resolves.toMatchObject({
+      toolFingerprint: "fn:get_weather",
+    });
+
+    clearToolEpisodes();
+    const plain = ensurePermission({
+      requestId: "rt4b",
+      origin: "https://tools-clear.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    // Plain chat still uses the grant without prompting.
+    await expect(plain).resolves.toMatchObject({ allowed: true, once: false });
+
+    // Re-grant plain chat via a tools-less Always from a fresh prompt path:
+    // force a prompt by using a different origin flow — grantOriginAlways directly.
+    await grantOriginAlways("https://tools-clear.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(getOriginGrant("https://tools-clear.example")).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const again = ensurePermission({
+      requestId: "rt4c",
+      origin: "https://tools-clear.example",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt4c");
+    resolveApproval("rt4c", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(again).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips the second turn of an allow_once tools episode", async () => {
+    const turn1 = ensurePermission({
+      requestId: "rt5a",
+      origin: "https://episode.example",
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt5a");
+    resolveApproval("rt5a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({
+      allowed: true,
+      once: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5b",
+        origin: "https://episode.example",
+        messages: weatherFollowUpMessages,
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5b")).toBeNull();
+  });
+
+  it("still prompts when tools are present but messages are not a continuation", async () => {
+    const turn1 = ensurePermission({
+      requestId: "rt6a",
+      origin: "https://episode-new.example",
+      messages: [{ role: "user", content: "Weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt6a");
+    resolveApproval("rt6a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true });
+
+    const turn2 = ensurePermission({
+      requestId: "rt6b",
+      origin: "https://episode-new.example",
+      messages: [{ role: "user", content: "Different question with tools" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt6b");
+    resolveApproval("rt6b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
 });
 

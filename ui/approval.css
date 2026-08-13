@@ -116,3 +116,46 @@ body.approval-body {
   border-radius: 7px;
   white-space: nowrap;
 }
+
+.capability-warning {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--danger);
+}
+
+.tools-panel {
+  gap: 8px;
+}
+
+.tools-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tools-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tool-name {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.tool-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+

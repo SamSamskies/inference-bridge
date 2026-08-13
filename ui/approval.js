@@ -8,6 +8,11 @@ import {
   approvalProviderSetupHint,
   isApprovalProviderReady,
 } from "../src/provider-ready.js";
+import {
+  capabilityWarnings,
+  hostedToolLabel,
+  summarizeToolsForPreview,
+} from "../src/tool-approval.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -39,6 +44,9 @@ const modelInput = document.getElementById("modelInput");
 const clearModelButton = document.getElementById("clearModel");
 const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
+const capabilityWarningEl = document.getElementById("capabilityWarning");
+const toolsPanel = document.getElementById("toolsPanel");
+const toolsList = document.getElementById("toolsList");
 const previewEl = document.getElementById("preview");
 const errorEl = document.getElementById("error");
 const rememberInput = document.getElementById("remember");
@@ -53,6 +61,8 @@ const denyBtn = document.getElementById("deny");
  *   requiresApiKey?: boolean,
  *   optionalApiKey?: boolean,
  *   hasApiKey?: boolean,
+ *   supportsFunctionTools?: boolean,
+ *   hostedTools?: string[],
  * }>} */
 let providers = [];
 
@@ -65,6 +75,10 @@ let currentModels = [];
 
 /** Bumped on each model load so a slower earlier fetch cannot repaint. */
 let modelsLoadId = 0;
+
+/** Tools from the pending approval request (experimental path). */
+/** @type {import("../src/providers/types.js").Tool[] | undefined} */
+let requestTools;
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
 allowBtn.disabled = true;
@@ -115,6 +129,54 @@ function updateProviderHint(providerId = providerSelect.value) {
   }
   providerHint.hidden = false;
   providerHint.textContent = hint;
+}
+
+function updateCapabilityWarning(providerId = providerSelect.value) {
+  const provider = providers.find((p) => p.id === providerId);
+  const warnings = capabilityWarnings(provider, requestTools);
+  if (warnings.length === 0) {
+    capabilityWarningEl.hidden = true;
+    capabilityWarningEl.textContent = "";
+    return;
+  }
+  capabilityWarningEl.hidden = false;
+  capabilityWarningEl.textContent = warnings.join(" ");
+}
+
+/**
+ * @param {import("../src/providers/types.js").Tool[] | undefined} tools
+ */
+function renderTools(tools) {
+  toolsList.replaceChildren();
+  const summary = summarizeToolsForPreview(tools);
+  if (summary.functions.length === 0 && summary.hosted.length === 0) {
+    toolsPanel.hidden = true;
+    return;
+  }
+
+  toolsPanel.hidden = false;
+  for (const fn of summary.functions) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = fn.name;
+    li.append(name);
+    if (fn.description) {
+      const desc = document.createElement("p");
+      desc.className = "tool-desc";
+      desc.textContent = fn.description;
+      li.append(desc);
+    }
+    toolsList.append(li);
+  }
+  for (const hosted of summary.hosted) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = hostedToolLabel(hosted);
+    li.append(name);
+    toolsList.append(li);
+  }
 }
 
 /**
@@ -309,6 +371,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   currentModels = [];
   updateAllowEnabled();
   updateProviderHint(providerId);
+  updateCapabilityWarning(providerId);
   setModelHint("Loading models…");
   populateModelControl(providerId, [], preferredModel, {
     allowUnknown: true,
@@ -583,6 +646,9 @@ async function load() {
       : providers[0].id;
   const providerId = fillProviders(requestedId);
   updateProviderHint(providerId);
+  requestTools = Array.isArray(request.tools) ? request.tools : undefined;
+  renderTools(requestTools);
+  updateCapabilityWarning(providerId);
   renderPreview(request.messages || []);
   updateRememberHint();
 
@@ -604,12 +670,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   void refreshProviders().then((ok) => {
     if (!ok) return;
     updateProviderHint();
+    updateCapabilityWarning();
     updateAllowEnabled();
   });
 });
 
 providerSelect.addEventListener("change", () => {
   const provider = providers.find((p) => p.id === providerSelect.value);
+  updateCapabilityWarning(providerSelect.value);
   void loadModelsForProvider(
     providerSelect.value,
     provider?.defaultModel || undefined
