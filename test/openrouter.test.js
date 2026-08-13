@@ -235,7 +235,7 @@ describe("openrouterProvider.streamChat", () => {
     });
   });
 
-  it("forwards function tools and tool_choice; strips hosted web_search", async () => {
+  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -258,7 +258,7 @@ describe("openrouterProvider.streamChat", () => {
           function: { name: "get_weather", parameters: { type: "object" } },
         },
       ],
-      tool_choice: "auto",
+      toolChoice: "auto",
       signal: new AbortController().signal,
       onDelta: () => {},
     });

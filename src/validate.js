@@ -43,11 +43,11 @@ function rejectStableToolFields(req, messages) {
         'tools is only available via window.inference.experimental.request.',
     };
   }
-  if (req.tool_choice !== undefined) {
+  if (req.toolChoice !== undefined) {
     return {
       ok: false,
       message:
-        'tool_choice is only available via window.inference.experimental.request.',
+        'toolChoice is only available via window.inference.experimental.request.',
     };
   }
   for (let i = 0; i < messages.length; i++) {
@@ -278,7 +278,7 @@ function validateToolChoice(toolChoice) {
     if (!TOOL_CHOICE_STRINGS.has(toolChoice)) {
       return {
         ok: false,
-        message: 'tool_choice must be "auto", "none", "required", or a function object.',
+        message: 'toolChoice must be "auto", "none", "required", or a function object.',
       };
     }
     return {
@@ -289,25 +289,25 @@ function validateToolChoice(toolChoice) {
   if (toolChoice == null || typeof toolChoice !== "object" || Array.isArray(toolChoice)) {
     return {
       ok: false,
-      message: 'tool_choice must be "auto", "none", "required", or a function object.',
+      message: 'toolChoice must be "auto", "none", "required", or a function object.',
     };
   }
   const choice = /** @type {Record<string, unknown>} */ (toolChoice);
   if (choice.type !== "function") {
-    return { ok: false, message: 'tool_choice.type must be "function".' };
+    return { ok: false, message: 'toolChoice.type must be "function".' };
   }
   if (
     choice.function == null ||
     typeof choice.function !== "object" ||
     Array.isArray(choice.function)
   ) {
-    return { ok: false, message: "tool_choice.function must be an object." };
+    return { ok: false, message: "toolChoice.function must be an object." };
   }
   const fn = /** @type {Record<string, unknown>} */ (choice.function);
   if (typeof fn.name !== "string" || !fn.name) {
     return {
       ok: false,
-      message: "tool_choice.function.name must be a non-empty string.",
+      message: "toolChoice.function.name must be a non-empty string.",
     };
   }
   return {
@@ -326,7 +326,7 @@ function validateToolChoice(toolChoice) {
  *     method: "chat",
  *     messages: ExperimentalMessage[],
  *     tools?: Tool[],
- *     tool_choice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+ *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
  *   },
  * } | { ok: false, message: string }}
  */
@@ -462,7 +462,7 @@ export function validateExperimentalInferenceRequest(request) {
    *   method: "chat",
    *   messages: ExperimentalMessage[],
    *   tools?: Tool[],
-   *   tool_choice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+   *   toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
    * }} */
   const value = { method: "chat", messages };
 
@@ -472,10 +472,10 @@ export function validateExperimentalInferenceRequest(request) {
     value.tools = tools.value;
   }
 
-  if ("tool_choice" in req) {
-    const toolChoice = validateToolChoice(req.tool_choice);
+  if ("toolChoice" in req) {
+    const toolChoice = validateToolChoice(req.toolChoice);
     if (!toolChoice.ok) return toolChoice;
-    value.tool_choice = toolChoice.value;
+    value.toolChoice = toolChoice.value;
   }
 
   if ("signal" in req && req.signal != null) {

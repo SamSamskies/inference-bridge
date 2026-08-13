@@ -110,7 +110,7 @@ export function createOpenAICompatProvider(endpoint) {
       model,
       messages,
       tools,
-      tool_choice,
+      toolChoice,
       signal,
       onDelta,
       onReasoningDelta,
@@ -133,7 +133,7 @@ export function createOpenAICompatProvider(endpoint) {
         ...(functionTools
           ? {
               tools: functionTools,
-              ...(tool_choice !== undefined ? { tool_choice } : {}),
+              ...(toolChoice !== undefined ? { toolChoice } : {}),
             }
           : {}),
         signal,

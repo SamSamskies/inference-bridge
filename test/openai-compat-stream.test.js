@@ -568,7 +568,7 @@ describe("streamOpenAICompatChat tool calling", () => {
             },
           },
         ],
-        tool_choice: "auto",
+        toolChoice: "auto",
       })
     );
 
@@ -594,7 +594,7 @@ describe("streamOpenAICompatChat tool calling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await streamOpenAICompatChat(
-      baseArgs({ tool_choice: "none" })
+      baseArgs({ toolChoice: "none" })
     );
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);

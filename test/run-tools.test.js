@@ -131,7 +131,7 @@ describe("runTools", () => {
     ]);
   });
 
-  it("forwards tools and tool_choice on each round", async () => {
+  it("forwards tools and toolChoice on each round", async () => {
     /** @type {object[]} */
     const seen = [];
     const request = (req) => {
@@ -158,15 +158,15 @@ describe("runTools", () => {
       request,
       messages: [{ role: "user", content: "hi" }],
       tools: weatherTools,
-      tool_choice: "auto",
+      toolChoice: "auto",
       execute: { get_weather: async () => ({ ok: true }) },
     });
 
     expect(seen).toHaveLength(2);
     expect(seen[0].tools).toEqual(weatherTools);
-    expect(seen[0].tool_choice).toBe("auto");
+    expect(seen[0].toolChoice).toBe("auto");
     expect(seen[1].tools).toEqual(weatherTools);
-    expect(seen[1].tool_choice).toBe("auto");
+    expect(seen[1].toolChoice).toBe("auto");
     expect(seen[1].messages).toHaveLength(3);
   });
 

@@ -171,7 +171,7 @@ describe("createOpenAICompatProvider", () => {
     });
   });
 
-  it("forwards function tools and tool_choice; strips hosted web_search", async () => {
+  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -194,7 +194,7 @@ describe("createOpenAICompatProvider", () => {
           function: { name: "get_weather", parameters: { type: "object" } },
         },
       ],
-      tool_choice: "auto",
+      toolChoice: "auto",
       signal: new AbortController().signal,
       onDelta: () => {},
     });
@@ -229,7 +229,7 @@ describe("createOpenAICompatProvider", () => {
       model: "local",
       messages: [{ role: "user", content: "hi" }],
       tools: [{ type: "web_search" }],
-      tool_choice: "auto",
+      toolChoice: "auto",
       signal: new AbortController().signal,
       onDelta: () => {},
     });

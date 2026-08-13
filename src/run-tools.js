@@ -60,7 +60,7 @@ export function parseToolArguments(argumentsJson, toolName) {
  *   tools?: object[],
  *   execute?: Record<string, (args: any) => unknown | Promise<unknown>>,
  *   maxRounds?: number,
- *   tool_choice?: unknown,
+ *   toolChoice?: unknown,
  *   onDelta?: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
  *   signal?: AbortSignal,
@@ -78,7 +78,7 @@ export async function runTools(options) {
     tools,
     execute,
     maxRounds = 5,
-    tool_choice: toolChoice,
+    toolChoice,
     onDelta,
     onReasoningDelta,
     signal,
@@ -110,7 +110,7 @@ export async function runTools(options) {
       signal,
     };
     if (tools !== undefined) req.tools = tools;
-    if (toolChoice !== undefined) req.tool_choice = toolChoice;
+    if (toolChoice !== undefined) req.toolChoice = toolChoice;
 
     /** @type {object | undefined} */
     let done;
