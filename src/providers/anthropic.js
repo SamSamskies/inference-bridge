@@ -3,6 +3,8 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
+import { filterFunctionTools } from "./openai-compat-stream.js";
+
 export const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 8192;
@@ -18,6 +20,11 @@ export const ANTHROPIC_MODELS = Object.freeze([
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
 ]);
+
+/** @typedef {import("./types.js").ChatMessage} ChatMessage */
+/** @typedef {import("./types.js").Tool} Tool */
+/** @typedef {import("./types.js").ToolCall} ToolCall */
+/** @typedef {import("./types.js").ToolChoice} ToolChoice */
 
 /**
  * @param {string} code
@@ -53,16 +60,130 @@ export function mapAnthropicStatus(status, detail) {
 }
 
 /**
+ * Parse Bridge tool-call `arguments` (JSON string) into an Anthropic `input` object.
+ * @param {string | undefined} args
+ * @returns {Record<string, unknown>}
+ */
+function parseToolArguments(args) {
+  if (typeof args !== "string" || !args) return {};
+  try {
+    const parsed = JSON.parse(args);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return /** @type {Record<string, unknown>} */ (parsed);
+    }
+  } catch {
+    // Invalid JSON — send empty input rather than fail the whole request.
+  }
+  return {};
+}
+
+/**
+ * Map Bridge function tools → Anthropic `tools` (`name`, `description`, `input_schema`).
+ * @param {Extract<Tool, { type: "function" }>[]} tools
+ * @returns {Array<{ name: string, description?: string, input_schema: object }>}
+ */
+export function mapToolsForAnthropic(tools) {
+  return tools.map((t) => {
+    /** @type {{ name: string, description?: string, input_schema: object }} */
+    const out = {
+      name: t.function.name,
+      input_schema:
+        t.function.parameters && typeof t.function.parameters === "object"
+          ? t.function.parameters
+          : { type: "object", properties: {} },
+    };
+    if (typeof t.function.description === "string" && t.function.description) {
+      out.description = t.function.description;
+    }
+    return out;
+  });
+}
+
+/**
+ * Map Bridge `tool_choice` → Anthropic Messages API shape.
+ * `auto` / `none` / `required` / named function → `auto` / `none` / `any` / `tool`.
+ * @param {ToolChoice} toolChoice
+ * @returns {{ type: "auto" } | { type: "none" } | { type: "any" } | { type: "tool", name: string }}
+ */
+export function mapToolChoiceForAnthropic(toolChoice) {
+  if (toolChoice === "auto") return { type: "auto" };
+  if (toolChoice === "none") return { type: "none" };
+  if (toolChoice === "required") return { type: "any" };
+  return {
+    type: "tool",
+    name: toolChoice.function.name,
+  };
+}
+
+/**
+ * @param {ChatMessage} m
+ * @returns {string | Array<Record<string, unknown>>}
+ */
+function mapAssistantContent(m) {
+  const hasToolCalls =
+    Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+  if (!hasToolCalls) {
+    return m.content == null ? "" : m.content;
+  }
+
+  /** @type {Array<Record<string, unknown>>} */
+  const blocks = [];
+  if (typeof m.content === "string" && m.content) {
+    blocks.push({ type: "text", text: m.content });
+  }
+  for (const c of m.tool_calls || []) {
+    blocks.push({
+      type: "tool_use",
+      id: c.id,
+      name: c.function.name,
+      input: parseToolArguments(c.function.arguments),
+    });
+  }
+  return blocks;
+}
+
+/**
+ * @param {string | Array<Record<string, unknown>>} a
+ * @param {string | Array<Record<string, unknown>>} b
+ * @returns {string | Array<Record<string, unknown>>}
+ */
+function mergeAnthropicContent(a, b) {
+  if (typeof a === "string" && typeof b === "string") {
+    return a && b ? `${a}\n\n${b}` : a || b;
+  }
+  /** @type {Array<Record<string, unknown>>} */
+  const left =
+    typeof a === "string"
+      ? a
+        ? [{ type: "text", text: a }]
+        : []
+      : a;
+  /** @type {Array<Record<string, unknown>>} */
+  const right =
+    typeof b === "string"
+      ? b
+        ? [{ type: "text", text: b }]
+        : []
+      : b;
+  return [...left, ...right];
+}
+
+/**
  * Map IPA messages to Anthropic Messages API shape.
  * System roles become a top-level `system` string; outbound `reasoning` is dropped.
- * Consecutive same-role turns are merged so the result alternates user/assistant.
- * @param {Array<{ role: string, content: string, reasoning?: string }>} messages
- * @returns {{ system?: string, messages: Array<{ role: string, content: string }> }}
+ * Assistant `tool_calls` become `tool_use` blocks; Bridge `role: "tool"` becomes
+ * user `tool_result` content. Consecutive same-role turns are merged so the
+ * result alternates user/assistant.
+ * @param {ChatMessage[]} messages
+ * @returns {{
+ *   system?: string,
+ *   messages: Array<{ role: string, content: string | Array<Record<string, unknown>> }>,
+ * }}
  */
 export function mapMessagesForAnthropic(messages) {
   /** @type {string[]} */
   const systemParts = [];
-  /** @type {Array<{ role: string, content: string }>} */
+  /** @type {Array<{ role: string, content: string | Array<Record<string, unknown>> }>} */
   const mapped = [];
 
   for (const m of messages) {
@@ -72,15 +193,36 @@ export function mapMessagesForAnthropic(messages) {
       }
       continue;
     }
+
+    /** @type {{ role: string, content: string | Array<Record<string, unknown>> }} */
+    let next;
+    if (m.role === "tool") {
+      next = {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id:
+              typeof m.tool_call_id === "string" ? m.tool_call_id : "",
+            content: m.content == null ? "" : m.content,
+          },
+        ],
+      };
+    } else if (m.role === "assistant") {
+      next = { role: "assistant", content: mapAssistantContent(m) };
+    } else {
+      next = {
+        role: m.role,
+        content: m.content == null ? "" : m.content,
+      };
+    }
+
     const last = mapped[mapped.length - 1];
-    if (last && last.role === m.role) {
-      last.content =
-        last.content && m.content
-          ? `${last.content}\n\n${m.content}`
-          : last.content || m.content;
+    if (last && last.role === next.role) {
+      last.content = mergeAnthropicContent(last.content, next.content);
       continue;
     }
-    mapped.push({ role: m.role, content: m.content });
+    mapped.push(next);
   }
 
   if (mapped.length === 0) {
@@ -96,7 +238,7 @@ export function mapMessagesForAnthropic(messages) {
     );
   }
 
-  /** @type {{ system?: string, messages: Array<{ role: string, content: string }> }} */
+  /** @type {{ system?: string, messages: Array<{ role: string, content: string | Array<Record<string, unknown>> }> }} */
   const out = { messages: mapped };
   if (systemParts.length > 0) {
     out.system = systemParts.join("\n\n");
@@ -128,19 +270,46 @@ export const anthropicProvider = {
   requiresApiKey: true,
   models: ANTHROPIC_MODELS,
   defaultModel: "claude-sonnet-5",
+  supportsFunctionTools: true,
+  hostedTools: Object.freeze([]),
 
   /**
    * Anthropic rejects threads with no non-system turn or an assistant-first
    * turn. Surface that as invalid_request before the `accepted` chunk instead
    * of mid-stream.
-   * @param {import("./types.js").ChatMessage[]} messages
+   * @param {ChatMessage[]} messages
    */
   preflightMessages(messages) {
     mapMessagesForAnthropic(messages);
   },
 
-  async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
+  async streamChat({
+    apiKey,
+    model,
+    messages,
+    tools,
+    tool_choice,
+    signal,
+    onDelta,
+    onReasoningDelta,
+  }) {
     const mapped = mapMessagesForAnthropic(messages);
+    const functionTools = filterFunctionTools(tools);
+
+    /** @type {Record<string, unknown>} */
+    const requestBody = {
+      model,
+      max_tokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
+      stream: true,
+      ...(mapped.system ? { system: mapped.system } : {}),
+      messages: mapped.messages,
+    };
+    if (functionTools) {
+      requestBody.tools = mapToolsForAnthropic(functionTools);
+      if (tool_choice !== undefined) {
+        requestBody.tool_choice = mapToolChoiceForAnthropic(tool_choice);
+      }
+    }
 
     let response;
     try {
@@ -153,13 +322,7 @@ export const anthropicProvider = {
           // Required for browser / extension fetch (CORS). Keys stay in the SW.
           "anthropic-dangerous-direct-browser-access": "true",
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
-          stream: true,
-          ...(mapped.system ? { system: mapped.system } : {}),
-          messages: mapped.messages,
-        }),
+        body: JSON.stringify(requestBody),
         signal,
       });
     } catch (err) {
@@ -199,6 +362,8 @@ export const anthropicProvider = {
     let usage;
     /** @type {string} */
     let currentEvent = "";
+    /** @type {Map<number, { id: string, name: string, arguments: string }>} */
+    const toolCallsByIndex = new Map();
 
     /**
      * @param {Record<string, unknown>} parsed
@@ -236,6 +401,22 @@ export const anthropicProvider = {
         return;
       }
 
+      if (type === "content_block_start") {
+        const block = parsed.content_block;
+        const index = typeof parsed.index === "number" ? parsed.index : 0;
+        if (block && typeof block === "object") {
+          const b = /** @type {Record<string, unknown>} */ (block);
+          if (b.type === "tool_use") {
+            toolCallsByIndex.set(index, {
+              id: typeof b.id === "string" ? b.id : "",
+              name: typeof b.name === "string" ? b.name : "",
+              arguments: "",
+            });
+          }
+        }
+        return;
+      }
+
       if (type === "content_block_delta") {
         const delta = parsed.delta;
         if (!delta || typeof delta !== "object") return;
@@ -250,8 +431,17 @@ export const anthropicProvider = {
         ) {
           reasoning += d.thinking;
           onReasoningDelta?.(d.thinking);
+        } else if (
+          d.type === "input_json_delta" &&
+          typeof d.partial_json === "string"
+        ) {
+          const index = typeof parsed.index === "number" ? parsed.index : 0;
+          const entry = toolCallsByIndex.get(index);
+          if (entry) {
+            entry.arguments += d.partial_json;
+          }
         }
-        // input_json_delta / signature_delta: ignore (tools out of scope)
+        // signature_delta: ignore (thinking signatures; not part of IPA)
         return;
       }
 
@@ -347,10 +537,27 @@ export const anthropicProvider = {
       }
     }
 
-    /** @type {{ role: "assistant", content: string, reasoning?: string }} */
+    /** @type {{ role: "assistant", content: string, reasoning?: string, tool_calls?: ToolCall[] }} */
     const message = { role: "assistant", content };
     if (reasoning) {
       message.reasoning = reasoning;
+    }
+    if (toolCallsByIndex.size > 0) {
+      const tool_calls = [...toolCallsByIndex.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, entry]) => ({
+          id: entry.id,
+          type: /** @type {"function"} */ ("function"),
+          function: {
+            name: entry.name,
+            // Empty streamed input (no deltas) is valid `{}`.
+            arguments: entry.arguments || "{}",
+          },
+        }))
+        .filter((c) => c.id && c.function.name);
+      if (tool_calls.length > 0) {
+        message.tool_calls = tool_calls;
+      }
     }
 
     return {
