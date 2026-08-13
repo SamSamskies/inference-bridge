@@ -48,6 +48,11 @@ describe("serializeToolResult / parseToolArguments", () => {
     expect(serializeToolResult({ tempC: 22 })).toBe('{"tempC":22}');
   });
 
+  it("serializes undefined/void results as a string", () => {
+    expect(serializeToolResult(undefined)).toBe("null");
+    expect(typeof serializeToolResult(undefined)).toBe("string");
+  });
+
   it("parses arguments JSON and treats empty as {}", () => {
     expect(parseToolArguments('{"city":"Austin"}', "get_weather")).toEqual({
       city: "Austin",

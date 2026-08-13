@@ -26,7 +26,9 @@ function makeError(code, message) {
 export function serializeToolResult(value) {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value);
+    // JSON.stringify(undefined) (and some other values) returns undefined, not a string.
+    const json = JSON.stringify(value);
+    return typeof json === "string" ? json : "null";
   } catch {
     return String(value);
   }
