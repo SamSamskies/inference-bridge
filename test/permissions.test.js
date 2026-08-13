@@ -821,6 +821,62 @@ describe("ensurePermission with tools", () => {
     });
     await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
+
+  it("re-prompts episode follow-ups when compat host permission was revoked", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    const contains = vi.fn(async () => true);
+    globalThis.chrome.permissions = {
+      contains,
+      request: vi.fn(async () => true),
+    };
+
+    const turn1 = ensurePermission({
+      requestId: "rt7a",
+      origin: "https://episode-compat.example",
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+      preferredProviderId: "compat:lm",
+      preferredModel: "local-model",
+    });
+    await waitForPending("rt7a");
+    resolveApproval("rt7a", {
+      decision: "allow_once",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(turn1).resolves.toMatchObject({
+      allowed: true,
+      once: true,
+      providerId: "compat:lm",
+    });
+
+    contains.mockResolvedValue(false);
+
+    const turn2 = ensurePermission({
+      requestId: "rt7b",
+      origin: "https://episode-compat.example",
+      messages: weatherFollowUpMessages,
+      tools: weatherTools,
+    });
+    await waitForPending("rt7b");
+    expect(getPendingApproval("rt7b")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    resolveApproval("rt7b", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
 });
 
 describe("resolveApproval", () => {

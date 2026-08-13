@@ -261,17 +261,24 @@ export async function ensurePermission(args) {
       messages: args.messages,
     });
     if (episode) {
-      rememberToolEpisode(args.origin, {
-        providerId: episode.providerId,
-        model: episode.model,
-        toolFingerprint: episode.toolFingerprint,
-      });
-      return {
-        allowed: true,
-        providerId: episode.providerId,
-        model: episode.model,
-        once: true,
-      };
+      const episodeProvider = await getProviderAsync(episode.providerId);
+      // Same host gate as Always-allow: revoked optional access must re-prompt
+      // rather than auto-approving and failing later in streaming.
+      if (await hasCompatHostAccess(episodeProvider)) {
+        rememberToolEpisode(args.origin, {
+          providerId: episode.providerId,
+          model: episode.model,
+          toolFingerprint: episode.toolFingerprint,
+        });
+        return {
+          allowed: true,
+          providerId: episode.providerId,
+          model: episode.model,
+          once: true,
+        };
+      }
+      promptProviderId = episode.providerId;
+      promptModel = episode.model;
     }
   }
 
