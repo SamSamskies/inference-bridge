@@ -19,6 +19,7 @@ import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
   fingerprintTools,
   fingerprintTrailingToolCalls,
+  isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
 } from "./tool-approval.js";
@@ -47,6 +48,7 @@ export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
+ *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
  * }>}
  */
@@ -68,15 +70,23 @@ export function clearToolEpisodes() {
 
 /**
  * @param {string} origin
- * @param {{ providerId: string, model: string, toolFingerprint: string }} episode
+ * @param {{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   messages: ChatMessage[],
+ * }} episode
  * @param {number} [now]
  */
 function rememberToolEpisode(origin, episode, now = Date.now()) {
   if (!episode.toolFingerprint) return;
+  if (!Array.isArray(episode.messages) || episode.messages.length === 0) return;
   toolEpisodes.set(origin, {
     providerId: normalizeProviderId(episode.providerId),
     model: episode.model,
     toolFingerprint: episode.toolFingerprint,
+    // Snapshot so later mutations of the caller's array cannot widen the prefix.
+    messagesPrefix: episode.messages.map((m) => structuredClone(m)),
     expiresAt: now + TOOL_EPISODE_TTL_MS,
   });
 }
@@ -95,6 +105,12 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   if (!episode) return null;
   if (episode.expiresAt <= now) {
     toolEpisodes.delete(origin);
+    return null;
+  }
+  // Same-origin callers can fabricate assistant tool_calls + tool results.
+  // Require a strict extension of the approved message history so an
+  // unrelated thread cannot reuse this Allow-once episode.
+  if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
     return null;
   }
   if (!isToolEpisodeContinuation(args.messages)) {
@@ -254,6 +270,7 @@ export async function ensurePermission(args) {
           providerId: grantProviderId,
           model: grantModel,
           toolFingerprint: existing.toolFingerprint,
+          messages: args.messages,
         });
         return {
           allowed: true,
@@ -286,6 +303,7 @@ export async function ensurePermission(args) {
         providerId: episode.providerId,
         model: episode.model,
         toolFingerprint: episode.toolFingerprint,
+        messages: args.messages,
       });
       return {
         allowed: true,
@@ -369,6 +387,7 @@ export async function ensurePermission(args) {
           providerId: chosenProviderId,
           model: chosenModel,
           toolFingerprint,
+          messages: args.messages,
         });
       }
       await setOriginLastUsed(args.origin, {

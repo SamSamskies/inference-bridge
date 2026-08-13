@@ -4,6 +4,7 @@ import {
   fingerprintTools,
   fingerprintTrailingToolCalls,
   hostedToolLabel,
+  isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
   summarizeToolsForPreview,
@@ -108,6 +109,48 @@ describe("fingerprintTrailingToolCalls", () => {
       ""
     );
     expect(fingerprintTrailingToolCalls(undefined)).toBe("");
+  });
+});
+
+describe("isMessageHistoryExtension", () => {
+  it("requires a strict extension of the prefix messages", () => {
+    const prefix = [{ role: "user", content: "Weather in Austin?" }];
+    expect(
+      isMessageHistoryExtension(
+        [
+          ...prefix,
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "c1",
+                type: "function",
+                function: { name: "get_weather", arguments: "{}" },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "c1", content: "{}" },
+        ],
+        prefix
+      )
+    ).toBe(true);
+  });
+
+  it("rejects equal length, shorter, mismatched, or empty prefixes", () => {
+    const prefix = [{ role: "user", content: "Weather in Austin?" }];
+    expect(isMessageHistoryExtension(prefix, prefix)).toBe(false);
+    expect(isMessageHistoryExtension([], prefix)).toBe(false);
+    expect(
+      isMessageHistoryExtension(
+        [{ role: "user", content: "Other prompt" }, { role: "tool", content: "{}" }],
+        prefix
+      )
+    ).toBe(false);
+    expect(isMessageHistoryExtension([{ role: "user", content: "x" }], [])).toBe(
+      false
+    );
+    expect(isMessageHistoryExtension(undefined, prefix)).toBe(false);
   });
 });
 

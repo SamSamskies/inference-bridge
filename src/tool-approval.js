@@ -117,6 +117,27 @@ export function fingerprintTrailingToolCalls(messages) {
 }
 
 /**
+ * True when `messages` strictly extends `prefix` (same leading messages, then
+ * at least one more). Used so Allow-once episodes cannot be reused by a
+ * fabricated tool-continuation history on the same origin.
+ * @param {unknown} messages
+ * @param {unknown} prefix
+ * @returns {boolean}
+ */
+export function isMessageHistoryExtension(messages, prefix) {
+  if (!Array.isArray(messages) || !Array.isArray(prefix) || prefix.length === 0) {
+    return false;
+  }
+  if (messages.length <= prefix.length) return false;
+  for (let i = 0; i < prefix.length; i += 1) {
+    if (JSON.stringify(messages[i]) !== JSON.stringify(prefix[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Multi-turn function-tool follow-up: messages must *end* with tool results
  * that belong to the immediately preceding assistant tool_calls turn.
  * Prior tool history alone (or a new user turn after tools) is not enough —
