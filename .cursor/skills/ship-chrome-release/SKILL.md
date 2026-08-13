@@ -4,12 +4,19 @@ description: >-
   Prep and ship an Inference Bridge Chrome Web Store release: bump version,
   test, package ZIP, tag, GitHub Release, and store submission checklist. Use
   when the user asks to release, ship, publish, bump version, package for the
-  Chrome Web Store, create a store upload, or cut a new extension version.
+  Chrome Web Store, create a store upload, cut a new extension version, hotfix
+  a rejected store review, or resubmit an in-review package.
 ---
 
 # Ship Chrome Web Store release
 
 Follow [`docs/chrome-web-store.md`](docs/chrome-web-store.md) (repo root) as the source of truth for listing copy, permission justifications, and store questionnaire details.
+
+## Choose the release line
+
+- **Listing-only** (copy, screenshots, privacy questionnaire): no new ZIP. Edit the dashboard and/or docs.
+- **Hotfix** for a version already uploaded or in review: do **not** package `main`. Follow [Hotfix from tag](#hotfix-from-tag).
+- **Normal release**: `main` includes the intended changes. Follow [Workflow](#workflow).
 
 ## Workflow
 
@@ -29,7 +36,7 @@ Release progress:
 
 ### 1. Confirm branch state
 
-- On `main`, clean working tree, up to date with `origin/main`.
+- On `main` (normal release), clean working tree, up to date with `origin/main`.
 - Summarize commits since the previous `v*` tag (`git log vPREV..HEAD --oneline`).
 - Do not include uncommitted WIP unless the user asks.
 
@@ -115,6 +122,32 @@ Give the user:
 5. After publish: update README Installation with the store URL
 
 Do not store or request Chrome Web Store API credentials. Submission stays manual.
+
+## Hotfix from tag
+
+When the store rejects a package, or a version already uploaded needs a code change:
+
+1. Branch from the **uploaded** tag, not `main`:
+
+   ```bash
+   git switch -c hotfix/X.Y.Z vPREV
+   ```
+
+   Example: `v0.4.0` is in review → `git switch -c hotfix/0.4.1 v0.4.0`
+
+2. Apply **only** the store-required fix. Do not merge or cherry-pick unrelated `main` work.
+3. Patch-bump `manifest.json` and `package.json`. Chrome requires a strictly higher version than any previously uploaded package; the rejected version number cannot be reused.
+4. Continue from workflow step 3 (`npm ci && npm test && npm run package`) through inspect, commit, tag, GitHub Release, and store handoff.
+5. Push the hotfix branch and the new tag (not `main`):
+
+   ```bash
+   git push -u origin HEAD
+   git push origin vX.Y.Z
+   ```
+
+6. Open a PR to merge the hotfix into `main`. If `main` has moved, merge or rebase as usual; do not reset `main` to the hotfix branch.
+
+Resubmit the new ZIP. If the original ZIP is still valid and only listing fields changed, do not cut a new package.
 
 ## Out of scope
 

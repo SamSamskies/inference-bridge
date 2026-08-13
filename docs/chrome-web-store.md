@@ -12,6 +12,8 @@ Inference Bridge provides a browser bridge for the Inference Provider API: injec
 2. Keep `package.json` aligned if you treat it as the project version.
 3. Tag the release as `vX.Y.Z` (example: `v0.1.0`) to trigger the release workflow ZIP artifact.
 
+Listing-only updates (copy, screenshots, privacy questionnaire) do not need a new ZIP. If a version already uploaded or in review needs a **code** change, branch from that `v*` tag, patch-bump, and package from the hotfix branch — do not package `main` if it has moved on. Merge the hotfix back to `main` afterward. A rejected version number cannot be reused.
+
 ## Package the extension
 
 ```bash
