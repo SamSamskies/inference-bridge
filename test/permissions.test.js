@@ -792,6 +792,36 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5b")).toBeNull();
   });
 
+  it("skips allow_once episode follow-ups that omit tools", async () => {
+    const turn1 = ensurePermission({
+      requestId: "rt5c",
+      origin: "https://episode-omit.example",
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt5c");
+    resolveApproval("rt5c", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5d",
+        origin: "https://episode-omit.example",
+        messages: weatherFollowUpMessages,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5d")).toBeNull();
+  });
+
   it("still prompts when tools are present but messages are not a continuation", async () => {
     const turn1 = ensurePermission({
       requestId: "rt6a",

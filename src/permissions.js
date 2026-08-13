@@ -254,32 +254,31 @@ export async function ensurePermission(args) {
 
   // Short-lived SW episode: allow multi-turn function-tool follow-ups without
   // a second popup (same origin / covered fingerprint / continuing messages).
-  // Provider/model come from the episode that was approved — not grant prefill.
-  if (toolFingerprint) {
-    const episode = matchingToolEpisode(args.origin, {
-      toolFingerprint,
-      messages: args.messages,
-    });
-    if (episode) {
-      const episodeProvider = await getProviderAsync(episode.providerId);
-      // Same host gate as Always-allow: revoked optional access must re-prompt
-      // rather than auto-approving and failing later in streaming.
-      if (await hasCompatHostAccess(episodeProvider)) {
-        rememberToolEpisode(args.origin, {
-          providerId: episode.providerId,
-          model: episode.model,
-          toolFingerprint: episode.toolFingerprint,
-        });
-        return {
-          allowed: true,
-          providerId: episode.providerId,
-          model: episode.model,
-          once: true,
-        };
-      }
-      promptProviderId = episode.providerId;
-      promptModel = episode.model;
+  // Follow-ups may omit `tools` (empty request fp is covered); continuation
+  // still gates reuse. Provider/model come from the episode — not grant prefill.
+  const episode = matchingToolEpisode(args.origin, {
+    toolFingerprint,
+    messages: args.messages,
+  });
+  if (episode) {
+    const episodeProvider = await getProviderAsync(episode.providerId);
+    // Same host gate as Always-allow: revoked optional access must re-prompt
+    // rather than auto-approving and failing later in streaming.
+    if (await hasCompatHostAccess(episodeProvider)) {
+      rememberToolEpisode(args.origin, {
+        providerId: episode.providerId,
+        model: episode.model,
+        toolFingerprint: episode.toolFingerprint,
+      });
+      return {
+        allowed: true,
+        providerId: episode.providerId,
+        model: episode.model,
+        once: true,
+      };
     }
+    promptProviderId = episode.providerId;
+    promptModel = episode.model;
   }
 
   const decision = await promptUser({
