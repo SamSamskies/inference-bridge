@@ -705,6 +705,28 @@ describe("ensurePermission with tools", () => {
     await expect(expanded).resolves.toMatchObject({ allowed: false });
   });
 
+  it("re-prompts tools Always-allow when omitted-tools continuation has no episode", async () => {
+    await grantOriginAlways("https://tools-forge-plain.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+    clearToolEpisodes();
+
+    const pending = ensurePermission({
+      requestId: "rt3c",
+      origin: "https://tools-forge-plain.example",
+      messages: weatherFollowUpMessages,
+    });
+    await waitForPending("rt3c");
+    resolveApproval("rt3c", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("clears toolFingerprint when Always-allow is re-granted without tools", async () => {
     const withTools = ensurePermission({
       requestId: "rt4a",
