@@ -468,8 +468,8 @@ async function handleStart(port, msg, onStreamId) {
       ...(experimental && validated.value.tools
         ? { tools: validated.value.tools }
         : {}),
-      ...(experimental && validated.value.tool_choice !== undefined
-        ? { tool_choice: validated.value.tool_choice }
+      ...(experimental && validated.value.toolChoice !== undefined
+        ? { toolChoice: validated.value.toolChoice }
         : {}),
       signal: controller.signal,
       onDelta: (content) => {

@@ -329,7 +329,7 @@
       tools,
       execute,
       maxRounds = 5,
-      tool_choice: toolChoice,
+      toolChoice,
       onDelta,
       onReasoningDelta,
       signal,
@@ -358,7 +358,7 @@
         signal,
       };
       if (tools !== undefined) req.tools = tools;
-      if (toolChoice !== undefined) req.tool_choice = toolChoice;
+      if (toolChoice !== undefined) req.toolChoice = toolChoice;
 
       /** @type {any} */
       let done;

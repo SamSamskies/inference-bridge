@@ -64,7 +64,7 @@
  *     model: string,
  *     messages: ChatMessage[],
  *     tools?: Tool[],
- *     tool_choice?: ToolChoice,
+ *     toolChoice?: ToolChoice,
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
  *     onReasoningDelta?: (content: string) => void,

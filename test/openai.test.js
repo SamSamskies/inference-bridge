@@ -38,7 +38,7 @@ describe("openaiProvider.streamChat", () => {
         { type: "web_search" },
         { type: "function", function: { name: "get_weather" } },
       ],
-      tool_choice: { type: "function", function: { name: "get_weather" } },
+      toolChoice: { type: "function", function: { name: "get_weather" } },
       signal: new AbortController().signal,
       onDelta: () => {},
     });

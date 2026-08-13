@@ -100,7 +100,7 @@ export function mapToolsForAnthropic(tools) {
 }
 
 /**
- * Map Bridge `tool_choice` → Anthropic Messages API shape.
+ * Map Bridge `toolChoice` → Anthropic Messages API shape.
  * `auto` / `none` / `required` / named function → `auto` / `none` / `any` / `tool`.
  * @param {ToolChoice} toolChoice
  * @returns {{ type: "auto" } | { type: "none" } | { type: "any" } | { type: "tool", name: string }}
@@ -288,7 +288,7 @@ export const anthropicProvider = {
     model,
     messages,
     tools,
-    tool_choice,
+    toolChoice,
     signal,
     onDelta,
     onReasoningDelta,
@@ -306,8 +306,8 @@ export const anthropicProvider = {
     };
     if (functionTools) {
       requestBody.tools = mapToolsForAnthropic(functionTools);
-      if (tool_choice !== undefined) {
-        requestBody.tool_choice = mapToolChoiceForAnthropic(tool_choice);
+      if (toolChoice !== undefined) {
+        requestBody.tool_choice = mapToolChoiceForAnthropic(toolChoice);
       }
     }
 

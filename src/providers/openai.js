@@ -44,7 +44,7 @@ export const openaiProvider = {
     model,
     messages,
     tools,
-    tool_choice,
+    toolChoice,
     signal,
     onDelta,
     onReasoningDelta,
@@ -58,7 +58,7 @@ export const openaiProvider = {
       ...(functionTools
         ? {
             tools: functionTools,
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(toolChoice !== undefined ? { toolChoice } : {}),
           }
         : {}),
       signal,

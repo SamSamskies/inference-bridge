@@ -64,7 +64,7 @@ describe("validateInferenceRequest", () => {
     ).toBe(false);
   });
 
-  it("rejects tools, tool_choice, tool_calls, and tool_call_id (experimental-only)", () => {
+  it("rejects tools, toolChoice, tool_calls, and tool_call_id (experimental-only)", () => {
     const tools = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
@@ -76,7 +76,7 @@ describe("validateInferenceRequest", () => {
     const toolChoice = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      tool_choice: "auto",
+      toolChoice: "auto",
     });
     expect(toolChoice.ok).toBe(false);
     expect(toolChoice.message).toMatch(/experimental/);
@@ -122,7 +122,7 @@ describe("validateInferenceRequest", () => {
         },
       ],
       tools: undefined,
-      tool_choice: undefined,
+      toolChoice: undefined,
     });
     expect(result).toEqual({
       ok: true,
@@ -206,7 +206,7 @@ describe("validateExperimentalInferenceRequest", () => {
     });
   });
 
-  it("accepts function tools, hosted web_search, and tool_choice", () => {
+  it("accepts function tools, hosted web_search, and toolChoice", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "weather?" }],
@@ -224,7 +224,7 @@ describe("validateExperimentalInferenceRequest", () => {
         },
         { type: "web_search" },
       ],
-      tool_choice: "auto",
+      toolChoice: "auto",
     });
     expect(result.ok).toBe(true);
     expect(result.value.tools).toEqual([
@@ -241,7 +241,7 @@ describe("validateExperimentalInferenceRequest", () => {
       },
       { type: "web_search" },
     ]);
-    expect(result.value.tool_choice).toBe("auto");
+    expect(result.value.toolChoice).toBe("auto");
   });
 
   it("accepts assistant tool_calls and role tool follow-ups", () => {
@@ -331,24 +331,24 @@ describe("validateExperimentalInferenceRequest", () => {
     });
   });
 
-  it("accepts function-shaped tool_choice", () => {
+  it("accepts function-shaped toolChoice", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
       tools: [{ type: "function", function: { name: "get_weather" } }],
-      tool_choice: {
+      toolChoice: {
         type: "function",
         function: { name: "get_weather" },
       },
     });
     expect(result.ok).toBe(true);
-    expect(result.value.tool_choice).toEqual({
+    expect(result.value.toolChoice).toEqual({
       type: "function",
       function: { name: "get_weather" },
     });
   });
 
-  it("rejects invalid tools and tool_choice", () => {
+  it("rejects invalid tools and toolChoice", () => {
     expect(
       validateExperimentalInferenceRequest({
         method: "chat",
@@ -374,7 +374,7 @@ describe("validateExperimentalInferenceRequest", () => {
       validateExperimentalInferenceRequest({
         method: "chat",
         messages: [{ role: "user", content: "hi" }],
-        tool_choice: "maybe",
+        toolChoice: "maybe",
       }).ok
     ).toBe(false);
   });

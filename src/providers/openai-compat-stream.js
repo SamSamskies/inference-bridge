@@ -139,7 +139,7 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *   model: string,
  *   messages: ChatMessage[],
  *   tools?: Tool[],
- *   tool_choice?: ToolChoice,
+ *   toolChoice?: ToolChoice,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
@@ -164,7 +164,7 @@ export async function streamOpenAICompatChat({
   model,
   messages,
   tools,
-  tool_choice,
+  toolChoice,
   signal,
   onDelta,
   onReasoningDelta,
@@ -192,8 +192,8 @@ export async function streamOpenAICompatChat({
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
-      if (tool_choice !== undefined) {
-        body.tool_choice = tool_choice;
+      if (toolChoice !== undefined) {
+        body.tool_choice = toolChoice;
       }
     }
 

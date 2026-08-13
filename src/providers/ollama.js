@@ -306,7 +306,7 @@ export const ollamaProvider = {
     model,
     messages,
     tools,
-    tool_choice,
+    toolChoice,
     signal,
     onDelta,
     onReasoningDelta,
@@ -332,8 +332,8 @@ export const ollamaProvider = {
       };
       if (functionTools) {
         body.tools = functionTools;
-        if (tool_choice !== undefined) {
-          body.tool_choice = tool_choice;
+        if (toolChoice !== undefined) {
+          body.tool_choice = toolChoice;
         }
       }
 
