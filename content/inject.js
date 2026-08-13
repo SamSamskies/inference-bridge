@@ -316,6 +316,172 @@
     };
   }
 
+  /**
+   * Page-side tool loop. Keep in sync with src/run-tools.js (unit-tested).
+   * @param {any} options
+   */
+  async function runTools(options) {
+    if (options == null || typeof options !== "object") {
+      throw makeError("invalid_request", "runTools options must be an object.");
+    }
+
+    const {
+      tools,
+      execute,
+      maxRounds = 5,
+      tool_choice: toolChoice,
+      onDelta,
+      onReasoningDelta,
+      signal,
+      method = "chat",
+    } = options;
+
+    if (!Array.isArray(options.messages)) {
+      throw makeError("invalid_request", "runTools requires a messages array.");
+    }
+    if (typeof maxRounds !== "number" || !Number.isFinite(maxRounds) || maxRounds < 1) {
+      throw makeError("invalid_request", "maxRounds must be a positive number.");
+    }
+
+    /** @type {any[]} */
+    let messages = [...options.messages];
+
+    for (let round = 0; round < maxRounds; round++) {
+      if (signal?.aborted) {
+        throw makeError("aborted", "Request aborted");
+      }
+
+      /** @type {Record<string, unknown>} */
+      const req = {
+        method,
+        messages,
+        signal,
+      };
+      if (tools !== undefined) req.tools = tools;
+      if (toolChoice !== undefined) req.tool_choice = toolChoice;
+
+      /** @type {any} */
+      let done;
+      for await (const chunk of createStream(req, { experimental: true })) {
+        if (signal?.aborted) {
+          throw makeError("aborted", "Request aborted");
+        }
+        if (!chunk || typeof chunk !== "object") continue;
+        if (chunk.type === "delta" && typeof onDelta === "function") {
+          onDelta(chunk.content);
+        } else if (
+          chunk.type === "reasoning_delta" &&
+          typeof onReasoningDelta === "function"
+        ) {
+          onReasoningDelta(chunk.content);
+        } else if (chunk.type === "done") {
+          done = chunk;
+        }
+      }
+
+      if (!done || typeof done !== "object") {
+        throw makeError("provider_error", "Stream ended without a done chunk.");
+      }
+
+      const message = done.message;
+      const toolCalls =
+        message &&
+        typeof message === "object" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0
+          ? message.tool_calls
+          : null;
+
+      if (!toolCalls) {
+        if (message && typeof message === "object") {
+          messages = [...messages, message];
+        }
+        return { messages, final: done };
+      }
+
+      /** @type {Record<string, unknown>} */
+      const assistantMessage = {
+        role: "assistant",
+        content: message.content ?? null,
+        tool_calls: toolCalls,
+      };
+      if (typeof message.reasoning === "string" && message.reasoning) {
+        assistantMessage.reasoning = message.reasoning;
+      }
+
+      messages = [...messages, assistantMessage];
+
+      for (const call of toolCalls) {
+        if (signal?.aborted) {
+          throw makeError("aborted", "Request aborted");
+        }
+
+        const name =
+          call &&
+          typeof call === "object" &&
+          call.function &&
+          typeof call.function === "object"
+            ? call.function.name
+            : undefined;
+
+        if (typeof name !== "string" || !name) {
+          throw makeError("provider_error", "Tool call is missing a function name.");
+        }
+
+        const executor =
+          execute && typeof execute === "object" ? execute[name] : undefined;
+        if (typeof executor !== "function") {
+          throw makeError(
+            "invalid_request",
+            `No execute handler for tool "${name}".`
+          );
+        }
+
+        const rawArgs =
+          call.function.arguments == null || call.function.arguments === ""
+            ? "{}"
+            : call.function.arguments;
+        let args;
+        try {
+          args = JSON.parse(rawArgs);
+        } catch (err) {
+          throw makeError(
+            "invalid_request",
+            `Tool "${name}" arguments are not valid JSON: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
+
+        const result = await executor(args);
+        const content =
+          typeof result === "string"
+            ? result
+            : (() => {
+                try {
+                  return JSON.stringify(result);
+                } catch {
+                  return String(result);
+                }
+              })();
+
+        messages = [
+          ...messages,
+          {
+            role: "tool",
+            tool_call_id: call.id,
+            content,
+          },
+        ];
+      }
+    }
+
+    throw makeError(
+      "provider_error",
+      `Tool loop exceeded maxRounds (${maxRounds}).`
+    );
+  }
+
   Object.defineProperty(window, "inference", {
     value: Object.freeze({
       request(request) {
@@ -325,6 +491,7 @@
         request(request) {
           return createStream(request, { experimental: true });
         },
+        runTools,
       }),
     }),
     writable: false,
