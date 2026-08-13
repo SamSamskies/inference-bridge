@@ -22,6 +22,7 @@ import {
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
+  startsWithMessageHistory,
 } from "./tool-approval.js";
 
 /** @typedef {import("./providers/types.js").Tool} Tool */
@@ -80,8 +81,9 @@ export function forgetToolEpisode(origin) {
 }
 
 /**
- * Drop episodes whose approved prefix is extended by `messages` (deny of a
- * re-prompted continuation). Leaves unrelated parallel same-origin episodes.
+ * Drop episodes whose approved prefix equals or is extended by `messages`
+ * (deny of a re-prompted opening or continuation). Leaves unrelated parallel
+ * same-origin episodes.
  * @param {string} origin
  * @param {ChatMessage[]} messages
  * @param {number} [now]
@@ -89,8 +91,10 @@ export function forgetToolEpisode(origin) {
 function forgetMatchingToolEpisodes(origin, messages, now = Date.now()) {
   const list = liveToolEpisodes(origin, now);
   if (list.length === 0) return;
+  // Equal-prefix matters: denying a re-prompted opening must clear the
+  // Allow-once episode so a forged tool continuation cannot auto-approve.
   const kept = list.filter(
-    (episode) => !isMessageHistoryExtension(messages, episode.messagesPrefix)
+    (episode) => !startsWithMessageHistory(messages, episode.messagesPrefix)
   );
   if (kept.length === 0) toolEpisodes.delete(origin);
   else if (kept.length !== list.length) toolEpisodes.set(origin, kept);

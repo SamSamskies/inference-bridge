@@ -1448,6 +1448,88 @@ describe("ensurePermission with tools", () => {
     await expect(again).resolves.toMatchObject({ allowed: false });
   });
 
+  it("forgets in-memory tool episodes when a re-prompted opening is denied", async () => {
+    const origin = "https://episode-deny-equal.example";
+    const opening = [{ role: "user", content: "Weather in Austin?" }];
+    const followUp = [
+      ...opening,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_equal_deny",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_equal_deny",
+        content: '{"tempC":22}',
+      },
+    ];
+    // Wider tool set forces a re-prompt of the same opening messages.
+    const widerTools = [
+      ...weatherTools,
+      {
+        type: "function",
+        function: {
+          name: "get_time",
+          description: "Get time",
+          parameters: { type: "object", properties: {} },
+        },
+      },
+    ];
+
+    const turn1 = ensurePermission({
+      requestId: "rt5eq-1",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5eq-1");
+    resolveApproval("rt5eq-1", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const denied = ensurePermission({
+      requestId: "rt5eq-2",
+      origin,
+      messages: opening,
+      tools: widerTools,
+    });
+    await waitForPending("rt5eq-2");
+    resolveApproval("rt5eq-2", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(denied).resolves.toMatchObject({ allowed: false });
+
+    // Forged continuation of the denied opening must re-prompt, not auto-approve.
+    const forged = ensurePermission({
+      requestId: "rt5eq-3",
+      origin,
+      messages: followUp,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5eq-3");
+    resolveApproval("rt5eq-3", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(forged).resolves.toMatchObject({ allowed: false });
+  });
+
   it("does not wipe unrelated same-origin tool episodes when another flow is denied", async () => {
     const origin = "https://episode-deny-unrelated.example";
     const openingA = [{ role: "user", content: "Weather in Austin?" }];

@@ -7,6 +7,7 @@ import {
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
+  startsWithMessageHistory,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
 
@@ -109,6 +110,48 @@ describe("fingerprintTrailingToolCalls", () => {
       ""
     );
     expect(fingerprintTrailingToolCalls(undefined)).toBe("");
+  });
+});
+
+describe("startsWithMessageHistory", () => {
+  it("accepts equal and extended prefixes", () => {
+    const prefix = [{ role: "user", content: "Weather in Austin?" }];
+    expect(startsWithMessageHistory(prefix, prefix)).toBe(true);
+    expect(
+      startsWithMessageHistory(
+        [
+          ...prefix,
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "c1",
+                type: "function",
+                function: { name: "get_weather", arguments: "{}" },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "c1", content: "{}" },
+        ],
+        prefix
+      )
+    ).toBe(true);
+  });
+
+  it("rejects shorter, mismatched, or empty prefixes", () => {
+    const prefix = [{ role: "user", content: "Weather in Austin?" }];
+    expect(startsWithMessageHistory([], prefix)).toBe(false);
+    expect(
+      startsWithMessageHistory(
+        [{ role: "user", content: "Other prompt" }],
+        prefix
+      )
+    ).toBe(false);
+    expect(startsWithMessageHistory([{ role: "user", content: "x" }], [])).toBe(
+      false
+    );
+    expect(startsWithMessageHistory(undefined, prefix)).toBe(false);
   });
 });
 

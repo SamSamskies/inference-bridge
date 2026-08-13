@@ -117,6 +117,26 @@ export function fingerprintTrailingToolCalls(messages) {
 }
 
 /**
+ * True when `messages` starts with `prefix` (equal length allowed). Used when
+ * denying so a re-prompted opening matches the stored Allow-once prefix.
+ * @param {unknown} messages
+ * @param {unknown} prefix
+ * @returns {boolean}
+ */
+export function startsWithMessageHistory(messages, prefix) {
+  if (!Array.isArray(messages) || !Array.isArray(prefix) || prefix.length === 0) {
+    return false;
+  }
+  if (messages.length < prefix.length) return false;
+  for (let i = 0; i < prefix.length; i += 1) {
+    if (JSON.stringify(messages[i]) !== JSON.stringify(prefix[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * True when `messages` strictly extends `prefix` (same leading messages, then
  * at least one more). Used so Allow-once episodes cannot be reused by a
  * fabricated tool-continuation history on the same origin.
@@ -125,16 +145,12 @@ export function fingerprintTrailingToolCalls(messages) {
  * @returns {boolean}
  */
 export function isMessageHistoryExtension(messages, prefix) {
-  if (!Array.isArray(messages) || !Array.isArray(prefix) || prefix.length === 0) {
-    return false;
-  }
-  if (messages.length <= prefix.length) return false;
-  for (let i = 0; i < prefix.length; i += 1) {
-    if (JSON.stringify(messages[i]) !== JSON.stringify(prefix[i])) {
-      return false;
-    }
-  }
-  return true;
+  return (
+    Array.isArray(messages) &&
+    Array.isArray(prefix) &&
+    messages.length > prefix.length &&
+    startsWithMessageHistory(messages, prefix)
+  );
 }
 
 /**
