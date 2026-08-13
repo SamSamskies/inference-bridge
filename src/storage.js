@@ -565,6 +565,8 @@ export async function unblockOrigin(origin) {
 
 /**
  * Update the saved provider/model for an existing always-allow grant.
+ * Clears any tools fingerprint so Options rebind cannot keep tools unlocked
+ * for a newly selected provider/model without a fresh tools Always-allow.
  * @param {string} origin
  * @param {{ providerId: string, model: string }} options
  * @returns {Promise<boolean>} false if the origin is not granted
@@ -577,7 +579,7 @@ export async function setOriginProviderModel(origin, { providerId, model }) {
   const nextModel = typeof model === "string" ? model.trim() : "";
   if (!nextModel) return false;
   allowedOrigins[origin] = {
-    ...grant,
+    allowedAt: grant.allowedAt,
     providerId: normalizeProviderId(providerId),
     model: nextModel,
   };

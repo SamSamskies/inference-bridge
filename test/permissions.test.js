@@ -1985,6 +1985,46 @@ describe("ensurePermission with tools", () => {
     });
     await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
+
+  it("re-prompts tools after Options changes Always-allow provider", async () => {
+    const origin = "https://tools-grant-edit.example";
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+
+    await expect(
+      setOriginProviderModel(origin, {
+        providerId: "ollama",
+        model: "gemma4",
+      })
+    ).resolves.toBe(true);
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "ollama",
+      model: "gemma4",
+    });
+
+    // Prior tools Always-allow must not cover the new provider binding.
+    const pending = ensurePermission({
+      requestId: "rt8e",
+      origin,
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt8e");
+    expect(getPendingApproval("rt8e")).toMatchObject({
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    resolveApproval("rt8e", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
 });
 
 describe("resolveApproval", () => {
