@@ -856,6 +856,90 @@ describe("ensurePermission with tools", () => {
     await expect(again).resolves.toMatchObject({ allowed: false });
   });
 
+  it("forgets broader in-memory episodes when tools Always-allow narrows the grant", async () => {
+    const origin = "https://tools-episode-narrow.example";
+    const searchTool = {
+      type: "function",
+      function: {
+        name: "search_web",
+        description: "Search the web",
+        parameters: { type: "object", properties: { q: { type: "string" } } },
+      },
+    };
+    const broadTools = [...weatherTools, searchTool];
+    const openerBroad = [{ role: "user", content: "Weather and search?" }];
+    const openerNarrow = [{ role: "user", content: "Just weather?" }];
+    const followUpBroad = [
+      ...openerBroad,
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_narrow_search",
+            type: "function",
+            function: {
+              name: "search_web",
+              arguments: '{"q":"austin"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_narrow_search",
+        content: '{"hits":1}',
+      },
+    ];
+
+    const broad = ensurePermission({
+      requestId: "rt4g",
+      origin,
+      messages: openerBroad,
+      tools: broadTools,
+    });
+    await waitForPending("rt4g");
+    resolveApproval("rt4g", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(broad).resolves.toMatchObject({ allowed: true, once: true });
+
+    // Same-length opener pushes a second episode; Always-allow must clear the
+    // broader one so search_web cannot keep auto-approving after the narrow.
+    const narrow = ensurePermission({
+      requestId: "rt4h",
+      origin,
+      messages: openerNarrow,
+      tools: weatherTools,
+    });
+    await waitForPending("rt4h");
+    resolveApproval("rt4h", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(narrow).resolves.toMatchObject({ allowed: true, once: false });
+    await expect(getOriginGrant(origin)).resolves.toMatchObject({
+      toolFingerprint: "fn:get_weather",
+    });
+
+    const again = ensurePermission({
+      requestId: "rt4i",
+      origin,
+      messages: followUpBroad,
+      tools: broadTools,
+    });
+    await waitForPending("rt4i");
+    resolveApproval("rt4i", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(again).resolves.toMatchObject({ allowed: false });
+  });
+
   it("skips the second turn of an allow_once tools episode", async () => {
     const turn1 = ensurePermission({
       requestId: "rt5a",

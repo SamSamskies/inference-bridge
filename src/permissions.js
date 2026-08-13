@@ -495,11 +495,10 @@ export async function ensurePermission(args) {
           model: chosenModel,
           ...(toolFingerprint ? { toolFingerprint } : {}),
         });
-        // Plain-chat Always-allow clears tools from storage; drop in-memory
-        // episodes so follow-ups cannot keep auto-approving after the narrow.
-        if (!toolFingerprint) {
-          forgetToolEpisode(args.origin);
-        }
+        // Always-allow may narrow the persistent grant; drop prior episodes so
+        // broader in-memory fingerprints (e.g. parallel same-length openers)
+        // cannot outlive the storage grant. Tools Always-allow re-seeds below.
+        forgetToolEpisode(args.origin);
       }
       if (toolFingerprint) {
         rememberToolEpisode(args.origin, {
