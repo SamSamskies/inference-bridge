@@ -16,18 +16,47 @@ import {
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
+import {
+  fingerprintTools,
+  fingerprintTrailingToolCalls,
+  isMessageHistoryExtension,
+  isToolEpisodeContinuation,
+  isToolFingerprintCovered,
+  startsWithMessageHistory,
+} from "./tool-approval.js";
+
+/** @typedef {import("./providers/types.js").Tool} Tool */
+/** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
 
 /**
  * @typedef {{
  *   requestId: string,
  *   origin: string,
- *   messages: Array<{ role: string, content: string }>,
+ *   messages: ChatMessage[],
  *   providerId: string,
  *   model: string,
+ *   tools?: Tool[],
  * }} ApprovalRequest
  */
 
 /** @typedef {"allow_once" | "always" | "deny" | "never"} ApprovalDecision */
+
+/** Episode TTL for short-lived SW-side tools approval (ms). */
+export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * @type {Map<string, Array<{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   messagesPrefix: ChatMessage[],
+ *   expiresAt: number,
+ * }>>}
+ */
+const toolEpisodes = new Map();
+
+/** Soft cap so parallel same-origin Allow-once flows cannot grow without bound. */
+const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
@@ -35,6 +64,238 @@ import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
  *   windowId?: number,
  * }>} */
 const pendingApprovals = new Map();
+
+/**
+ * Test helper: clear in-memory tool episodes.
+ */
+export function clearToolEpisodes() {
+  toolEpisodes.clear();
+}
+
+/**
+ * Drop the short-lived tools episodes for an origin (e.g. Options revoke).
+ * @param {string} origin
+ */
+export function forgetToolEpisode(origin) {
+  toolEpisodes.delete(origin);
+}
+
+/**
+ * Drop episodes whose approved prefix equals or is extended by `messages`
+ * (deny of a re-prompted opening or continuation). Leaves unrelated parallel
+ * same-origin episodes.
+ * @param {string} origin
+ * @param {ChatMessage[]} messages
+ * @param {number} [now]
+ */
+function forgetMatchingToolEpisodes(origin, messages, now = Date.now()) {
+  const list = liveToolEpisodes(origin, now);
+  if (list.length === 0) return;
+  // Equal-prefix matters: denying a re-prompted opening must clear the
+  // Allow-once episode so a forged tool continuation cannot auto-approve.
+  const kept = list.filter(
+    (episode) => !startsWithMessageHistory(messages, episode.messagesPrefix)
+  );
+  if (kept.length === 0) toolEpisodes.delete(origin);
+  else if (kept.length !== list.length) toolEpisodes.set(origin, kept);
+}
+
+/**
+ * chrome.storage.onChanged handler: drop episodes when Always-allow grants are
+ * removed or their provider/model/tools binding changes in place (e.g. Options).
+ * @param {object} changes
+ * @param {string} areaName
+ */
+export function onAllowedOriginsStorageChanged(changes, areaName) {
+  if (areaName !== "local" || !changes?.allowedOrigins) return;
+  const oldOrigins = changes.allowedOrigins.oldValue;
+  const newOrigins = changes.allowedOrigins.newValue;
+  if (!oldOrigins || typeof oldOrigins !== "object") return;
+  const next =
+    newOrigins && typeof newOrigins === "object" ? newOrigins : {};
+  for (const origin of Object.keys(oldOrigins)) {
+    if (!(origin in next) || grantRoutingChanged(oldOrigins[origin], next[origin])) {
+      forgetToolEpisode(origin);
+    }
+  }
+}
+
+/**
+ * @param {unknown} prev
+ * @param {unknown} next
+ * @returns {boolean}
+ */
+function grantRoutingChanged(prev, next) {
+  if (!next || typeof next !== "object") return true;
+  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+    prev && typeof prev === "object" ? prev : {}
+  );
+  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+    next
+  );
+  const prevModel =
+    typeof prevGrant.model === "string" ? prevGrant.model.trim() : "";
+  const nextModel =
+    typeof nextGrant.model === "string" ? nextGrant.model.trim() : "";
+  const prevFp =
+    typeof prevGrant.toolFingerprint === "string"
+      ? prevGrant.toolFingerprint
+      : "";
+  const nextFp =
+    typeof nextGrant.toolFingerprint === "string"
+      ? nextGrant.toolFingerprint
+      : "";
+  return (
+    normalizeProviderId(prevGrant.providerId) !==
+      normalizeProviderId(nextGrant.providerId) ||
+    prevModel !== nextModel ||
+    prevFp !== nextFp
+  );
+}
+
+/**
+ * @param {string} origin
+ * @param {number} now
+ * @returns {Array<{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   messagesPrefix: ChatMessage[],
+ *   expiresAt: number,
+ * }>}
+ */
+function liveToolEpisodes(origin, now) {
+  const list = toolEpisodes.get(origin);
+  if (!list || list.length === 0) return [];
+  const live = list.filter((episode) => episode.expiresAt > now);
+  if (live.length === 0) {
+    toolEpisodes.delete(origin);
+    return [];
+  }
+  if (live.length !== list.length) toolEpisodes.set(origin, live);
+  return live;
+}
+
+/**
+ * @param {string} origin
+ * @param {{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint: string,
+ *   messages: ChatMessage[],
+ * }} episode
+ * @param {number} [now]
+ */
+function rememberToolEpisode(origin, episode, now = Date.now()) {
+  if (!episode.toolFingerprint) return;
+  if (!Array.isArray(episode.messages) || episode.messages.length === 0) return;
+
+  const next = {
+    providerId: normalizeProviderId(episode.providerId),
+    model: episode.model,
+    toolFingerprint: episode.toolFingerprint,
+    // Snapshot so later mutations of the caller's array cannot widen the prefix.
+    messagesPrefix: episode.messages.map((m) => structuredClone(m)),
+    expiresAt: now + TOOL_EPISODE_TTL_MS,
+  };
+
+  const list = liveToolEpisodes(origin, now);
+  // Update only when this turn continues an existing episode. Exact-prefix
+  // rematches must push a new entry so two tabs Allow-once on the same opening
+  // message keep separate episodes (different provider/model) instead of
+  // overwriting each other.
+  // Prefer the longest matching prefix; on a tie, the episode with the same
+  // provider/model so parallel same-opener tabs do not clobber each other.
+  let replaceAt = -1;
+  let bestPrefixLen = -1;
+  let bestProviderMatch = false;
+  for (let i = 0; i < list.length; i += 1) {
+    const existing = list[i];
+    if (!isMessageHistoryExtension(episode.messages, existing.messagesPrefix)) {
+      continue;
+    }
+    const prefixLen = existing.messagesPrefix.length;
+    const providerMatch =
+      existing.providerId === next.providerId && existing.model === next.model;
+    if (
+      replaceAt < 0 ||
+      prefixLen > bestPrefixLen ||
+      (prefixLen === bestPrefixLen && providerMatch && !bestProviderMatch)
+    ) {
+      replaceAt = i;
+      bestPrefixLen = prefixLen;
+      bestProviderMatch = providerMatch;
+    }
+  }
+  if (replaceAt >= 0) {
+    list[replaceAt] = next;
+  } else {
+    list.push(next);
+    while (list.length > MAX_TOOL_EPISODES_PER_ORIGIN) list.shift();
+  }
+  toolEpisodes.set(origin, list);
+}
+
+/**
+ * @param {string} origin
+ * @param {{
+ *   toolFingerprint: string,
+ *   messages: ChatMessage[],
+ * }} args
+ * @param {number} [now]
+ * @returns {{ providerId: string, model: string, toolFingerprint: string } | null}
+ */
+function matchingToolEpisode(origin, args, now = Date.now()) {
+  const list = liveToolEpisodes(origin, now);
+  if (list.length === 0) return null;
+  if (!isToolEpisodeContinuation(args.messages)) return null;
+
+  // Follow-ups may omit `tools`. Bind via trailing tool_calls fingerprint so
+  // an empty request cannot reuse another flow's Allow-once episode.
+  const requestFp =
+    args.toolFingerprint || fingerprintTrailingToolCalls(args.messages);
+  if (!requestFp) return null;
+
+  // Prefer the longest matching prefix when parallel episodes exist on one origin.
+  // If several share that length but disagree on provider/model (two tabs
+  // Allow-once on the same opener), refuse to guess — re-prompt instead.
+  let bestPrefixLen = -1;
+  /** @type {Array<{ providerId: string, model: string, toolFingerprint: string }>} */
+  const tied = [];
+  for (const episode of list) {
+    // Same-origin callers can fabricate assistant tool_calls + tool results.
+    // Require a strict extension of the approved message history so an
+    // unrelated thread cannot reuse this Allow-once episode.
+    if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
+      continue;
+    }
+    if (!isToolFingerprintCovered(requestFp, episode.toolFingerprint)) {
+      continue;
+    }
+    const prefixLen = episode.messagesPrefix.length;
+    const candidate = {
+      providerId: episode.providerId,
+      model: episode.model,
+      toolFingerprint: episode.toolFingerprint,
+    };
+    if (prefixLen > bestPrefixLen) {
+      bestPrefixLen = prefixLen;
+      tied.length = 0;
+      tied.push(candidate);
+    } else if (prefixLen === bestPrefixLen) {
+      tied.push(candidate);
+    }
+  }
+  if (tied.length === 0) return null;
+
+  /** @type {Map<string, { providerId: string, model: string, toolFingerprint: string }>} */
+  const byBinding = new Map();
+  for (const candidate of tied) {
+    byBinding.set(`${candidate.providerId}\0${candidate.model}`, candidate);
+  }
+  if (byBinding.size !== 1) return null;
+  return byBinding.values().next().value;
+}
 
 /**
  * Compat endpoints need optional host access. Built-ins are always ok here.
@@ -59,9 +320,10 @@ async function hasCompatHostAccess(provider) {
  * @param {{
  *   requestId: string,
  *   origin: string,
- *   messages: Array<{ role: string, content: string }>,
+ *   messages: ChatMessage[],
  *   preferredProviderId?: string,
  *   preferredModel?: string,
+ *   tools?: Tool[],
  * }} args
  * @returns {Promise<{
  *   allowed: boolean,
@@ -116,6 +378,9 @@ export async function ensurePermission(args) {
     provider.defaultModel ||
     "";
 
+  const tools = Array.isArray(args.tools) && args.tools.length > 0 ? args.tools : undefined;
+  const toolFingerprint = tools ? fingerprintTools(tools) : "";
+
   if (await isOriginBlocked(args.origin)) {
     return {
       allowed: false,
@@ -140,20 +405,82 @@ export async function ensurePermission(args) {
     const grantFallbackModel = grantProvider?.defaultModel || "";
     const grantModel = existing.model || grantFallbackModel;
 
-    // Compat endpoints need optional host access. If the user revoked it in
-    // Chrome site settings, do not honor the persistent grant — re-prompt so
-    // the request does not skip approval only to fail later in ensureReady.
     if (await hasCompatHostAccess(grantProvider)) {
-      return {
-        allowed: true,
-        providerId: grantProviderId,
-        model: grantModel,
-        once: false,
-      };
+      if (!toolFingerprint) {
+        // Tool follow-ups may omit `tools`. If an Allow-once episode still
+        // matches, fall through so episode logic (below) keeps that
+        // provider/model instead of this plain Always-allow grant.
+        const episode = matchingToolEpisode(args.origin, {
+          toolFingerprint,
+          messages: args.messages,
+        });
+        if (!episode) {
+          // Unmatched tool continuations must not ride Always-allow (plain or
+          // tools) — that would approve forged histories without the episode
+          // message-prefix check. Re-prompt instead.
+          if (!isToolEpisodeContinuation(args.messages)) {
+            return {
+              allowed: true,
+              providerId: grantProviderId,
+              model: grantModel,
+              once: false,
+            };
+          }
+        }
+      } else if (
+        // Tools: Always-allow only skips the prompt when the grant already covers
+        // this tool set. Plain-chat grants (no toolFingerprint) still re-prompt.
+        typeof existing.toolFingerprint === "string" &&
+        isToolFingerprintCovered(toolFingerprint, existing.toolFingerprint)
+      ) {
+        rememberToolEpisode(args.origin, {
+          providerId: grantProviderId,
+          model: grantModel,
+          toolFingerprint: existing.toolFingerprint,
+          messages: args.messages,
+        });
+        return {
+          allowed: true,
+          providerId: grantProviderId,
+          model: grantModel,
+          once: false,
+        };
+      }
     }
 
     promptProviderId = grantProviderId;
     promptModel = grantModel;
+  }
+
+  // Short-lived SW episode: allow multi-turn function-tool follow-ups without
+  // a second popup (same origin / covered fingerprint / continuing messages).
+  // Follow-ups may omit `tools`; matching then uses trailing tool_calls so
+  // empty request fp cannot reuse another flow's episode. Provider/model come
+  // from the episode — not grant prefill.
+  const episode = matchingToolEpisode(args.origin, {
+    toolFingerprint,
+    messages: args.messages,
+  });
+  if (episode) {
+    const episodeProvider = await getProviderAsync(episode.providerId);
+    // Same host gate as Always-allow: revoked optional access must re-prompt
+    // rather than auto-approving and failing later in streaming.
+    if (await hasCompatHostAccess(episodeProvider)) {
+      rememberToolEpisode(args.origin, {
+        providerId: episode.providerId,
+        model: episode.model,
+        toolFingerprint: episode.toolFingerprint,
+        messages: args.messages,
+      });
+      return {
+        allowed: true,
+        providerId: episode.providerId,
+        model: episode.model,
+        once: true,
+      };
+    }
+    promptProviderId = episode.providerId;
+    promptModel = episode.model;
   }
 
   const decision = await promptUser({
@@ -162,6 +489,7 @@ export async function ensurePermission(args) {
     messages: args.messages,
     providerId: promptProviderId,
     model: promptModel,
+    ...(tools ? { tools } : {}),
   });
 
   const chosenProviderId = normalizeProviderId(
@@ -218,6 +546,19 @@ export async function ensurePermission(args) {
         await grantOriginAlways(args.origin, {
           providerId: chosenProviderId,
           model: chosenModel,
+          ...(toolFingerprint ? { toolFingerprint } : {}),
+        });
+        // Always-allow may narrow the persistent grant; drop prior episodes so
+        // broader in-memory fingerprints (e.g. parallel same-length openers)
+        // cannot outlive the storage grant. Tools Always-allow re-seeds below.
+        forgetToolEpisode(args.origin);
+      }
+      if (toolFingerprint) {
+        rememberToolEpisode(args.origin, {
+          providerId: chosenProviderId,
+          model: chosenModel,
+          toolFingerprint,
+          messages: args.messages,
         });
       }
       await setOriginLastUsed(args.origin, {
@@ -232,6 +573,7 @@ export async function ensurePermission(args) {
       };
     }
     case "never":
+      forgetToolEpisode(args.origin);
       await blockOrigin(args.origin);
       return {
         allowed: false,
@@ -240,6 +582,11 @@ export async function ensurePermission(args) {
         once: false,
       };
     case "deny":
+      // Drop only episodes this request could have matched so a denied
+      // ambiguous/re-prompted continuation cannot later auto-approve once
+      // sibling same-opener episodes diverge — without wiping unrelated
+      // parallel Allow-once flows on the same origin.
+      forgetMatchingToolEpisodes(args.origin, args.messages);
       return {
         allowed: false,
         providerId: chosenProviderId,

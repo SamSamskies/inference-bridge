@@ -15,6 +15,7 @@ import {
   getPendingApproval,
   handleApprovalWindowClosed,
   cancelApproval,
+  onAllowedOriginsStorageChanged,
 } from "../src/permissions.js";
 import {
   getProviderAsync,
@@ -33,6 +34,8 @@ import {
 // Provider calls await their own retry; this eager attempt must not create an
 // unhandled rejection if Chrome rejects the rule update during worker startup.
 void ensureOllamaOriginBypass().catch(() => {});
+
+chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 
 /** @typedef {"awaiting_permission" | "streaming"} StreamPhase */
 
@@ -177,6 +180,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ? { hasApiKey: Boolean(apiKeys[p.id]) }
           : {}),
         defaultModel: p.defaultModel,
+        supportsFunctionTools: Boolean(p.supportsFunctionTools),
+        hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
         models: p.models
@@ -373,6 +378,9 @@ async function handleStart(port, msg, onStreamId) {
       requestId: streamId,
       origin,
       messages: validated.value.messages,
+      ...(experimental && validated.value.tools
+        ? { tools: validated.value.tools }
+        : {}),
     });
 
     // Aborted while the permission prompt was open (tab closed / explicit abort).
