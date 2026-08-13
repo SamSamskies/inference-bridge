@@ -466,16 +466,20 @@ export function validateExperimentalInferenceRequest(request) {
    * }} */
   const value = { method: "chat", messages };
 
-  if ("tools" in req) {
+  // Treat undefined as absent (option spreads); empty array still fails validateTools.
+  if (req.tools !== undefined) {
     const tools = validateTools(req.tools);
     if (!tools.ok) return tools;
     value.tools = tools.value;
   }
 
-  if ("toolChoice" in req) {
+  if (req.toolChoice !== undefined) {
     const toolChoice = validateToolChoice(req.toolChoice);
     if (!toolChoice.ok) return toolChoice;
     value.toolChoice = toolChoice.value;
+  } else if (value.tools) {
+    // Match common provider defaults when tools are present.
+    value.toolChoice = "auto";
   }
 
   if ("signal" in req && req.signal != null) {

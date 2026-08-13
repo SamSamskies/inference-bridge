@@ -61,4 +61,90 @@ describe("openaiProvider.streamChat", () => {
       },
     ]);
   });
+
+  it("defaults tool_choice to auto when tools are present and toolChoice is omitted", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tool_choice).toBe("auto");
+  });
+
+  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "user", content: "weather in Austin?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_1",
+          content: '{"tempC":22}',
+        },
+      ],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages).toEqual([
+      { role: "user", content: "weather in Austin?" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: '{"city":"Austin"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        content: '{"tempC":22}',
+      },
+    ]);
+  });
 });

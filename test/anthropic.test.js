@@ -611,6 +611,32 @@ describe("anthropicProvider", () => {
     ]);
   });
 
+  it("defaults tool_choice to auto when tools are present and toolChoice is omitted", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool_choice).toEqual({
+      type: "auto",
+    });
+  });
+
   it("omits tools and tool_choice when only hosted web_search is present", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(

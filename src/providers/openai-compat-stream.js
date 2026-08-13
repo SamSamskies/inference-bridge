@@ -192,9 +192,8 @@ export async function streamOpenAICompatChat({
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
-      if (toolChoice !== undefined) {
-        body.tool_choice = toolChoice;
-      }
+      // Default matches validateExperimentalInferenceRequest when tools present.
+      body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
     }
 
     response = await fetch(url, {

@@ -306,9 +306,10 @@ export const anthropicProvider = {
     };
     if (functionTools) {
       requestBody.tools = mapToolsForAnthropic(functionTools);
-      if (toolChoice !== undefined) {
-        requestBody.tool_choice = mapToolChoiceForAnthropic(toolChoice);
-      }
+      // Default matches validateExperimentalInferenceRequest when tools present.
+      requestBody.tool_choice = mapToolChoiceForAnthropic(
+        toolChoice !== undefined ? toolChoice : "auto"
+      );
     }
 
     let response;

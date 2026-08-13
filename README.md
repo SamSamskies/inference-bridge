@@ -13,6 +13,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
 - Experimental named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
+- Experimental function tools via `window.inference.experimental` (page-executed relay)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -199,13 +200,258 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Spec contract (`window.inference.request`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Tools / vision / audio / embeddings | Not implemented; treat as future experimental candidates |
+| Tools | Bridge-experimental only (`window.inference.experimental`); not in IPA SPEC |
+| Vision / audio / embeddings | Not implemented; treat as future experimental candidates |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
 ## Experimental Features
 
-- **Named OpenAI-compatible endpoints** — Configure multiple servers (name, base URL, optional API key) in Options. Each appears in the provider picker as `Name (experimental)`. Chat uses `/v1/chat/completions`; models use a select from `GET /v1/models` when available, with free-text fallback if listing fails. Host access is requested per origin on save (`optional_host_permissions`). Does not expand the page-facing IPA. Not a substitute for the built-in Ollama provider.
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`.
+
+### Named OpenAI-compatible endpoints
+
+Configure multiple servers (name, base URL, optional API key) in Options. Each appears in the provider picker as `Name (experimental)`. Chat uses `/v1/chat/completions`; models use a select from `GET /v1/models` when available, with free-text fallback if listing fails. Host access is requested per origin on save (`optional_host_permissions`). Does not expand the page-facing IPA. Not a substitute for the built-in Ollama provider.
+
+### Function tools
+
+Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
+
+```js
+window.inference.request(...)              // IPA-stable chat only
+window.inference.experimental.request(...) // Bridge experimental (tools, etc.)
+window.inference.experimental.runTools(...) // optional page-side agent loop helper
+```
+
+Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `tool_calls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `tool_calls`.
+
+**Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `tool_calls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
+
+**Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
+
+#### `experimental.request` parameters
+
+| Param | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `method` | yes | `"chat"` | Only chat is supported. |
+| `messages` | yes | `ExperimentalMessage[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. |
+| `tools` | no | `Tool[]` | Non-empty when present. Function tools only for now. |
+| `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
+| `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
+
+**`messages` shapes**
+
+| Role | Fields |
+| --- | --- |
+| `system` / `user` | `content: string` |
+| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `tool_calls?: ToolCall[]` |
+| `tool` | `tool_call_id: string`; `content: string` (usually JSON text) |
+
+**`tools` / `ToolCall`**
+
+| Kind | Shape |
+| --- | --- |
+| Function tool | `{ type: "function", function: { name, description?, parameters? } }` — `parameters` is JSON Schema |
+| `ToolCall` (on assistant / `done.message`) | `{ id, type: "function", function: { name, arguments } }` — `arguments` is a JSON string |
+
+Returns the same streaming contract as stable `request`: `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.tool_calls` may be set (often with empty/null `content`).
+
+#### `experimental.runTools` parameters
+
+Page-side agent loop. Calls `experimental.request` internally; Bridge still does not execute tools.
+
+| Param | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `messages` | yes | `ExperimentalMessage[]` | Conversation seed (mutated copy returned). |
+| `tools` | no | `Tool[]` | Forwarded on each round. |
+| `execute` | usually | `Record<string, (args) => unknown \| Promise<unknown>>` | Map of tool name → page handler. Required for any tool the model calls. |
+| `toolChoice` | no | same as `request` | Forwarded each round when set. |
+| `maxRounds` | no | `number` | Default `5`. Positive finite. |
+| `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
+| `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
+| `signal` | no | `AbortSignal` | Aborts between / during rounds. |
+| `method` | no | `"chat"` | Defaults to `"chat"`. |
+
+Returns `Promise<{ messages, final }>` where `final` is the last `done` chunk (text reply after tools, or the first turn if no `tool_calls`) and `messages` includes assistant/`tool` turns appended by the loop.
+
+#### Manual multi-turn (page executes)
+
+```js
+async function getWeather({ city }) {
+  // Page-owned — Bridge never runs this
+  return { city, tempC: 22 };
+}
+
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "get_weather",
+      description: "Get the current weather for a city",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+      },
+    },
+  },
+];
+
+const messages = [
+  { role: "user", content: "What's the weather in Austin?" },
+];
+
+let done;
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages,
+  tools,
+  // toolChoice defaults to "auto" when tools are present
+})) {
+  if (chunk.type === "done") done = chunk;
+}
+
+if (done.message.tool_calls?.length) {
+  messages.push({
+    role: "assistant",
+    content: done.message.content ?? null,
+    tool_calls: done.message.tool_calls,
+  });
+
+  for (const call of done.message.tool_calls) {
+    const args = JSON.parse(call.function.arguments);
+    const result =
+      call.function.name === "get_weather"
+        ? await getWeather(args)
+        : { error: "unknown tool" };
+
+    messages.push({
+      role: "tool",
+      tool_call_id: call.id,
+      content: JSON.stringify(result),
+    });
+  }
+
+  for await (const chunk of window.inference.experimental.request({
+    method: "chat",
+    messages,
+    tools,
+  })) {
+    if (chunk.type === "delta") {
+      console.log("[delta]", chunk.content);
+    }
+    if (chunk.type === "done") {
+      console.log("[done]", chunk.message.content);
+    }
+  }
+} else {
+  console.log(done.message.content);
+}
+```
+
+#### `runTools` helper
+
+`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn:
+
+```js
+const { final, messages } = await window.inference.experimental.runTools({
+  messages: [
+    {
+      role: "user",
+      content: "What's the weather in Austin, and what time is it there?",
+    },
+  ],
+  tools: [
+    {
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Get the current weather for a city",
+        parameters: {
+          type: "object",
+          properties: { city: { type: "string" } },
+          required: ["city"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_time",
+        description: "Get the current local time for a city",
+        parameters: {
+          type: "object",
+          properties: { city: { type: "string" } },
+          required: ["city"],
+        },
+      },
+    },
+  ],
+  execute: {
+    async get_weather({ city }) {
+      return { city, tempC: 22 };
+    },
+    async get_time({ city }) {
+      return { city, localTime: "3:45 PM" };
+    },
+  },
+  onDelta(content) {
+    console.log("[delta]", content);
+  },
+});
+
+console.log("[final]", final.message.content);
+console.log("[messages]", messages);
+```
+
+#### With Zod
+
+Define args with Zod, convert to JSON Schema for `parameters`, and parse before your page-side handler runs. Requires [Zod](https://zod.dev) 4+ (`z.toJSONSchema`):
+
+```js
+import { z } from "zod";
+
+const WeatherArgs = z.object({
+  city: z.string().describe("City name"),
+});
+
+const { final } = await window.inference.experimental.runTools({
+  messages: [{ role: "user", content: "What's the weather in Austin?" }],
+  tools: [
+    {
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Get the current weather for a city",
+        parameters: z.toJSONSchema(WeatherArgs),
+      },
+    },
+  ],
+  execute: {
+    async get_weather(raw) {
+      const { city } = WeatherArgs.parse(raw);
+      return { city, tempC: 22 };
+    },
+  },
+  onDelta(content) {
+    console.log("[delta]", content);
+  },
+});
+
+console.log("[final]", final.message.content);
+```
+
+#### Function-tool provider matrix
+
+| Provider | Function tools |
+| --- | --- |
+| OpenAI | Chat Completions `tools` |
+| Anthropic | Messages API `tools` |
+| OpenRouter | Chat Completions `tools` |
+| Ollama | `/api/chat` `tools` |
+| OpenAI-compatible | Chat Completions `tools` |
+
+Approval shows an **Experimental** banner and a Tools preview (function names). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
 ## Development
 
@@ -214,7 +460,7 @@ npm install
 npm test
 ```
 
-Focused Node tests cover request validation, storage/grants, permission decisions, and the provider registry (no full MV3 e2e).
+Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, and function-tool streaming/accumulation for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible (no full MV3 e2e).
 
 Package a release ZIP (runtime files only):
 
@@ -249,11 +495,17 @@ npm run package
 - [ ] Compat `/v1/models` failure still allows typing a model id
 - [ ] Switching default provider does not rewrite existing origin grants
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
+- [ ] `window.inference.request` rejects `tools` / `toolChoice` / tool messages (`invalid_request`)
+- [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
+- [ ] Function tool round-trip via `experimental.request`: tools → `done.message.tool_calls` → `role: "tool"` follow-up → final answer
+- [ ] `experimental.runTools` completes a page-executed loop with the same shape
+- [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
+- [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 
 ### Current limitations
 
 - Built-in providers are OpenAI, Anthropic, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are experimental and user-configured
-- Text chat only (no tools, images, embeddings, speech)
+- Text chat on the stable IPA path; function tools are Bridge-experimental only (`window.inference.experimental`)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property

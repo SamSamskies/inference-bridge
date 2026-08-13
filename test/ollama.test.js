@@ -482,6 +482,30 @@ describe("ollamaProvider.streamChat", () => {
     ]);
   });
 
+  it("defaults tool_choice to auto when tools are present and toolChoice is omitted", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool_choice).toBe(
+      "auto"
+    );
+  });
+
   it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
     const body = [
       JSON.stringify({
