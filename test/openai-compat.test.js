@@ -53,6 +53,7 @@ describe("createOpenAICompatProvider", () => {
     expect(provider.label.toLowerCase()).toContain("experimental");
     expect(provider.requiresApiKey).toBe(false);
     expect(provider.optionalApiKey).toBe(true);
+    expect(provider.supportsFunctionTools).toBe(true);
     expect(typeof provider.listModels).toBe("function");
     expect(typeof provider.streamChat).toBe("function");
   });

@@ -457,6 +457,12 @@ async function handleStart(port, msg, onStreamId) {
       apiKey: settings.apiKeys[provider.id],
       model,
       messages: validated.value.messages,
+      ...(experimental && validated.value.tools
+        ? { tools: validated.value.tools }
+        : {}),
+      ...(experimental && validated.value.tool_choice !== undefined
+        ? { tool_choice: validated.value.tool_choice }
+        : {}),
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;

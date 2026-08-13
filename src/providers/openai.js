@@ -3,7 +3,10 @@
  * Implements the provider interface used by the registry.
  */
 
-import { streamOpenAICompatChat } from "./openai-compat-stream.js";
+import {
+  filterFunctionTools,
+  streamOpenAICompatChat,
+} from "./openai-compat-stream.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -33,13 +36,31 @@ export const openaiProvider = {
   requiresApiKey: true,
   models: OPENAI_MODELS,
   defaultModel: "gpt-5.6-luna",
+  supportsFunctionTools: true,
+  hostedTools: Object.freeze([]),
 
-  async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta }) {
+  async streamChat({
+    apiKey,
+    model,
+    messages,
+    tools,
+    tool_choice,
+    signal,
+    onDelta,
+    onReasoningDelta,
+  }) {
+    const functionTools = filterFunctionTools(tools);
     return streamOpenAICompatChat({
       url: OPENAI_URL,
       apiKey,
       model,
       messages,
+      ...(functionTools
+        ? {
+            tools: functionTools,
+            ...(tool_choice !== undefined ? { tool_choice } : {}),
+          }
+        : {}),
       signal,
       onDelta,
       onReasoningDelta,
