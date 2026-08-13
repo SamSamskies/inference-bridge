@@ -317,6 +317,7 @@
         request: data.request,
         origin: location.origin,
         pageUrl: location.href,
+        ...(data.experimental === true ? { experimental: true } : {}),
       });
     } catch (err) {
       postToPage({
