@@ -219,18 +219,25 @@ export async function ensurePermission(args) {
 
     if (await hasCompatHostAccess(grantProvider)) {
       if (!toolFingerprint) {
-        // Plain chat: honor Always-allow as before.
-        return {
-          allowed: true,
-          providerId: grantProviderId,
-          model: grantModel,
-          once: false,
-        };
-      }
-
-      // Tools: Always-allow only skips the prompt when the grant already covers
-      // this tool set. Plain-chat grants (no toolFingerprint) still re-prompt.
-      if (
+        // Tool follow-ups may omit `tools`. If an Allow-once episode still
+        // matches, fall through so episode logic (below) keeps that
+        // provider/model instead of this plain Always-allow grant.
+        const episode = matchingToolEpisode(args.origin, {
+          toolFingerprint,
+          messages: args.messages,
+        });
+        if (!episode) {
+          // Plain chat: honor Always-allow as before.
+          return {
+            allowed: true,
+            providerId: grantProviderId,
+            model: grantModel,
+            once: false,
+          };
+        }
+      } else if (
+        // Tools: Always-allow only skips the prompt when the grant already covers
+        // this tool set. Plain-chat grants (no toolFingerprint) still re-prompt.
         typeof existing.toolFingerprint === "string" &&
         isToolFingerprintCovered(toolFingerprint, existing.toolFingerprint)
       ) {
