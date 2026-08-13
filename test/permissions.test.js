@@ -18,6 +18,7 @@ import {
   revokeOrigin,
   saveSettings,
   setOriginLastUsed,
+  setOriginProviderModel,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -1825,6 +1826,58 @@ describe("ensurePermission with tools", () => {
       model: "gpt-4o-mini",
     });
     await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts episode follow-ups after Always-allow provider/model is updated", async () => {
+    const origin = "https://episode-grant-edit.example";
+    // Plain Always-allow: tools still prompt, so Allow-once can seed an episode.
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const turn1 = ensurePermission({
+      requestId: "rt8c",
+      origin,
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt8c");
+    resolveApproval("rt8c", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({
+      allowed: true,
+      once: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    // Options in-place edit must drop the episode seeded under the old binding.
+    await expect(
+      setOriginProviderModel(origin, {
+        providerId: "ollama",
+        model: "gemma4",
+      })
+    ).resolves.toBe(true);
+
+    // Omitting tools would otherwise reuse the stale Allow-once episode
+    // (openai) instead of the updated Always-allow grant.
+    await expect(
+      ensurePermission({
+        requestId: "rt8d",
+        origin,
+        messages: weatherFollowUpMessages,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: false,
+    });
+    expect(getPendingApproval("rt8d")).toBeNull();
   });
 });
 

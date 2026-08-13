@@ -97,7 +97,8 @@ function forgetMatchingToolEpisodes(origin, messages, now = Date.now()) {
 }
 
 /**
- * chrome.storage.onChanged handler: drop episodes when Always-allow grants are removed.
+ * chrome.storage.onChanged handler: drop episodes when Always-allow grants are
+ * removed or their provider/model/tools binding changes in place (e.g. Options).
  * @param {object} changes
  * @param {string} areaName
  */
@@ -109,8 +110,43 @@ export function onAllowedOriginsStorageChanged(changes, areaName) {
   const next =
     newOrigins && typeof newOrigins === "object" ? newOrigins : {};
   for (const origin of Object.keys(oldOrigins)) {
-    if (!(origin in next)) forgetToolEpisode(origin);
+    if (!(origin in next) || grantRoutingChanged(oldOrigins[origin], next[origin])) {
+      forgetToolEpisode(origin);
+    }
   }
+}
+
+/**
+ * @param {unknown} prev
+ * @param {unknown} next
+ * @returns {boolean}
+ */
+function grantRoutingChanged(prev, next) {
+  if (!next || typeof next !== "object") return true;
+  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+    prev && typeof prev === "object" ? prev : {}
+  );
+  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+    next
+  );
+  const prevModel =
+    typeof prevGrant.model === "string" ? prevGrant.model.trim() : "";
+  const nextModel =
+    typeof nextGrant.model === "string" ? nextGrant.model.trim() : "";
+  const prevFp =
+    typeof prevGrant.toolFingerprint === "string"
+      ? prevGrant.toolFingerprint
+      : "";
+  const nextFp =
+    typeof nextGrant.toolFingerprint === "string"
+      ? nextGrant.toolFingerprint
+      : "";
+  return (
+    normalizeProviderId(prevGrant.providerId) !==
+      normalizeProviderId(nextGrant.providerId) ||
+    prevModel !== nextModel ||
+    prevFp !== nextFp
+  );
 }
 
 /**
