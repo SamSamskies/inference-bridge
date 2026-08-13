@@ -406,10 +406,10 @@ console.log("[messages]", messages);
 
 #### With Zod
 
-Define args with Zod, convert to JSON Schema for `parameters`, and parse before your page-side handler runs. Requires [Zod](https://zod.dev) 4+ (`z.toJSONSchema`). Paste into a page module or DevTools with an ESM import:
+Define args with Zod, convert to JSON Schema for `parameters`, and parse before your page-side handler runs. Requires [Zod](https://zod.dev) 4+ (`z.toJSONSchema`):
 
 ```js
-import { z } from "https://cdn.jsdelivr.net/npm/zod@4/+esm";
+import { z } from "zod";
 
 const WeatherArgs = z.object({
   city: z.string().describe("City name"),
