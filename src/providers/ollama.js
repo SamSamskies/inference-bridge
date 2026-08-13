@@ -332,9 +332,8 @@ export const ollamaProvider = {
       };
       if (functionTools) {
         body.tools = functionTools;
-        if (toolChoice !== undefined) {
-          body.tool_choice = toolChoice;
-        }
+        // Default matches validateExperimentalInferenceRequest when tools present.
+        body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
       }
 
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {

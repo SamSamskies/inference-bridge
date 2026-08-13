@@ -244,6 +244,37 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(result.value.toolChoice).toBe("auto");
   });
 
+  it("defaults toolChoice to auto when tools are present and toolChoice is omitted", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.toolChoice).toBe("auto");
+  });
+
+  it("does not invent toolChoice when tools are absent", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value).not.toHaveProperty("toolChoice");
+  });
+
+  it("treats tools: undefined as absent on the experimental path", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      tools: undefined,
+      toolChoice: undefined,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value).not.toHaveProperty("tools");
+    expect(result.value).not.toHaveProperty("toolChoice");
+  });
+
   it("accepts assistant tool_calls and role tool follow-ups", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",

@@ -587,6 +587,31 @@ describe("streamOpenAICompatChat tool calling", () => {
     });
   });
 
+  it("defaults tool_choice to auto when tools are present and toolChoice is omitted", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"ok"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    const fetchMock = vi.fn(async () => sseResponse(sse));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAICompatChat(
+      baseArgs({
+        tools: [
+          {
+            type: "function",
+            function: { name: "get_weather" },
+          },
+        ],
+      })
+    );
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool_choice).toBe(
+      "auto"
+    );
+  });
+
   it("omits tool_choice when tools are absent", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"x"}}]}\ndata: [DONE]\n')
