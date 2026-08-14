@@ -143,6 +143,8 @@ try {
 
 Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) (chat, social Ask AI, and more). Source lives in the [specification repository](https://github.com/SamSamskies/inference-provider-api/tree/main/examples).
 
+For app-side helpers (TypeScript types, drain a stream to `done`, page-executed tool loops), see [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) — optional; not required to use this extension.
+
 ## Security
 
 - Injects only into top-level frames
@@ -210,7 +212,7 @@ The specification remains intentionally small. Provider-specific or advanced cap
 
 ## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`. The page-side `runTools` helper would move to a published library in that case — it will not land on stable `window.inference`.
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`. The page-side tool loop already lives in [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) for real apps; Bridge also exposes `experimental.runTools` for DevTools / no-bundler demos. Neither belongs on stable `window.inference`.
 
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
@@ -262,7 +264,7 @@ Returns the same streaming contract as stable `request`: `AsyncIterable` of `acc
 
 #### `experimental.runTools` parameters
 
-Page-side agent loop. Calls `experimental.request` internally; Bridge still does not execute tools. If function tools graduate into IPA, this helper should live in a published library — not on stable `request()`.
+Page-side agent loop. Calls `experimental.request` internally; Bridge still does not execute tools. For apps, prefer [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` (npm package, TypeScript types, works across IPA implementations); pass `experimental.request` until tools graduate onto stable `request`. Bridge’s `experimental.runTools` is convenient for console / paste-ready demos without a bundler.
 
 | Param | Required | Type | Notes |
 | --- | --- | --- | --- |
@@ -356,7 +358,7 @@ if (done.message.toolCalls?.length) {
 
 #### `runTools` helper
 
-`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn:
+`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Useful in DevTools without installing a package; for shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) instead. Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn:
 
 ```js
 const { final, messages } = await window.inference.experimental.runTools({
