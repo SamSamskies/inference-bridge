@@ -64,7 +64,7 @@ describe("validateInferenceRequest", () => {
     ).toBe(false);
   });
 
-  it("rejects tools, toolChoice, tool_calls, and tool_call_id (experimental-only)", () => {
+  it("rejects tools, toolChoice, toolCalls, and toolCallId (experimental-only)", () => {
     const tools = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
@@ -87,7 +87,7 @@ describe("validateInferenceRequest", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -103,7 +103,7 @@ describe("validateInferenceRequest", () => {
     const toolCallId = validateInferenceRequest({
       method: "chat",
       messages: [
-        { role: "assistant", content: "ok", tool_call_id: "call_1" },
+        { role: "assistant", content: "ok", toolCallId: "call_1" },
       ],
     });
     expect(toolCallId.ok).toBe(false);
@@ -117,8 +117,8 @@ describe("validateInferenceRequest", () => {
         {
           role: "assistant",
           content: "ok",
-          tool_calls: undefined,
-          tool_call_id: undefined,
+          toolCalls: undefined,
+          toolCallId: undefined,
         },
       ],
       tools: undefined,
@@ -275,7 +275,7 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(result.value).not.toHaveProperty("toolChoice");
   });
 
-  it("accepts assistant tool_calls and role tool follow-ups", () => {
+  it("accepts assistant toolCalls and role tool follow-ups", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [
@@ -283,7 +283,7 @@ describe("validateExperimentalInferenceRequest", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -296,7 +296,7 @@ describe("validateExperimentalInferenceRequest", () => {
         },
         {
           role: "tool",
-          tool_call_id: "call_1",
+          toolCallId: "call_1",
           content: '{"tempC":22}',
         },
       ],
@@ -313,7 +313,7 @@ describe("validateExperimentalInferenceRequest", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_1",
             type: "function",
@@ -326,19 +326,19 @@ describe("validateExperimentalInferenceRequest", () => {
       },
       {
         role: "tool",
-        tool_call_id: "call_1",
+        toolCallId: "call_1",
         content: '{"tempC":22}',
       },
     ]);
   });
 
-  it("normalizes omitted assistant content to null when tool_calls are present", () => {
+  it("normalizes omitted assistant content to null when toolCalls are present", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [
         {
           role: "assistant",
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -352,7 +352,7 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(result.value.messages[0]).toEqual({
       role: "assistant",
       content: null,
-      tool_calls: [
+      toolCalls: [
         {
           id: "call_1",
           type: "function",
@@ -435,7 +435,7 @@ describe("validateExperimentalInferenceRequest", () => {
           {
             role: "assistant",
             content: null,
-            tool_calls: [{ id: "x", type: "function", function: { name: "a" } }],
+            toolCalls: [{ id: "x", type: "function", function: { name: "a" } }],
           },
         ],
       }).ok
@@ -447,7 +447,7 @@ describe("validateExperimentalInferenceRequest", () => {
           {
             role: "user",
             content: "hi",
-            tool_calls: [],
+            toolCalls: [],
           },
         ],
       }).ok

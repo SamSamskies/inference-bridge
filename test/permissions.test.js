@@ -40,7 +40,7 @@ const weatherFollowUpMessages = [
   {
     role: "assistant",
     content: null,
-    tool_calls: [
+    toolCalls: [
       {
         id: "call_1",
         type: "function",
@@ -48,7 +48,7 @@ const weatherFollowUpMessages = [
       },
     ],
   },
-  { role: "tool", tool_call_id: "call_1", content: '{"tempC":22}' },
+  { role: "tool", toolCallId: "call_1", content: '{"tempC":22}' },
 ];
 
 beforeEach(() => {
@@ -811,7 +811,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_ep_clear",
             type: "function",
@@ -824,7 +824,7 @@ describe("ensurePermission with tools", () => {
       },
       {
         role: "tool",
-        tool_call_id: "call_ep_clear",
+        toolCallId: "call_ep_clear",
         content: '{"tempC":22}',
       },
     ];
@@ -896,7 +896,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_narrow_search",
             type: "function",
@@ -909,7 +909,7 @@ describe("ensurePermission with tools", () => {
       },
       {
         role: "tool",
-        tool_call_id: "call_narrow_search",
+        toolCallId: "call_narrow_search",
         content: '{"hits":1}',
       },
     ];
@@ -1007,7 +1007,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_austin",
             type: "function",
@@ -1018,14 +1018,14 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_austin", content: '{"tempC":22}' },
+      { role: "tool", toolCallId: "call_austin", content: '{"tempC":22}' },
     ];
     const seattleFollowUp = [
       ...seattleMessages,
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_seattle",
             type: "function",
@@ -1036,7 +1036,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_seattle", content: '{"tempC":14}' },
+      { role: "tool", toolCallId: "call_seattle", content: '{"tempC":14}' },
     ];
 
     const turnA = ensurePermission({
@@ -1114,7 +1114,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_tab_a",
             type: "function",
@@ -1125,14 +1125,14 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_tab_a", content: '{"tempC":22}' },
+      { role: "tool", toolCallId: "call_tab_a", content: '{"tempC":22}' },
     ];
     const followUpB = [
       ...opening,
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_tab_b",
             type: "function",
@@ -1143,7 +1143,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_tab_b", content: '{"tempC":23}' },
+      { role: "tool", toolCallId: "call_tab_b", content: '{"tempC":23}' },
     ];
 
     const turnA = ensurePermission({
@@ -1228,7 +1228,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_race_a",
             type: "function",
@@ -1239,14 +1239,14 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_race_a", content: '{"tempC":22}' },
+      { role: "tool", toolCallId: "call_race_a", content: '{"tempC":22}' },
     ];
     const followUpB = [
       ...opening,
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_race_b",
             type: "function",
@@ -1257,7 +1257,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_race_b", content: '{"tempC":23}' },
+      { role: "tool", toolCallId: "call_race_b", content: '{"tempC":23}' },
     ];
 
     const turnA = ensurePermission({
@@ -1342,7 +1342,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_deny_a",
             type: "function",
@@ -1353,14 +1353,14 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_deny_a", content: '{"tempC":22}' },
+      { role: "tool", toolCallId: "call_deny_a", content: '{"tempC":22}' },
     ];
     const followUpB = [
       ...opening,
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_deny_b",
             type: "function",
@@ -1371,7 +1371,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_deny_b", content: '{"tempC":23}' },
+      { role: "tool", toolCallId: "call_deny_b", content: '{"tempC":23}' },
     ];
 
     const turnA = ensurePermission({
@@ -1456,7 +1456,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_equal_deny",
             type: "function",
@@ -1469,7 +1469,7 @@ describe("ensurePermission with tools", () => {
       },
       {
         role: "tool",
-        tool_call_id: "call_equal_deny",
+        toolCallId: "call_equal_deny",
         content: '{"tempC":22}',
       },
     ];
@@ -1539,7 +1539,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_unrel_a",
             type: "function",
@@ -1550,14 +1550,14 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_unrel_a", content: '{"tempC":22}' },
+      { role: "tool", toolCallId: "call_unrel_a", content: '{"tempC":22}' },
     ];
     const followUpB = [
       ...openingB,
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_unrel_b",
             type: "function",
@@ -1568,7 +1568,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_unrel_b", content: '{"tempC":18}' },
+      { role: "tool", toolCallId: "call_unrel_b", content: '{"tempC":18}' },
     ];
     // Wider tool set forces a re-prompt (episode fingerprint no longer covers).
     const widerTools = [
@@ -1732,7 +1732,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_time",
             type: "function",
@@ -1740,7 +1740,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_time", content: '{"hh":12}' },
+      { role: "tool", toolCallId: "call_time", content: '{"hh":12}' },
     ];
 
     const turn2 = ensurePermission({
@@ -1779,7 +1779,7 @@ describe("ensurePermission with tools", () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [
+        toolCalls: [
           {
             id: "call_forged",
             type: "function",
@@ -1787,7 +1787,7 @@ describe("ensurePermission with tools", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_forged", content: '{"ok":true}' },
+      { role: "tool", toolCallId: "call_forged", content: '{"ok":true}' },
     ];
 
     const turn2 = ensurePermission({

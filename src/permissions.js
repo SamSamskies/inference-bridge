@@ -250,7 +250,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   if (list.length === 0) return null;
   if (!isToolEpisodeContinuation(args.messages)) return null;
 
-  // Follow-ups may omit `tools`. Bind via trailing tool_calls fingerprint so
+  // Follow-ups may omit `tools`. Bind via trailing toolCalls fingerprint so
   // an empty request cannot reuse another flow's Allow-once episode.
   const requestFp =
     args.toolFingerprint || fingerprintTrailingToolCalls(args.messages);
@@ -263,7 +263,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   /** @type {Array<{ providerId: string, model: string, toolFingerprint: string }>} */
   const tied = [];
   for (const episode of list) {
-    // Same-origin callers can fabricate assistant tool_calls + tool results.
+    // Same-origin callers can fabricate assistant toolCalls + tool results.
     // Require a strict extension of the approved message history so an
     // unrelated thread cannot reuse this Allow-once episode.
     if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
@@ -454,7 +454,7 @@ export async function ensurePermission(args) {
 
   // Short-lived SW episode: allow multi-turn function-tool follow-ups without
   // a second popup (same origin / covered fingerprint / continuing messages).
-  // Follow-ups may omit `tools`; matching then uses trailing tool_calls so
+  // Follow-ups may omit `tools`; matching then uses trailing toolCalls so
   // empty request fp cannot reuse another flow's episode. Provider/model come
   // from the episode — not grant prefill.
   const episode = matchingToolEpisode(args.origin, {

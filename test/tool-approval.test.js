@@ -79,14 +79,14 @@ describe("isToolFingerprintCovered", () => {
 });
 
 describe("fingerprintTrailingToolCalls", () => {
-  it("fingerprints function names from the trailing assistant tool_calls", () => {
+  it("fingerprints function names from the trailing assistant toolCalls", () => {
     expect(
       fingerprintTrailingToolCalls([
         { role: "user", content: "weather?" },
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -99,8 +99,8 @@ describe("fingerprintTrailingToolCalls", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "{}" },
-        { role: "tool", tool_call_id: "c2", content: "{}" },
+        { role: "tool", toolCallId: "c1", content: "{}" },
+        { role: "tool", toolCallId: "c2", content: "{}" },
       ])
     ).toBe("fn:get_time|fn:get_weather");
   });
@@ -124,7 +124,7 @@ describe("startsWithMessageHistory", () => {
           {
             role: "assistant",
             content: null,
-            tool_calls: [
+            toolCalls: [
               {
                 id: "c1",
                 type: "function",
@@ -132,7 +132,7 @@ describe("startsWithMessageHistory", () => {
               },
             ],
           },
-          { role: "tool", tool_call_id: "c1", content: "{}" },
+          { role: "tool", toolCallId: "c1", content: "{}" },
         ],
         prefix
       )
@@ -165,7 +165,7 @@ describe("isMessageHistoryExtension", () => {
           {
             role: "assistant",
             content: null,
-            tool_calls: [
+            toolCalls: [
               {
                 id: "c1",
                 type: "function",
@@ -173,7 +173,7 @@ describe("isMessageHistoryExtension", () => {
               },
             ],
           },
-          { role: "tool", tool_call_id: "c1", content: "{}" },
+          { role: "tool", toolCallId: "c1", content: "{}" },
         ],
         prefix
       )
@@ -198,14 +198,14 @@ describe("isMessageHistoryExtension", () => {
 });
 
 describe("isToolEpisodeContinuation", () => {
-  it("requires a trailing assistant tool_calls turn with matching tool results", () => {
+  it("requires a trailing assistant toolCalls turn with matching tool results", () => {
     expect(
       isToolEpisodeContinuation([
         { role: "user", content: "weather?" },
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -213,7 +213,7 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "tool", toolCallId: "c1", content: "{}" },
       ])
     ).toBe(true);
   });
@@ -227,7 +227,7 @@ describe("isToolEpisodeContinuation", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -246,7 +246,7 @@ describe("isToolEpisodeContinuation", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -254,19 +254,19 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "tool", toolCallId: "c1", content: "{}" },
         { role: "user", content: "now book a flight" },
       ])
     ).toBe(false);
   });
 
-  it("rejects tool results that do not match the preceding tool_calls", () => {
+  it("rejects tool results that do not match the preceding toolCalls", () => {
     expect(
       isToolEpisodeContinuation([
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -274,19 +274,19 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "other", content: "{}" },
+        { role: "tool", toolCallId: "other", content: "{}" },
       ])
     ).toBe(false);
   });
 
-  it("rejects when only a subset of parallel tool_calls have results", () => {
+  it("rejects when only a subset of parallel toolCalls have results", () => {
     expect(
       isToolEpisodeContinuation([
         { role: "user", content: "weather and time?" },
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -299,7 +299,7 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "{}" },
+        { role: "tool", toolCallId: "c1", content: "{}" },
       ])
     ).toBe(false);
   });
@@ -311,7 +311,7 @@ describe("isToolEpisodeContinuation", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -324,8 +324,8 @@ describe("isToolEpisodeContinuation", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "{}" },
-        { role: "tool", tool_call_id: "c2", content: "{}" },
+        { role: "tool", toolCallId: "c1", content: "{}" },
+        { role: "tool", toolCallId: "c2", content: "{}" },
       ])
     ).toBe(true);
   });

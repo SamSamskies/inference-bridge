@@ -146,14 +146,14 @@ describe("mapMessagesForAnthropic", () => {
     });
   });
 
-  it("maps assistant tool_calls to tool_use blocks and tool results to user tool_result", () => {
+  it("maps assistant toolCalls to tool_use blocks and tool results to user tool_result", () => {
     expect(
       mapMessagesForAnthropic([
         { role: "user", content: "Weather in Austin?" },
         {
           role: "assistant",
           content: "Checking.",
-          tool_calls: [
+          toolCalls: [
             {
               id: "toolu_1",
               type: "function",
@@ -166,7 +166,7 @@ describe("mapMessagesForAnthropic", () => {
         },
         {
           role: "tool",
-          tool_call_id: "toolu_1",
+          toolCallId: "toolu_1",
           content: '{"temp":72}',
         },
       ])
@@ -206,7 +206,7 @@ describe("mapMessagesForAnthropic", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "toolu_a",
               type: "function",
@@ -219,8 +219,8 @@ describe("mapMessagesForAnthropic", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "toolu_a", content: "ra" },
-        { role: "tool", tool_call_id: "toolu_b", content: "rb" },
+        { role: "tool", toolCallId: "toolu_a", content: "ra" },
+        { role: "tool", toolCallId: "toolu_b", content: "rb" },
       ])
     ).toEqual({
       messages: [
@@ -602,7 +602,7 @@ describe("anthropicProvider", () => {
       },
     ]);
     expect(body.tool_choice).toEqual({ type: "auto" });
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "toolu_1",
         type: "function",
@@ -664,7 +664,7 @@ describe("anthropicProvider", () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
-  it("accumulates streamed tool_use input_json_delta into done.message.tool_calls", async () => {
+  it("accumulates streamed tool_use input_json_delta into done.message.toolCalls", async () => {
     const sse = [
       "event: content_block_delta",
       'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Sure."}}',
@@ -706,7 +706,7 @@ describe("anthropicProvider", () => {
     expect(result.message).toEqual({
       role: "assistant",
       content: "Sure.",
-      tool_calls: [
+      toolCalls: [
         {
           id: "toolu_a",
           type: "function",
@@ -741,7 +741,7 @@ describe("anthropicProvider", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "toolu_1",
               type: "function",
@@ -754,7 +754,7 @@ describe("anthropicProvider", () => {
         },
         {
           role: "tool",
-          tool_call_id: "toolu_1",
+          toolCallId: "toolu_1",
           content: '{"temp":72}',
         },
       ],

@@ -65,7 +65,7 @@ export function filterFunctionTools(tools) {
  * Intentionally omits `reasoning`: many Chat Completions servers (OpenAI,
  * vLLM, TRT-LLM, etc.) reject unknown message fields with HTTP 400.
  * Inbound reasoning is still extracted from streamed deltas.
- * Round-trips assistant `tool_calls` and `tool` role results.
+ * Round-trips assistant `toolCalls` and `tool` role results.
  * @param {ChatMessage[]} messages
  * @returns {Array<Record<string, unknown>>}
  */
@@ -75,10 +75,10 @@ export function mapMessagesForOpenAICompat(messages) {
     const out = { role: m.role, content: m.content };
     if (
       m.role === "assistant" &&
-      Array.isArray(m.tool_calls) &&
-      m.tool_calls.length > 0
+      Array.isArray(m.toolCalls) &&
+      m.toolCalls.length > 0
     ) {
-      out.tool_calls = m.tool_calls.map((c) => ({
+      out.tool_calls = m.toolCalls.map((c) => ({
         id: c.id,
         type: "function",
         function: {
@@ -87,8 +87,8 @@ export function mapMessagesForOpenAICompat(messages) {
         },
       }));
     }
-    if (m.role === "tool" && typeof m.tool_call_id === "string" && m.tool_call_id) {
-      out.tool_call_id = m.tool_call_id;
+    if (m.role === "tool" && typeof m.toolCallId === "string" && m.toolCallId) {
+      out.tool_call_id = m.toolCallId;
     }
     return out;
   });
@@ -131,7 +131,7 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *
  * Tool calls stream in `delta.tool_calls` keyed by index; id/name arrive once,
  * arguments are split across deltas and concatenated into the final
- * `message.tool_calls` on the returned result (no streaming chunk types).
+ * `message.toolCalls` on the returned result (no streaming chunk types).
  *
  * @param {{
  *   url: string,
@@ -153,7 +153,7 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *     role: "assistant",
  *     content: string,
  *     reasoning?: string,
- *     tool_calls?: ToolCall[],
+ *     toolCalls?: ToolCall[],
  *   },
  *   usage?: { inputTokens?: number, outputTokens?: number },
  * }>}
@@ -365,13 +365,13 @@ export async function streamOpenAICompatChat({
     }
   }
 
-  /** @type {{ role: "assistant", content: string, reasoning?: string, tool_calls?: ToolCall[] }} */
+  /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
   const message = { role: "assistant", content };
   if (reasoning) {
     message.reasoning = reasoning;
   }
   if (toolCallsByIndex.size > 0) {
-    const tool_calls = [...toolCallsByIndex.entries()]
+    const toolCalls = [...toolCallsByIndex.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([, entry]) => ({
         id: entry.id,
@@ -382,8 +382,8 @@ export async function streamOpenAICompatChat({
         },
       }))
       .filter((c) => c.id && c.function.name);
-    if (tool_calls.length > 0) {
-      message.tool_calls = tool_calls;
+    if (toolCalls.length > 0) {
+      message.toolCalls = toolCalls;
     }
   }
 

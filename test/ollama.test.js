@@ -473,7 +473,7 @@ describe("ollamaProvider.streamChat", () => {
       },
     ]);
     expect(body.tool_choice).toBe("auto");
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "ollama_call_0",
         type: "function",
@@ -506,7 +506,7 @@ describe("ollamaProvider.streamChat", () => {
     );
   });
 
-  it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
+  it("accumulates streamed toolCalls by index into done.message.toolCalls", async () => {
     const body = [
       JSON.stringify({
         message: {
@@ -563,7 +563,7 @@ describe("ollamaProvider.streamChat", () => {
       onDelta: () => {},
     });
 
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -578,7 +578,7 @@ describe("ollamaProvider.streamChat", () => {
     expect(result.usage).toEqual({ inputTokens: 4, outputTokens: 2 });
   });
 
-  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+  it("round-trips assistant toolCalls and tool follow-up messages", async () => {
     const fetchMock = vi.fn(async () =>
       ndjsonResponse(
         JSON.stringify({
@@ -596,7 +596,7 @@ describe("ollamaProvider.streamChat", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -609,7 +609,7 @@ describe("ollamaProvider.streamChat", () => {
         },
         {
           role: "tool",
-          tool_call_id: "call_1",
+          toolCallId: "call_1",
           content: JSON.stringify({ tempF: 72 }),
         },
       ],
@@ -649,7 +649,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
     expect(parseArgumentsForOllama({ city: "NYC" })).toEqual({ city: "NYC" });
   });
 
-  it("round-trips assistant tool_calls and maps tool_call_id to tool_name", () => {
+  it("round-trips assistant toolCalls and maps toolCallId to tool_name", () => {
     expect(
       mapMessagesForOllama([
         { role: "user", content: "hi" },
@@ -657,7 +657,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
           role: "assistant",
           content: null,
           reasoning: "plan",
-          tool_calls: [
+          toolCalls: [
             {
               id: "c1",
               type: "function",
@@ -665,7 +665,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "c1", content: "20" },
+        { role: "tool", toolCallId: "c1", content: "20" },
       ])
     ).toEqual([
       { role: "user", content: "hi" },
@@ -684,7 +684,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
     ]);
   });
 
-  it("accumulates and finalizes tool_calls by index", () => {
+  it("accumulates and finalizes toolCalls by index", () => {
     /** @type {Map<number, { id: string, name: string, arguments: string }>} */
     const byIndex = new Map();
     accumulateOllamaToolCalls(byIndex, [
@@ -738,7 +738,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
     ]);
   });
 
-  it("keeps distinct parallel tool_calls when Ollama reuses index 0", () => {
+  it("keeps distinct parallel toolCalls when Ollama reuses index 0", () => {
     /** @type {Map<number, { id: string, name: string, arguments: string }>} */
     const byIndex = new Map();
     accumulateOllamaToolCalls(byIndex, [
@@ -783,7 +783,7 @@ describe("mapMessagesForOllama / tool helpers", () => {
     ]);
   });
 
-  it("drops incomplete tool_calls missing a name", () => {
+  it("drops incomplete toolCalls missing a name", () => {
     /** @type {Map<number, { id: string, name: string, arguments: string }>} */
     const byIndex = new Map();
     accumulateOllamaToolCalls(byIndex, [
