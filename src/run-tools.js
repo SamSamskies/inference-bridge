@@ -197,6 +197,9 @@ export async function runTools(options) {
         onToolCall({ id: call.id, name, arguments: args });
       }
       const result = await executor(args);
+      if (signal?.aborted) {
+        throw makeError("aborted", "Request aborted");
+      }
       messages = [
         ...messages,
         {

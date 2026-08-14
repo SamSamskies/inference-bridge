@@ -459,6 +459,9 @@
         }
 
         const result = await executor(args);
+        if (signal?.aborted) {
+          throw makeError("aborted", "Request aborted");
+        }
         const content =
           typeof result === "string"
             ? result

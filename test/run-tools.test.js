@@ -450,6 +450,41 @@ describe("runTools", () => {
     });
   });
 
+  it("rejects with aborted when the signal aborts during execute on the last round", async () => {
+    const controller = new AbortController();
+    await expect(
+      runTools({
+        request: scriptedRequest([
+          {
+            role: "assistant",
+            content: null,
+            toolCalls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: { name: "get_weather", arguments: "{}" },
+              },
+            ],
+          },
+        ]),
+        messages: [{ role: "user", content: "hi" }],
+        tools: weatherTools,
+        execute: {
+          get_weather: async () => {
+            controller.abort();
+            return { ok: true };
+          },
+        },
+        maxRounds: 1,
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "aborted",
+      message: "Request aborted",
+    });
+  });
+
   it("rejects when AbortSignal is already aborted", async () => {
     const signal = AbortSignal.abort();
     await expect(
