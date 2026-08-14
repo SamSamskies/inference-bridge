@@ -13,7 +13,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
-- Experimental function tools via `window.inference.experimental` (page-executed relay)
+- Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -170,6 +170,7 @@ If you are building your own IPA extension with local providers, follow the Orig
   src/
     errors.js
     validate.js
+    run-tools.js                 # page-side experimental.runTools (tests; inject.js mirrors)
     storage.js
     permissions.js
     ollama-origin-bypass.js      # strip chrome-extension Origin for local Ollama
@@ -207,7 +208,7 @@ The specification remains intentionally small. Provider-specific or advanced cap
 
 ## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`.
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`. The page-side `runTools` helper would move to a published library in that case — it will not land on stable `window.inference`.
 
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
@@ -216,8 +217,9 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
 
 ```js
-window.inference.request(...)              // IPA-stable chat only
-window.inference.experimental.request(...) // Bridge experimental (tools, etc.)
+window.inference.request(...)               // IPA-stable chat only
+window.inference.experimental.request(...)  // Bridge experimental (tools, etc.)
+window.inference.experimental.runTools(...) // optional page-side agent loop helper
 ```
 
 Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
@@ -252,6 +254,25 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 | `ToolCall` (on assistant / `done.message`) | `{ id, type: "function", function: { name, arguments } }` — `arguments` is a JSON string |
 
 Returns the same streaming contract as stable `request`: `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.toolCalls` may be set (often with empty/null `content`).
+
+#### `experimental.runTools` parameters
+
+Page-side agent loop. Calls `experimental.request` internally; Bridge still does not execute tools. If function tools graduate into IPA, this helper should live in a published library — not on stable `request()`.
+
+| Param | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `messages` | yes | `ExperimentalMessage[]` | Conversation seed (mutated copy returned). |
+| `tools` | no | `Tool[]` | Forwarded on each round. |
+| `execute` | usually | `Record<string, (args) => unknown \| Promise<unknown>>` | Map of tool name → page handler. Required for any tool the model calls. |
+| `toolChoice` | no | same as `request` | Forwarded each round when set. |
+| `maxRounds` | no | `number` | Default `5`. Positive finite. |
+| `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
+| `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
+| `onToolCall` | no | `({ id, name, arguments }) => void` | Fired once per tool call after args are parsed, before `execute` runs. Useful for UI chips / logging; putting UI inside `execute` is still fine. |
+| `signal` | no | `AbortSignal` | Aborts between / during rounds. |
+| `method` | no | `"chat"` | Defaults to `"chat"`. |
+
+Returns `Promise<{ messages, final }>` where `final` is the last `done` chunk (text reply after tools, or the first turn if no `toolCalls`) and `messages` includes assistant/`tool` turns appended by the loop.
 
 #### Manual multi-turn (page executes)
 
@@ -328,124 +349,12 @@ if (done.message.toolCalls?.length) {
 }
 ```
 
-#### Page-side loop helper (copy into your app)
+#### `runTools` helper
 
-Bridge does not ship an agent loop. Copy a helper like this into your page (or a future IPA tools package). Handlers still run in your code; Bridge only relays via `experimental.request`.
+`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn:
 
 ```js
-function makeError(code, message) {
-  const error = new Error(message || code);
-  error.name = "InferenceError";
-  error.code = code;
-  return error;
-}
-
-async function runTools({
-  messages,
-  tools,
-  execute,
-  toolChoice,
-  maxRounds = 5,
-  onDelta,
-  onReasoningDelta,
-  onToolCall,
-  signal,
-}) {
-  let nextMessages = [...messages];
-
-  for (let round = 0; round < maxRounds; round++) {
-    if (signal?.aborted) throw makeError("aborted", "Request aborted");
-
-    const req = { method: "chat", messages: nextMessages, signal };
-    if (tools !== undefined) req.tools = tools;
-    if (toolChoice !== undefined) req.toolChoice = toolChoice;
-
-    let done;
-    for await (const chunk of window.inference.experimental.request(req)) {
-      if (chunk.type === "delta" && onDelta) onDelta(chunk.content);
-      if (chunk.type === "reasoning_delta" && onReasoningDelta) {
-        onReasoningDelta(chunk.content);
-      }
-      if (chunk.type === "done") done = chunk;
-    }
-
-    if (!done) {
-      throw makeError("provider_error", "Stream ended without a done chunk.");
-    }
-
-    const toolCalls = done?.message?.toolCalls;
-    if (!toolCalls?.length) {
-      if (done?.message) nextMessages = [...nextMessages, done.message];
-      return { messages: nextMessages, final: done };
-    }
-
-    nextMessages = [
-      ...nextMessages,
-      {
-        role: "assistant",
-        content: done.message.content ?? null,
-        toolCalls: toolCalls,
-        ...(done.message.reasoning
-          ? { reasoning: done.message.reasoning }
-          : {}),
-      },
-    ];
-
-    for (const call of toolCalls) {
-      if (signal?.aborted) throw makeError("aborted", "Request aborted");
-      const name = call.function.name;
-      let args;
-      try {
-        args = JSON.parse(call.function.arguments || "{}");
-      } catch {
-        nextMessages = [
-          ...nextMessages,
-          {
-            role: "tool",
-            toolCallId: call.id,
-            content: JSON.stringify({ error: "invalid tool arguments" }),
-          },
-        ];
-        continue;
-      }
-      if (onToolCall) onToolCall({ id: call.id, name, arguments: args });
-      const handler = execute?.[name];
-      const result =
-        typeof handler === "function"
-          ? await handler(args)
-          : { error: "unknown tool" };
-      if (signal?.aborted) throw makeError("aborted", "Request aborted");
-      let content;
-      if (typeof result === "string") {
-        content = result;
-      } else {
-        try {
-          const json = JSON.stringify(result ?? null);
-          content = typeof json === "string" ? json : "null";
-        } catch {
-          content = JSON.stringify({
-            error: "tool result not JSON-serializable",
-          });
-        }
-      }
-      nextMessages = [
-        ...nextMessages,
-        {
-          role: "tool",
-          toolCallId: call.id,
-          content,
-        },
-      ];
-    }
-  }
-
-  throw makeError(
-    "provider_error",
-    `Tool loop exceeded maxRounds (${maxRounds}).`
-  );
-}
-
-const { final, messages: thread } = await runTools({
+const { final, messages } = await window.inference.experimental.runTools({
   messages: [
     {
       role: "user",
@@ -495,12 +404,12 @@ const { final, messages: thread } = await runTools({
 });
 
 console.log("[final]", final.message.content);
-console.log("[messages]", thread);
+console.log("[messages]", messages);
 ```
 
 #### With Zod
 
-Define args with Zod, convert to JSON Schema for `parameters`, and parse in your page-side handler. Requires [Zod](https://zod.dev) 4+ (`z.toJSONSchema`). Uses the same copy-paste `runTools` helper above:
+Define args with Zod, convert to JSON Schema for `parameters`, and parse in your page-side handler. Requires [Zod](https://zod.dev) 4+ (`z.toJSONSchema`):
 
 ```js
 import { z } from "zod";
@@ -509,7 +418,7 @@ const WeatherArgs = z.object({
   city: z.string().describe("City name"),
 });
 
-const { final } = await runTools({
+const { final } = await window.inference.experimental.runTools({
   messages: [{ role: "user", content: "What's the weather in Austin?" }],
   tools: [
     {
@@ -554,7 +463,7 @@ npm install
 npm test
 ```
 
-Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, and function-tool streaming/accumulation for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible (no full MV3 e2e).
+Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, and function-tool streaming/accumulation for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible (no full MV3 e2e).
 
 Package a release ZIP (runtime files only):
 
@@ -593,6 +502,7 @@ npm run package
 - [ ] `window.inference.request` rejects `tools` / `toolChoice` / tool messages (`invalid_request`)
 - [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
 - [ ] Function tool round-trip via `experimental.request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
+- [ ] `experimental.runTools` completes a page-executed loop with the same shape
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 
