@@ -53,6 +53,19 @@ describe("serializeToolResult / parseToolArguments", () => {
     expect(typeof serializeToolResult(undefined)).toBe("string");
   });
 
+  it("throws invalid_request when the result is not JSON-serializable", () => {
+    const circular = {};
+    circular.self = circular;
+    try {
+      serializeToolResult(circular);
+      expect.unreachable();
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({ name: "InferenceError" });
+      expect(err.message).toMatch(/not JSON-serializable/);
+    }
+  });
+
   it("parses arguments JSON and treats empty as {}", () => {
     expect(parseToolArguments('{"city":"Austin"}', "get_weather")).toEqual({
       city: "Austin",

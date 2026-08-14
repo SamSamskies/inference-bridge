@@ -467,8 +467,13 @@
                   // JSON.stringify(undefined) (and some other values) returns undefined, not a string.
                   const json = JSON.stringify(result);
                   return typeof json === "string" ? json : "null";
-                } catch {
-                  return String(result);
+                } catch (err) {
+                  throw makeError(
+                    "invalid_request",
+                    `Tool result is not JSON-serializable: ${
+                      err instanceof Error ? err.message : String(err)
+                    }`
+                  );
                 }
               })();
 
