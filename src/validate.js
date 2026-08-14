@@ -28,6 +28,29 @@ const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
  */
 
 /**
+ * Reject OpenAI-style snake_case aliases so they fail loudly instead of being
+ * stripped during normalization (which would drop tool history silently).
+ * @param {Record<string, unknown>} m
+ * @param {number} i
+ * @returns {{ ok: false, message: string } | null}
+ */
+function rejectLegacySnakeCaseToolFields(m, i) {
+  if (m.tool_calls !== undefined) {
+    return {
+      ok: false,
+      message: `messages[${i}].tool_calls is not supported; use toolCalls.`,
+    };
+  }
+  if (m.tool_call_id !== undefined) {
+    return {
+      ok: false,
+      message: `messages[${i}].tool_call_id is not supported; use toolCallId.`,
+    };
+  }
+  return null;
+}
+
+/**
  * Stable IPA path rejects experimental tool fields instead of stripping them.
  * @param {Record<string, unknown>} req
  * @param {Array<Record<string, unknown>>} messages
@@ -359,6 +382,9 @@ export function validateExperimentalInferenceRequest(request) {
         message: `messages[${i}].role must be "system", "user", "assistant", or "tool".`,
       };
     }
+
+    const legacy = rejectLegacySnakeCaseToolFields(m, i);
+    if (legacy) return legacy;
 
     if (m.role === "tool") {
       if (typeof m.toolCallId !== "string" || !m.toolCallId) {

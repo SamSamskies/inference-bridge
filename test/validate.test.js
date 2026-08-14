@@ -275,6 +275,48 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(result.value).not.toHaveProperty("toolChoice");
   });
 
+  it("rejects snake_case tool_calls / tool_call_id with a rename hint", () => {
+    const toolCalls = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(toolCalls.ok).toBe(false);
+    expect(toolCalls.message).toMatch(/toolCalls/);
+
+    const toolCallId = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: null,
+          toolCalls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "{}" },
+      ],
+    });
+    expect(toolCallId.ok).toBe(false);
+    expect(toolCallId.message).toMatch(/toolCallId/);
+  });
+
   it("accepts assistant toolCalls and role tool follow-ups", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
