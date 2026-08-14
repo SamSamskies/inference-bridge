@@ -362,6 +362,8 @@ async function runTools({
       if (chunk.type === "done") done = chunk;
     }
 
+    if (!done) throw new Error("request ended without a done chunk");
+
     const toolCalls = done?.message?.tool_calls;
     if (!toolCalls?.length) {
       if (done?.message) nextMessages = [...nextMessages, done.message];
@@ -384,14 +386,20 @@ async function runTools({
       const name = call.function.name;
       const args = JSON.parse(call.function.arguments || "{}");
       if (onToolCall) onToolCall({ id: call.id, name, arguments: args });
-      const result = await execute[name](args);
+      const handler = execute?.[name];
+      const result =
+        typeof handler === "function"
+          ? await handler(args)
+          : { error: "unknown tool" };
       nextMessages = [
         ...nextMessages,
         {
           role: "tool",
           tool_call_id: call.id,
           content:
-            typeof result === "string" ? result : JSON.stringify(result),
+            typeof result === "string"
+              ? result
+              : JSON.stringify(result ?? null),
         },
       ];
     }
