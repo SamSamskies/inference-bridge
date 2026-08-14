@@ -383,14 +383,29 @@ async function runTools({
     ];
 
     for (const call of toolCalls) {
+      if (signal?.aborted) throw new Error("aborted");
       const name = call.function.name;
-      const args = JSON.parse(call.function.arguments || "{}");
+      let args;
+      try {
+        args = JSON.parse(call.function.arguments || "{}");
+      } catch {
+        nextMessages = [
+          ...nextMessages,
+          {
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify({ error: "invalid tool arguments" }),
+          },
+        ];
+        continue;
+      }
       if (onToolCall) onToolCall({ id: call.id, name, arguments: args });
       const handler = execute?.[name];
       const result =
         typeof handler === "function"
           ? await handler(args)
           : { error: "unknown tool" };
+      if (signal?.aborted) throw new Error("aborted");
       nextMessages = [
         ...nextMessages,
         {
@@ -399,7 +414,7 @@ async function runTools({
           content:
             typeof result === "string"
               ? result
-              : JSON.stringify(result ?? null),
+              : JSON.stringify(result ?? null) ?? "null",
         },
       ];
     }
