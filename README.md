@@ -9,6 +9,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 ## Features
 
 - `window.inference.request()` for streaming text chat
+- `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
@@ -198,10 +199,11 @@ If you are building your own IPA extension with local providers, follow the Orig
 
 | Area | Status |
 | --- | --- |
-| Spec contract (`window.inference.request`, streaming, abort, errors) | Implemented |
+| Spec contract (`window.inference.request`, `getFeatures`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Tools | Bridge-experimental only (`window.inference.experimental`); not in IPA SPEC |
+| Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: false }` |
+| Tools | Optional in IPA (`getFeatures().toolCalling`); Bridge-experimental only until graduation |
 | Vision / audio / embeddings | Not implemented; treat as future experimental candidates |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
@@ -217,10 +219,13 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
 
 ```js
+window.inference.getFeatures()              // { toolCalling: false } — stable request surface only
 window.inference.request(...)               // IPA-stable chat only
 window.inference.experimental.request(...)  // Bridge experimental (tools, etc.)
 window.inference.experimental.runTools(...) // optional page-side agent loop helper
 ```
+
+`getFeatures()` reports what stable `request` accepts, not whether `experimental.request` can relay tools. Bridge returns `{ toolCalling: false }` until tools graduate; apps that want tools today should keep calling `experimental`.
 
 Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
@@ -474,6 +479,7 @@ npm run package
 ### Manual checks
 
 - [ ] `window.inference` exists on `https://example.com` after install
+- [ ] `window.inference.getFeatures()` returns `{ toolCalling: false }` (sync, no prompt)
 - [ ] Missing on an `http://` non-localhost page (or request fails with `unavailable`)
 - [ ] Missing on `file://` pages
 - [ ] First request shows the approval popup with provider + model; Deny → `permission_denied`
