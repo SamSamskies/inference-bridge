@@ -63,6 +63,7 @@ export function parseToolArguments(argumentsJson, toolName) {
  *   toolChoice?: unknown,
  *   onDelta?: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
+ *   onToolCall?: (info: { id: unknown, name: string, arguments: unknown }) => void,
  *   signal?: AbortSignal,
  *   method?: string,
  * }} options
@@ -81,6 +82,7 @@ export async function runTools(options) {
     toolChoice,
     onDelta,
     onReasoningDelta,
+    onToolCall,
     signal,
     method = "chat",
   } = options;
@@ -186,6 +188,9 @@ export async function runTools(options) {
       }
 
       const args = parseToolArguments(call.function.arguments, name);
+      if (typeof onToolCall === "function") {
+        onToolCall({ id: call.id, name, arguments: args });
+      }
       const result = await executor(args);
       messages = [
         ...messages,

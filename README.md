@@ -267,6 +267,7 @@ Page-side agent loop. Calls `experimental.request` internally; Bridge still does
 | `maxRounds` | no | `number` | Default `5`. Positive finite. |
 | `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
 | `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
+| `onToolCall` | no | `({ id, name, arguments }) => void` | Fired once per tool call after args are parsed, before `execute` runs. Useful for UI chips / logging; putting UI inside `execute` is still fine. |
 | `signal` | no | `AbortSignal` | Aborts between / during rounds. |
 | `method` | no | `"chat"` | Defaults to `"chat"`. |
 
@@ -395,6 +396,9 @@ const { final, messages } = await window.inference.experimental.runTools({
   },
   onDelta(content) {
     console.log("[delta]", content);
+  },
+  onToolCall({ id, name, arguments: args }) {
+    console.log("[tool]", name, id, args);
   },
 });
 
