@@ -50,7 +50,7 @@ async function ensureReady(baseUrl, label) {
  */
 export function createOpenAICompatProvider(endpoint) {
   const { id, name, baseUrl } = endpoint;
-  const label = `${name} (experimental)`;
+  const label = name;
   const modelsUrl = `${baseUrl}/models`;
   const chatUrl = `${baseUrl}/chat/completions`;
 

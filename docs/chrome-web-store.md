@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, Anthropic, OpenRouter, local Ollama, or experimental OpenAI-compatible servers). Keep listing copy focused on that purpose.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, Anthropic, OpenRouter, local Ollama, or OpenAI-compatible servers). Keep listing copy focused on that purpose.
 
 ## Versioning
 
@@ -57,7 +57,7 @@ unzip -l dist/inference-bridge-*.zip
 ```
 Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
 
-Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an experimental OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
+Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Per-site Allow / Deny / Remember prompts
@@ -82,7 +82,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
-- **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an experimental OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
+- **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
 
 ## Data safety / privacy disclosures
 
