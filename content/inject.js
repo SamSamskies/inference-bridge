@@ -502,6 +502,13 @@
       request(request) {
         return createStream(request);
       },
+      /**
+       * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
+       * toolCalling stays false until tools graduate from experimental.request.
+       */
+      getFeatures() {
+        return { toolCalling: false };
+      },
       experimental: Object.freeze({
         request(request) {
           return createStream(request, { experimental: true });
