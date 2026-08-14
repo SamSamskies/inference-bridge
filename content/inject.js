@@ -332,6 +332,7 @@
       toolChoice,
       onDelta,
       onReasoningDelta,
+      onToolCall,
       signal,
       method = "chat",
     } = options;
@@ -451,6 +452,10 @@
               err instanceof Error ? err.message : String(err)
             }`
           );
+        }
+
+        if (typeof onToolCall === "function") {
+          onToolCall({ id: call.id, name, arguments: args });
         }
 
         const result = await executor(args);

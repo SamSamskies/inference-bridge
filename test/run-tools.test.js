@@ -301,6 +301,142 @@ describe("runTools", () => {
     expect(deltas).toEqual(["calling ", "22C"]);
   });
 
+  it("invokes onToolCall once per tool call before execute", async () => {
+    /** @type {object[]} */
+    const seen = [];
+    let executeOrder = 0;
+    const execute = {
+      get_weather: vi.fn(async () => {
+        executeOrder += 1;
+        return { tempC: 22 };
+      }),
+      get_time: vi.fn(async () => {
+        executeOrder += 1;
+        return { localTime: "3:45 PM" };
+      }),
+    };
+
+    await runTools({
+      request: scriptedRequest([
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_weather",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+            {
+              id: "call_time",
+              type: "function",
+              function: {
+                name: "get_time",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        { role: "assistant", content: "Done." },
+      ]),
+      messages: [{ role: "user", content: "hi" }],
+      tools: weatherTools,
+      execute,
+      onToolCall(info) {
+        seen.push({ ...info, executeOrderBefore: executeOrder });
+      },
+    });
+
+    expect(seen).toEqual([
+      {
+        id: "call_weather",
+        name: "get_weather",
+        arguments: { city: "Austin" },
+        executeOrderBefore: 0,
+      },
+      {
+        id: "call_time",
+        name: "get_time",
+        arguments: { city: "Austin" },
+        executeOrderBefore: 1,
+      },
+    ]);
+    expect(execute.get_weather).toHaveBeenCalledOnce();
+    expect(execute.get_time).toHaveBeenCalledOnce();
+  });
+
+  it("still runs when onToolCall is omitted", async () => {
+    const execute = {
+      get_weather: vi.fn(async () => ({ tempC: 22 })),
+    };
+
+    const result = await runTools({
+      request: scriptedRequest([
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "get_weather",
+                arguments: '{"city":"Austin"}',
+              },
+            },
+          ],
+        },
+        { role: "assistant", content: "22C" },
+      ]),
+      messages: [{ role: "user", content: "hi" }],
+      execute,
+    });
+
+    expect(execute.get_weather).toHaveBeenCalledWith({ city: "Austin" });
+    expect(result.final.message.content).toBe("22C");
+  });
+
+  it("fires onToolCall even when execute throws", async () => {
+    const onToolCall = vi.fn();
+
+    await expect(
+      runTools({
+        request: scriptedRequest([
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: {
+                  name: "get_weather",
+                  arguments: '{"city":"Austin"}',
+                },
+              },
+            ],
+          },
+        ]),
+        messages: [{ role: "user", content: "hi" }],
+        execute: {
+          get_weather: async () => {
+            throw new Error("network down");
+          },
+        },
+        onToolCall,
+      })
+    ).rejects.toThrow("network down");
+
+    expect(onToolCall).toHaveBeenCalledWith({
+      id: "call_1",
+      name: "get_weather",
+      arguments: { city: "Austin" },
+    });
+  });
+
   it("rejects when AbortSignal is already aborted", async () => {
     const signal = AbortSignal.abort();
     await expect(
