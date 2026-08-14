@@ -333,6 +333,13 @@ if (done.message.tool_calls?.length) {
 Bridge does not ship an agent loop. Copy a helper like this into your page (or a future IPA tools package). Handlers still run in your code; Bridge only relays via `experimental.request`.
 
 ```js
+function makeError(code, message) {
+  const error = new Error(message || code);
+  error.name = "InferenceError";
+  error.code = code;
+  return error;
+}
+
 async function runTools({
   messages,
   tools,
@@ -347,7 +354,7 @@ async function runTools({
   let nextMessages = [...messages];
 
   for (let round = 0; round < maxRounds; round++) {
-    if (signal?.aborted) throw new Error("aborted");
+    if (signal?.aborted) throw makeError("aborted", "Request aborted");
 
     const req = { method: "chat", messages: nextMessages, signal };
     if (tools !== undefined) req.tools = tools;
@@ -362,7 +369,9 @@ async function runTools({
       if (chunk.type === "done") done = chunk;
     }
 
-    if (!done) throw new Error("request ended without a done chunk");
+    if (!done) {
+      throw makeError("provider_error", "Stream ended without a done chunk.");
+    }
 
     const toolCalls = done?.message?.tool_calls;
     if (!toolCalls?.length) {
@@ -383,7 +392,7 @@ async function runTools({
     ];
 
     for (const call of toolCalls) {
-      if (signal?.aborted) throw new Error("aborted");
+      if (signal?.aborted) throw makeError("aborted", "Request aborted");
       const name = call.function.name;
       let args;
       try {
@@ -405,22 +414,35 @@ async function runTools({
         typeof handler === "function"
           ? await handler(args)
           : { error: "unknown tool" };
-      if (signal?.aborted) throw new Error("aborted");
+      if (signal?.aborted) throw makeError("aborted", "Request aborted");
+      let content;
+      if (typeof result === "string") {
+        content = result;
+      } else {
+        try {
+          const json = JSON.stringify(result ?? null);
+          content = typeof json === "string" ? json : "null";
+        } catch {
+          content = JSON.stringify({
+            error: "tool result not JSON-serializable",
+          });
+        }
+      }
       nextMessages = [
         ...nextMessages,
         {
           role: "tool",
           tool_call_id: call.id,
-          content:
-            typeof result === "string"
-              ? result
-              : JSON.stringify(result ?? null) ?? "null",
+          content,
         },
       ];
     }
   }
 
-  throw new Error(`Tool loop exceeded maxRounds (${maxRounds}).`);
+  throw makeError(
+    "provider_error",
+    `Tool loop exceeded maxRounds (${maxRounds}).`
+  );
 }
 
 const { final, messages: thread } = await runTools({
