@@ -46,11 +46,10 @@ describe("createOpenAICompatProvider", () => {
     baseUrl: "http://127.0.0.1:1234/v1",
   };
 
-  it("builds a provider with optional API key and experimental label", () => {
+  it("builds a provider with optional API key and the endpoint name as label", () => {
     const provider = createOpenAICompatProvider(endpoint);
     expect(provider.id).toBe("compat:test-id");
-    expect(provider.label).toContain("LM Studio");
-    expect(provider.label.toLowerCase()).toContain("experimental");
+    expect(provider.label).toBe("LM Studio");
     expect(provider.requiresApiKey).toBe(false);
     expect(provider.optionalApiKey).toBe(true);
     expect(provider.supportsFunctionTools).toBe(true);
