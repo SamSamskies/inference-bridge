@@ -208,7 +208,7 @@ describe("createOpenAICompatProvider", () => {
       },
     ]);
     expect(body.tool_choice).toBe("auto");
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -238,7 +238,7 @@ describe("createOpenAICompatProvider", () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
-  it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
+  it("accumulates streamed toolCalls by index into done.message.toolCalls", async () => {
     const sse = [
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\\"city\\":"}}]}}]}',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"NYC\\"}"}}]}}]}',
@@ -260,7 +260,7 @@ describe("createOpenAICompatProvider", () => {
       onDelta: () => {},
     });
 
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -274,7 +274,7 @@ describe("createOpenAICompatProvider", () => {
     ]);
   });
 
-  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+  it("round-trips assistant toolCalls and tool follow-up messages", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')
     );
@@ -288,7 +288,7 @@ describe("createOpenAICompatProvider", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -301,7 +301,7 @@ describe("createOpenAICompatProvider", () => {
         },
         {
           role: "tool",
-          tool_call_id: "call_1",
+          toolCallId: "call_1",
           content: JSON.stringify({ tempF: 72 }),
         },
       ],

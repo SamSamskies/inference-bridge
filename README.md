@@ -220,9 +220,9 @@ window.inference.request(...)              // IPA-stable chat only
 window.inference.experimental.request(...) // Bridge experimental (tools, etc.)
 ```
 
-Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `tool_calls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `tool_calls`.
+Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
-**Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `tool_calls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
+**Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -241,8 +241,8 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 | Role | Fields |
 | --- | --- |
 | `system` / `user` | `content: string` |
-| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `tool_calls?: ToolCall[]` |
-| `tool` | `tool_call_id: string`; `content: string` (usually JSON text) |
+| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
+| `tool` | `toolCallId: string`; `content: string` (usually JSON text) |
 
 **`tools` / `ToolCall`**
 
@@ -251,7 +251,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 | Function tool | `{ type: "function", function: { name, description?, parameters? } }` — `parameters` is JSON Schema |
 | `ToolCall` (on assistant / `done.message`) | `{ id, type: "function", function: { name, arguments } }` — `arguments` is a JSON string |
 
-Returns the same streaming contract as stable `request`: `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.tool_calls` may be set (often with empty/null `content`).
+Returns the same streaming contract as stable `request`: `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.toolCalls` may be set (often with empty/null `content`).
 
 #### Manual multi-turn (page executes)
 
@@ -290,14 +290,14 @@ for await (const chunk of window.inference.experimental.request({
   if (chunk.type === "done") done = chunk;
 }
 
-if (done.message.tool_calls?.length) {
+if (done.message.toolCalls?.length) {
   messages.push({
     role: "assistant",
     content: done.message.content ?? null,
-    tool_calls: done.message.tool_calls,
+    toolCalls: done.message.toolCalls,
   });
 
-  for (const call of done.message.tool_calls) {
+  for (const call of done.message.toolCalls) {
     const args = JSON.parse(call.function.arguments);
     const result =
       call.function.name === "get_weather"
@@ -306,7 +306,7 @@ if (done.message.tool_calls?.length) {
 
     messages.push({
       role: "tool",
-      tool_call_id: call.id,
+      toolCallId: call.id,
       content: JSON.stringify(result),
     });
   }
@@ -373,7 +373,7 @@ async function runTools({
       throw makeError("provider_error", "Stream ended without a done chunk.");
     }
 
-    const toolCalls = done?.message?.tool_calls;
+    const toolCalls = done?.message?.toolCalls;
     if (!toolCalls?.length) {
       if (done?.message) nextMessages = [...nextMessages, done.message];
       return { messages: nextMessages, final: done };
@@ -384,7 +384,7 @@ async function runTools({
       {
         role: "assistant",
         content: done.message.content ?? null,
-        tool_calls: toolCalls,
+        toolCalls: toolCalls,
         ...(done.message.reasoning
           ? { reasoning: done.message.reasoning }
           : {}),
@@ -402,7 +402,7 @@ async function runTools({
           ...nextMessages,
           {
             role: "tool",
-            tool_call_id: call.id,
+            toolCallId: call.id,
             content: JSON.stringify({ error: "invalid tool arguments" }),
           },
         ];
@@ -432,7 +432,7 @@ async function runTools({
         ...nextMessages,
         {
           role: "tool",
-          tool_call_id: call.id,
+          toolCallId: call.id,
           content,
         },
       ];
@@ -592,7 +592,7 @@ npm run package
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
 - [ ] `window.inference.request` rejects `tools` / `toolChoice` / tool messages (`invalid_request`)
 - [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
-- [ ] Function tool round-trip via `experimental.request`: tools → `done.message.tool_calls` → `role: "tool"` follow-up → final answer
+- [ ] Function tool round-trip via `experimental.request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 

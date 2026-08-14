@@ -271,7 +271,7 @@ describe("openrouterProvider.streamChat", () => {
       },
     ]);
     expect(body.tool_choice).toBe("auto");
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -280,7 +280,7 @@ describe("openrouterProvider.streamChat", () => {
     ]);
   });
 
-  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+  it("round-trips assistant toolCalls and tool follow-up messages", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')
     );
@@ -294,7 +294,7 @@ describe("openrouterProvider.streamChat", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -307,7 +307,7 @@ describe("openrouterProvider.streamChat", () => {
         },
         {
           role: "tool",
-          tool_call_id: "call_1",
+          toolCallId: "call_1",
           content: JSON.stringify({ tempF: 72 }),
         },
       ],

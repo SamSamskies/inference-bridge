@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("openaiProvider.streamChat", () => {
-  it("forwards function tools only and returns accumulated tool_calls", async () => {
+  it("forwards function tools only and returns accumulated toolCalls", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -53,7 +53,7 @@ describe("openaiProvider.streamChat", () => {
       type: "function",
       function: { name: "get_weather" },
     });
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -87,7 +87,7 @@ describe("openaiProvider.streamChat", () => {
     expect(body.tool_choice).toBe("auto");
   });
 
-  it("round-trips assistant tool_calls and tool follow-up messages", async () => {
+  it("round-trips assistant toolCalls and tool follow-up messages", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')
     );
@@ -101,7 +101,7 @@ describe("openaiProvider.streamChat", () => {
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -114,7 +114,7 @@ describe("openaiProvider.streamChat", () => {
         },
         {
           role: "tool",
-          tool_call_id: "call_1",
+          toolCallId: "call_1",
           content: '{"tempC":22}',
         },
       ],

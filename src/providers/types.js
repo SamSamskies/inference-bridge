@@ -42,8 +42,8 @@
  *   role: string,
  *   content: string | null,
  *   reasoning?: string,
- *   tool_calls?: ToolCall[],
- *   tool_call_id?: string,
+ *   toolCalls?: ToolCall[],
+ *   toolCallId?: string,
  * }} ChatMessage
  */
 
@@ -74,7 +74,7 @@
  *       role: "assistant",
  *       content: string,
  *       reasoning?: string,
- *       tool_calls?: ToolCall[],
+ *       toolCalls?: ToolCall[],
  *     },
  *     usage?: { inputTokens?: number, outputTokens?: number },
  *   }>

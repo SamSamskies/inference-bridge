@@ -482,13 +482,13 @@ describe("mapMessagesForOpenAICompat", () => {
     ]);
   });
 
-  it("round-trips assistant tool_calls and tool results", () => {
+  it("round-trips assistant toolCalls and tool results", () => {
     expect(
       mapMessagesForOpenAICompat([
         {
           role: "assistant",
           content: null,
-          tool_calls: [
+          toolCalls: [
             {
               id: "call_1",
               type: "function",
@@ -496,7 +496,7 @@ describe("mapMessagesForOpenAICompat", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "call_1", content: "20" },
+        { role: "tool", toolCallId: "call_1", content: "20" },
       ])
     ).toEqual([
       {
@@ -514,7 +514,7 @@ describe("mapMessagesForOpenAICompat", () => {
     ]);
   });
 
-  it("omits tool_call_id from tool messages when absent", () => {
+  it("omits toolCallId from tool messages when absent", () => {
     expect(mapMessagesForOpenAICompat([{ role: "tool", content: "20" }])).toEqual([
       { role: "tool", content: "20" },
     ]);
@@ -627,7 +627,7 @@ describe("streamOpenAICompatChat tool calling", () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
-  it("accumulates streamed tool_calls by index into done.message.tool_calls", async () => {
+  it("accumulates streamed toolCalls by index into done.message.toolCalls", async () => {
     const sse = [
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\\"city\\":"}}]}}]}',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"NYC\\"}"}}]}}]}',
@@ -652,7 +652,7 @@ describe("streamOpenAICompatChat tool calling", () => {
 
     expect(deltas).toEqual([]);
     expect(result.message.content).toBe("");
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",
         type: "function",
@@ -667,7 +667,7 @@ describe("streamOpenAICompatChat tool calling", () => {
     expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 1 });
   });
 
-  it("drops incomplete tool_calls missing id or name", async () => {
+  it("drops incomplete toolCalls missing id or name", async () => {
     const sse = [
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]}}]}',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_ok","type":"function","function":{"name":"ok","arguments":"{}"}}]}}]}',
@@ -677,7 +677,7 @@ describe("streamOpenAICompatChat tool calling", () => {
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
 
     const result = await streamOpenAICompatChat(baseArgs());
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "call_ok",
         type: "function",
@@ -698,7 +698,7 @@ describe("streamOpenAICompatChat tool calling", () => {
     );
 
     const result = await streamOpenAICompatChat(baseArgs());
-    expect(result.message.tool_calls).toEqual([
+    expect(result.message.toolCalls).toEqual([
       {
         id: "c1",
         type: "function",

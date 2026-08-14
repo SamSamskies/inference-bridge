@@ -121,7 +121,7 @@ export function mapToolChoiceForAnthropic(toolChoice) {
  */
 function mapAssistantContent(m) {
   const hasToolCalls =
-    Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+    Array.isArray(m.toolCalls) && m.toolCalls.length > 0;
   if (!hasToolCalls) {
     return m.content == null ? "" : m.content;
   }
@@ -131,7 +131,7 @@ function mapAssistantContent(m) {
   if (typeof m.content === "string" && m.content) {
     blocks.push({ type: "text", text: m.content });
   }
-  for (const c of m.tool_calls || []) {
+  for (const c of m.toolCalls || []) {
     blocks.push({
       type: "tool_use",
       id: c.id,
@@ -171,7 +171,7 @@ function mergeAnthropicContent(a, b) {
 /**
  * Map IPA messages to Anthropic Messages API shape.
  * System roles become a top-level `system` string; outbound `reasoning` is dropped.
- * Assistant `tool_calls` become `tool_use` blocks; Bridge `role: "tool"` becomes
+ * Assistant `toolCalls` become `tool_use` blocks; Bridge `role: "tool"` becomes
  * user `tool_result` content. Consecutive same-role turns are merged so the
  * result alternates user/assistant.
  * @param {ChatMessage[]} messages
@@ -203,7 +203,7 @@ export function mapMessagesForAnthropic(messages) {
           {
             type: "tool_result",
             tool_use_id:
-              typeof m.tool_call_id === "string" ? m.tool_call_id : "",
+              typeof m.toolCallId === "string" ? m.toolCallId : "",
             content: m.content == null ? "" : m.content,
           },
         ],
@@ -538,13 +538,13 @@ export const anthropicProvider = {
       }
     }
 
-    /** @type {{ role: "assistant", content: string, reasoning?: string, tool_calls?: ToolCall[] }} */
+    /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
     const message = { role: "assistant", content };
     if (reasoning) {
       message.reasoning = reasoning;
     }
     if (toolCallsByIndex.size > 0) {
-      const tool_calls = [...toolCallsByIndex.entries()]
+      const toolCalls = [...toolCallsByIndex.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([, entry]) => ({
           id: entry.id,
@@ -556,8 +556,8 @@ export const anthropicProvider = {
           },
         }))
         .filter((c) => c.id && c.function.name);
-      if (tool_calls.length > 0) {
-        message.tool_calls = tool_calls;
+      if (toolCalls.length > 0) {
+        message.toolCalls = toolCalls;
       }
     }
 

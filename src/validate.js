@@ -22,10 +22,33 @@ const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
  *   role: string,
  *   content: string | null,
  *   reasoning?: string,
- *   tool_calls?: ToolCall[],
- *   tool_call_id?: string,
+ *   toolCalls?: ToolCall[],
+ *   toolCallId?: string,
  * }} ExperimentalMessage
  */
+
+/**
+ * Reject OpenAI-style snake_case aliases so they fail loudly instead of being
+ * stripped during normalization (which would drop tool history silently).
+ * @param {Record<string, unknown>} m
+ * @param {number} i
+ * @returns {{ ok: false, message: string } | null}
+ */
+function rejectLegacySnakeCaseToolFields(m, i) {
+  if (m.tool_calls !== undefined) {
+    return {
+      ok: false,
+      message: `messages[${i}].tool_calls is not supported; use toolCalls.`,
+    };
+  }
+  if (m.tool_call_id !== undefined) {
+    return {
+      ok: false,
+      message: `messages[${i}].tool_call_id is not supported; use toolCallId.`,
+    };
+  }
+  return null;
+}
 
 /**
  * Stable IPA path rejects experimental tool fields instead of stripping them.
@@ -53,18 +76,20 @@ function rejectStableToolFields(req, messages) {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (!m || typeof m !== "object" || Array.isArray(m)) continue;
-    if (m.tool_calls !== undefined) {
+    const legacy = rejectLegacySnakeCaseToolFields(m, i);
+    if (legacy) return legacy;
+    if (m.toolCalls !== undefined) {
       return {
         ok: false,
         message:
-          'messages[].tool_calls is only available via window.inference.experimental.request.',
+          'messages[].toolCalls is only available via window.inference.experimental.request.',
       };
     }
-    if (m.tool_call_id !== undefined) {
+    if (m.toolCallId !== undefined) {
       return {
         ok: false,
         message:
-          'messages[].tool_call_id is only available via window.inference.experimental.request.',
+          'messages[].toolCallId is only available via window.inference.experimental.request.',
       };
     }
   }
@@ -360,20 +385,23 @@ export function validateExperimentalInferenceRequest(request) {
       };
     }
 
+    const legacy = rejectLegacySnakeCaseToolFields(m, i);
+    if (legacy) return legacy;
+
     if (m.role === "tool") {
-      if (typeof m.tool_call_id !== "string" || !m.tool_call_id) {
+      if (typeof m.toolCallId !== "string" || !m.toolCallId) {
         return {
           ok: false,
-          message: `messages[${i}].tool_call_id must be a non-empty string.`,
+          message: `messages[${i}].toolCallId must be a non-empty string.`,
         };
       }
       if (typeof m.content !== "string") {
         return { ok: false, message: `messages[${i}].content must be a string.` };
       }
-      if ("tool_calls" in m) {
+      if ("toolCalls" in m) {
         return {
           ok: false,
-          message: `messages[${i}] with role "tool" must not include tool_calls.`,
+          message: `messages[${i}] with role "tool" must not include toolCalls.`,
         };
       }
       if ("reasoning" in m) {
@@ -384,18 +412,18 @@ export function validateExperimentalInferenceRequest(request) {
       }
       messages.push({
         role: "tool",
-        tool_call_id: m.tool_call_id,
+        toolCallId: m.toolCallId,
         content: m.content,
       });
       continue;
     }
 
     if (m.role === "assistant") {
-      // Chat Completions often omits content when only tool_calls are present.
+      // Chat Completions often omits content when only toolCalls are present.
       /** @type {string | null} */
       let content;
       if (!("content" in m)) {
-        if (!("tool_calls" in m)) {
+        if (!("toolCalls" in m)) {
           return {
             ok: false,
             message: `messages[${i}].content must be a string or null.`,
@@ -412,10 +440,10 @@ export function validateExperimentalInferenceRequest(request) {
       }
       /** @type {ExperimentalMessage} */
       const normalized = { role: "assistant", content };
-      if ("tool_calls" in m) {
-        const toolCalls = validateToolCalls(m.tool_calls, `messages[${i}].tool_calls`);
+      if ("toolCalls" in m) {
+        const toolCalls = validateToolCalls(m.toolCalls, `messages[${i}].toolCalls`);
         if (!toolCalls.ok) return toolCalls;
-        normalized.tool_calls = toolCalls.value;
+        normalized.toolCalls = toolCalls.value;
       }
       if ("reasoning" in m) {
         if (typeof m.reasoning !== "string") {
@@ -436,10 +464,10 @@ export function validateExperimentalInferenceRequest(request) {
     if (typeof m.content !== "string") {
       return { ok: false, message: `messages[${i}].content must be a string.` };
     }
-    if ("tool_calls" in m) {
+    if ("toolCalls" in m) {
       return {
         ok: false,
-        message: `messages[${i}] with role "${m.role}" must not include tool_calls.`,
+        message: `messages[${i}] with role "${m.role}" must not include toolCalls.`,
       };
     }
     /** @type {ExperimentalMessage} */

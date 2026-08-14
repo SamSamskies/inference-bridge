@@ -120,8 +120,9 @@ export async function listOllamaModels({ signal } = {}) {
 
 /**
  * Map IPA / experimental messages to Ollama chat messages.
- * Round-trips reasoning as `thinking`, assistant `tool_calls` (object args),
- * and `role: "tool"` results via `tool_name` (Ollama has no tool_call_id).
+ * Round-trips reasoning as `thinking`, assistant `toolCalls` (object args on
+ * the wire as `tool_calls`), and `role: "tool"` results via `tool_name`
+ * (Ollama has no tool_call_id; Bridge `toolCallId` maps via name).
  * @param {ChatMessage[]} messages
  * @returns {Array<Record<string, unknown>>}
  */
@@ -129,8 +130,8 @@ export function mapMessagesForOllama(messages) {
   /** @type {Map<string, string>} */
   const toolCallIdToName = new Map();
   for (const m of messages) {
-    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
-    for (const c of m.tool_calls) {
+    if (m.role !== "assistant" || !Array.isArray(m.toolCalls)) continue;
+    for (const c of m.toolCalls) {
       if (typeof c?.id === "string" && c.id && typeof c.function?.name === "string") {
         toolCallIdToName.set(c.id, c.function.name);
       }
@@ -141,7 +142,7 @@ export function mapMessagesForOllama(messages) {
     /** @type {Record<string, unknown>} */
     const out = {
       role: m.role,
-      // Ollama requires string content; IPA may use null when only tool_calls.
+      // Ollama requires string content; IPA may use null when only toolCalls.
       content: m.content == null ? "" : m.content,
     };
     if (typeof m.reasoning === "string" && m.reasoning) {
@@ -149,10 +150,10 @@ export function mapMessagesForOllama(messages) {
     }
     if (
       m.role === "assistant" &&
-      Array.isArray(m.tool_calls) &&
-      m.tool_calls.length > 0
+      Array.isArray(m.toolCalls) &&
+      m.toolCalls.length > 0
     ) {
-      out.tool_calls = m.tool_calls.map((c) => ({
+      out.tool_calls = m.toolCalls.map((c) => ({
         type: "function",
         function: {
           name: c.function.name,
@@ -162,8 +163,8 @@ export function mapMessagesForOllama(messages) {
     }
     if (m.role === "tool") {
       const name =
-        typeof m.tool_call_id === "string" && m.tool_call_id
-          ? toolCallIdToName.get(m.tool_call_id)
+        typeof m.toolCallId === "string" && m.toolCallId
+          ? toolCallIdToName.get(m.toolCallId)
           : undefined;
       if (name) {
         out.tool_name = name;
@@ -481,14 +482,14 @@ export const ollamaProvider = {
       }
     }
 
-    /** @type {{ role: "assistant", content: string, reasoning?: string, tool_calls?: ToolCall[] }} */
+    /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
     const message = { role: "assistant", content };
     if (reasoning) {
       message.reasoning = reasoning;
     }
-    const tool_calls = finalizeOllamaToolCalls(toolCallsByIndex);
-    if (tool_calls.length > 0) {
-      message.tool_calls = tool_calls;
+    const toolCalls = finalizeOllamaToolCalls(toolCallsByIndex);
+    if (toolCalls.length > 0) {
+      message.toolCalls = toolCalls;
     }
 
     return {
