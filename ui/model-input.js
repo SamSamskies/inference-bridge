@@ -1,15 +1,23 @@
 /**
  * Shared model picker helpers for Options and the approval dialog.
  *
- * Short catalogs (OpenAI curated list, local Ollama tags, discovered
- * OpenAI-compatible models) use a <select>. Large live catalogs (OpenRouter)
- * use <input list> + <datalist> so users can type to filter by slug or label.
- * Compat endpoints fall back to free-text only when /v1/models returns nothing.
+ * Short catalogs (OpenAI curated list, local Ollama tags, small discovered
+ * OpenAI-compatible catalogs) use a <select>. Large live catalogs (OpenRouter,
+ * aggregator-style compat endpoints) use <input list> + <datalist> so users
+ * can type to filter by slug or label. Compat endpoints also fall back to
+ * free-text when /v1/models returns nothing.
  */
 
 /**
  * @typedef {{ id: string, label?: string }} ModelInfo
  */
+
+/**
+ * Compat catalogs larger than this use searchable autosuggest instead of
+ * <select> (same UX as OpenRouter). Local servers with a handful of models
+ * stay on the dropdown.
+ */
+export const COMPAT_MODEL_AUTOSUGGEST_THRESHOLD = 20;
 
 /**
  * @param {string} providerId
@@ -18,10 +26,15 @@
  */
 export function usesModelAutosuggest(providerId, models) {
   if (providerId === "openrouter") return true;
-  // Named OpenAI-compatible servers: select when models listed; free-text when
-  // listing failed/empty so users can still type a model id.
+  // Named OpenAI-compatible servers: <select> for small catalogs; autosuggest
+  // for large ones; free-text when listing failed/empty so users can still
+  // type a model id.
   if (typeof providerId === "string" && providerId.startsWith("compat:")) {
-    return !Array.isArray(models) || models.length === 0;
+    return (
+      !Array.isArray(models) ||
+      models.length === 0 ||
+      models.length > COMPAT_MODEL_AUTOSUGGEST_THRESHOLD
+    );
   }
   return false;
 }

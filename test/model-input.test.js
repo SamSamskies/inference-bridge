@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isModelValid, usesModelAutosuggest } from "../ui/model-input.js";
+import {
+  COMPAT_MODEL_AUTOSUGGEST_THRESHOLD,
+  isModelValid,
+  usesModelAutosuggest,
+} from "../ui/model-input.js";
 
 describe("isModelValid", () => {
   const models = [
@@ -42,8 +46,21 @@ describe("usesModelAutosuggest", () => {
     expect(usesModelAutosuggest("openrouter", [{ id: "a" }])).toBe(true);
   });
 
-  it("uses a select for compat:* when models are listed", () => {
+  it("uses a select for compat:* when the catalog is small", () => {
     expect(usesModelAutosuggest("compat:abc", [{ id: "local" }])).toBe(false);
+    const atThreshold = Array.from(
+      { length: COMPAT_MODEL_AUTOSUGGEST_THRESHOLD },
+      (_, i) => ({ id: `m${i}` })
+    );
+    expect(usesModelAutosuggest("compat:abc", atThreshold)).toBe(false);
+  });
+
+  it("uses autosuggest for compat:* when the catalog is large", () => {
+    const large = Array.from(
+      { length: COMPAT_MODEL_AUTOSUGGEST_THRESHOLD + 1 },
+      (_, i) => ({ id: `m${i}` })
+    );
+    expect(usesModelAutosuggest("compat:abc", large)).toBe(true);
   });
 
   it("uses free-text for compat:* when the catalog is empty or unknown", () => {

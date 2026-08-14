@@ -49,7 +49,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
-| OpenAI-compatible | Optional API key | User-named endpoints; select from `GET /v1/models` when available, free-text fallback; chat via `/v1/chat/completions` |
+| OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
 To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/anthropic.js`](src/providers/anthropic.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); Anthropic uses a dedicated Messages API adapter). Models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js). Register the provider in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the named-endpoint UI instead.
 
@@ -490,6 +490,7 @@ npm run package
 - [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
 - [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
 - [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
+- [ ] Compat small `/v1/models` list uses `<select>`; large catalogs use searchable autosuggest
 - [ ] Compat `/v1/models` failure still allows typing a model id
 - [ ] Switching default provider does not rewrite existing origin grants
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
