@@ -60,6 +60,7 @@ Inference Bridge lets websites use AI chat through window.inference — with you
 Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
+• Experimental function tools via window.inference.experimental (page-executed; keys stay in the extension)
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
 • OpenAI, Anthropic, OpenRouter, local Ollama, or named OpenAI-compatible endpoints
