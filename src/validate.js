@@ -76,6 +76,8 @@ function rejectStableToolFields(req, messages) {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+    const legacy = rejectLegacySnakeCaseToolFields(m, i);
+    if (legacy) return legacy;
     if (m.toolCalls !== undefined) {
       return {
         ok: false,

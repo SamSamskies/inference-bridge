@@ -110,6 +110,36 @@ describe("validateInferenceRequest", () => {
     expect(toolCallId.message).toMatch(/experimental/);
   });
 
+  it("rejects snake_case tool_calls / tool_call_id on the stable path", () => {
+    const toolCalls = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "assistant",
+          content: "ok",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: "{}" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(toolCalls.ok).toBe(false);
+    expect(toolCalls.message).toMatch(/toolCalls/);
+
+    const toolCallId = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        { role: "assistant", content: "ok", tool_call_id: "call_1" },
+      ],
+    });
+    expect(toolCallId.ok).toBe(false);
+    expect(toolCallId.message).toMatch(/toolCallId/);
+  });
+
   it("ignores undefined tool fields on the stable path (option spreads)", () => {
     const result = validateInferenceRequest({
       method: "chat",
