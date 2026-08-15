@@ -22,8 +22,9 @@ export async function getOnDeviceAvailability() {
     if (response?.availability === "missing") return "missing";
     return "unavailable";
   } catch {
-    // Offscreen permission missing, createDocument failed, or API absent.
-    return "missing";
+    // Offscreen create/ready failure or messaging error — not the same as
+    // LanguageModel absent (`missing` only comes from a successful probe).
+    return "unavailable";
   }
 }
 
