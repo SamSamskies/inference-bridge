@@ -308,13 +308,26 @@ function updateOnDevicePanel() {
     return;
   }
 
-  if (onDeviceStatus.availability === "downloading" || installing) {
+  // Only this page's Install can abort or auto-save the default. A browser-
+  // reported "downloading" state (e.g. started elsewhere) has neither.
+  if (installing) {
     setOnDeviceHint(
       "Downloading the on-device model… This can take a while and the file may be large. When it finishes, On-device is saved as your default."
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = false;
     onDeviceProgress.hidden = false;
+    saveButton.hidden = true;
+    return;
+  }
+
+  if (onDeviceStatus.availability === "downloading") {
+    setOnDeviceHint(
+      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, you can save On-device as your default."
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
     saveButton.hidden = true;
     return;
   }
