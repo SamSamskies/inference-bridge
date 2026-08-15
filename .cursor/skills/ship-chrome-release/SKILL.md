@@ -69,7 +69,7 @@ Output: `dist/inference-bridge-<version>.zip`
 unzip -l dist/inference-bridge-<version>.zip
 ```
 
-Allowlist only: `manifest.json`, `background/`, `content/`, `src/`, `ui/`, `icons/`.
+Allowlist only: `manifest.json`, `background/`, `content/`, `src/`, `ui/`, `icons/`, `offscreen/`.
 
 Reject the package if tests, docs, `node_modules`, `.git`, secrets, or unrelated files appear.
 

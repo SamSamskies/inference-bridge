@@ -20,6 +20,12 @@ import {
   populateModelSelect,
   usesModelAutosuggest,
 } from "./model-input.js";
+import {
+  ON_DEVICE_MODEL_ID,
+  ON_DEVICE_PROVIDER_ID,
+  installLanguageModel,
+  probeLanguageModelAvailability,
+} from "../src/prompt-api-core.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -29,6 +35,13 @@ const toggleApiKeyButton = document.getElementById("toggleApiKey");
 const ollamaStatusRow = document.getElementById("ollamaStatusRow");
 const ollamaHint = document.getElementById("ollamaHint");
 const checkOllamaButton = document.getElementById("checkOllama");
+const onDevicePanel = document.getElementById("onDevicePanel");
+const onDeviceHint = document.getElementById("onDeviceHint");
+const onDeviceInstallButton = document.getElementById("onDeviceInstall");
+const onDeviceCancelButton = document.getElementById("onDeviceCancel");
+const onDeviceProgress = document.getElementById("onDeviceProgress");
+const onDeviceInstallDialog = document.getElementById("onDeviceInstallDialog");
+const modelField = document.getElementById("modelField");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
 const modelInput = document.getElementById("modelInput");
@@ -86,8 +99,50 @@ let ollamaStatus = {
   message: "",
 };
 
+/**
+ * @type {{
+ *   availability: import("../src/prompt-api-core.js").OnDeviceAvailability,
+ *   message: string,
+ * }}
+ */
+let onDeviceStatus = {
+  availability: "missing",
+  message: "",
+};
+
+/** @type {AbortController | null} */
+let onDeviceInstallController = null;
+
+/**
+ * Poll timer while Prompt API reports "downloading" but this Options tab did
+ * not start Install (no AbortController / progress). Cleared when availability
+ * leaves that state or the on-device panel is hidden.
+ * @type {number}
+ */
+let onDeviceDownloadPollTimer = 0;
+
 /** Clears success feedback after a short delay; errors stay until replaced. */
 let statusClearTimer = 0;
+
+function stopOnDeviceDownloadPoll() {
+  if (onDeviceDownloadPollTimer) {
+    clearTimeout(onDeviceDownloadPollTimer);
+    onDeviceDownloadPollTimer = 0;
+  }
+}
+
+/**
+ * Re-probe availability until the browser leaves "downloading". Only used for
+ * downloads started elsewhere (or after Options was closed mid-install).
+ */
+function scheduleOnDeviceDownloadPoll() {
+  if (onDeviceDownloadPollTimer) return;
+  onDeviceDownloadPollTimer = window.setTimeout(async () => {
+    onDeviceDownloadPollTimer = 0;
+    await refreshOnDeviceStatus();
+    updateOnDevicePanel();
+  }, 2000);
+}
 
 function setStatus(message, kind) {
   if (statusClearTimer) {
@@ -97,13 +152,16 @@ function setStatus(message, kind) {
   statusEl.textContent = message;
   statusEl.className = `status status-end${kind ? ` ${kind}` : ""}`;
   if (kind === "ok" && message) {
+    // Keep install/save success visible longer — fast downloads finish before
+    // users notice the progress bar, so the status line is the main cue.
+    const clearAfterMs = /installed and ready/i.test(message) ? 8000 : 2500;
     statusClearTimer = window.setTimeout(() => {
       statusClearTimer = 0;
       if (statusEl.classList.contains("ok")) {
         statusEl.textContent = "";
         statusEl.className = "status status-end";
       }
-    }, 2500);
+    }, clearAfterMs);
   }
 }
 
@@ -175,6 +233,216 @@ async function refreshOllamaStatus() {
 }
 
 /**
+ * @returns {boolean}
+ */
+function isOnDeviceOffered() {
+  return (
+    onDeviceStatus.availability !== "missing" &&
+    onDeviceStatus.availability !== "unavailable"
+  );
+}
+
+/**
+ * Ready for default provider / origin grants.
+ * @returns {boolean}
+ */
+function isOnDeviceReady() {
+  return onDeviceStatus.availability === "available";
+}
+
+/**
+ * Probe Prompt API for Options. Chat/approval use the offscreen host, so Ready
+ * requires that path. In-page LanguageModel still drives Install UX
+ * (downloadable / downloading) because create() needs a user gesture here.
+ */
+async function refreshOnDeviceStatus() {
+  const local = await probeLanguageModelAvailability();
+
+  /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */
+  let remote = "missing";
+  let remoteError = "";
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "on-device-status",
+    });
+    remote =
+      typeof response?.availability === "string"
+        ? response.availability
+        : "missing";
+    remoteError = response?.error || "";
+  } catch {
+    remote = "missing";
+    remoteError = "";
+  }
+
+  // Inference path — only offscreen "available" means Ready for default / grants.
+  if (remote === "available") {
+    onDeviceStatus = { availability: "available", message: "" };
+    return onDeviceStatus;
+  }
+
+  // In-page ready but offscreen is not: never claim Ready.
+  if (local === "available") {
+    onDeviceStatus = {
+      availability:
+        remote === "downloadable" || remote === "downloading"
+          ? remote
+          : "unavailable",
+      message:
+        remoteError ||
+        "On-device AI is installed, but the extension host is not ready.",
+    };
+    return onDeviceStatus;
+  }
+
+  // Prefer in-page for Install / download progress when the API exists here.
+  if (local !== "missing") {
+    onDeviceStatus = { availability: local, message: "" };
+    return onDeviceStatus;
+  }
+
+  onDeviceStatus = { availability: remote, message: remoteError };
+  return onDeviceStatus;
+}
+
+/**
+ * Official Chrome help for turning On-device AI off (deletes local model files).
+ * Prompt API has no LanguageModel.delete() — Chrome owns the weights.
+ */
+const ON_DEVICE_MANAGE_HELP_URL =
+  "https://support.google.com/chrome/answer/16961953";
+
+/** Chrome page that shows which on-device model the browser selected. */
+const ON_DEVICE_INTERNALS_URL = "chrome://on-device-internals";
+
+/**
+ * @param {string} text
+ * @param {{ manageLink?: boolean, internalsLink?: boolean }} [opts]
+ */
+function setOnDeviceHint(text, opts = {}) {
+  onDeviceHint.replaceChildren();
+  onDeviceHint.append(document.createTextNode(text));
+
+  if (opts.internalsLink) {
+    onDeviceHint.append(document.createTextNode(" (see "));
+    const internalsLink = document.createElement("a");
+    internalsLink.href = ON_DEVICE_INTERNALS_URL;
+    internalsLink.textContent = "chrome://on-device-internals";
+    // chrome:// URLs cannot navigate from <a href>; open via tabs API.
+    internalsLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      void chrome.tabs.create({ url: ON_DEVICE_INTERNALS_URL });
+    });
+    onDeviceHint.append(internalsLink);
+    onDeviceHint.append(document.createTextNode(")."));
+  }
+
+  if (!opts.manageLink) return;
+
+  onDeviceHint.append(document.createTextNode(" "));
+  const link = document.createElement("a");
+  link.href = ON_DEVICE_MANAGE_HELP_URL;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent =
+    "To free disk space, turn off On-device AI in Chrome Settings → System";
+  onDeviceHint.append(link);
+  onDeviceHint.append(document.createTextNode("."));
+}
+
+/**
+ * Paint Install / progress for the on-device provider.
+ */
+function updateOnDevicePanel() {
+  const selected = providerSelect.value === ON_DEVICE_PROVIDER_ID;
+  onDevicePanel.hidden = !selected || !isOnDeviceOffered();
+  modelField.hidden = selected && isOnDeviceOffered();
+
+  if (!selected || !isOnDeviceOffered()) {
+    stopOnDeviceDownloadPoll();
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
+    saveButton.hidden = false;
+    return;
+  }
+
+  const installing = Boolean(onDeviceInstallController);
+
+  if (onDeviceStatus.availability === "available") {
+    stopOnDeviceDownloadPoll();
+    const isDefault = savedDefaultProviderId === ON_DEVICE_PROVIDER_ID;
+    setOnDeviceHint(
+      isDefault
+        ? "Installed and ready to use. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build"
+        : "Installed and ready. Click Save to make On-device your default. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build",
+      { internalsLink: true, manageLink: true }
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
+    saveButton.hidden = false;
+    return;
+  }
+
+  // Only this page's Install can abort or auto-save the default. A browser-
+  // reported "downloading" state (e.g. started elsewhere) has neither.
+  if (installing) {
+    stopOnDeviceDownloadPoll();
+    setOnDeviceHint(
+      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, On-device is saved as your default."
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = false;
+    onDeviceProgress.hidden = false;
+    saveButton.hidden = true;
+    return;
+  }
+
+  if (onDeviceStatus.availability === "downloading") {
+    // Keep re-probing so Save appears when a download started elsewhere finishes
+    // (or after Options was closed mid-install).
+    scheduleOnDeviceDownloadPoll();
+    setOnDeviceHint(
+      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, you can save On-device as your default."
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
+    saveButton.hidden = true;
+    return;
+  }
+
+  stopOnDeviceDownloadPoll();
+
+  // downloadable — Install must call LanguageModel.create in this page so the
+  // click keeps user activation; the SW/offscreen path cannot.
+  const canInstallInPage =
+    typeof globalThis.LanguageModel?.create === "function";
+  if (!canInstallInPage) {
+    setOnDeviceHint(
+      "On-device model is downloadable, but Install needs the Prompt API in this Options page (for the required user gesture). It is not available here."
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
+    saveButton.hidden = false;
+    return;
+  }
+
+  setOnDeviceHint(
+    "Browser-chosen on-device model. Install may download a large file and take a while, then saves On-device as your default. The browser picks which model",
+    { internalsLink: true }
+  );
+  onDeviceInstallButton.hidden = false;
+  onDeviceInstallButton.disabled = false;
+  onDeviceCancelButton.hidden = true;
+  onDeviceProgress.hidden = true;
+  onDeviceProgress.value = 0;
+  saveButton.hidden = true;
+}
+
+/**
  * Stash the visible API key input into drafts before switching providers.
  */
 function syncApiKeyDraftFromInput() {
@@ -231,6 +499,8 @@ function updateProviderChrome(providerId) {
       ollamaStatus.message ||
       "Ollama is unavailable at http://localhost:11434, so this option is disabled.";
   }
+
+  updateOnDevicePanel();
 }
 
 /**
@@ -238,7 +508,7 @@ function updateProviderChrome(providerId) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return providerId !== "ollama";
+  return providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
 }
 
 /**
@@ -305,14 +575,37 @@ function populateProviderSelect(select, selectedId) {
   const effectiveId = selectedId || fallback;
 
   for (const provider of providers) {
+    // Hide on-device entirely when Prompt API is missing/unavailable, unless it
+    // is already the saved default (keep visible + disabled like Ollama down).
+    if (
+      provider.id === ON_DEVICE_PROVIDER_ID &&
+      !isOnDeviceOffered() &&
+      effectiveId !== ON_DEVICE_PROVIDER_ID
+    ) {
+      continue;
+    }
+
     const option = document.createElement("option");
     option.value = provider.id;
-    const unavailable = provider.id === "ollama" && !ollamaStatus.available;
-    // Keep the current selection choosable; block switching *to* Ollama when down.
-    option.disabled = unavailable && effectiveId !== provider.id;
-    option.textContent = unavailable
-      ? `${provider.label} (unavailable)`
-      : provider.label;
+    const ollamaDown = provider.id === "ollama" && !ollamaStatus.available;
+    const onDeviceGone =
+      provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceOffered();
+    // Keep the current selection choosable; block switching *to* Ollama when down
+    // or on-device when the API is missing. downloadable stays selectable for Install.
+    option.disabled =
+      (ollamaDown || onDeviceGone) && effectiveId !== provider.id;
+    if (onDeviceGone) {
+      option.textContent = `${provider.label} (unavailable)`;
+    } else if (
+      provider.id === ON_DEVICE_PROVIDER_ID &&
+      !isOnDeviceReady()
+    ) {
+      option.textContent = `${provider.label} (install required)`;
+    } else if (ollamaDown) {
+      option.textContent = `${provider.label} (unavailable)`;
+    } else {
+      option.textContent = provider.label;
+    }
     if ((known || !selectedId) && provider.id === effectiveId) {
       option.selected = true;
     }
@@ -353,6 +646,7 @@ function updateClearModelButton() {
  * @returns {string}
  */
 function readDefaultModelValue(providerId) {
+  if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
   if (usesModelAutosuggest(providerId, defaultModels)) {
     return modelInput.value.trim();
   }
@@ -392,6 +686,19 @@ async function refreshDefaultModels(providerId, preferredModel) {
   const loadId = ++defaultModelsLoadId;
   modelHint.hidden = true;
   modelHint.textContent = "";
+
+  if (providerId === ON_DEVICE_PROVIDER_ID) {
+    defaultModels = [
+      { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+    ];
+    populateDefaultModelControl(providerId, defaultModels, ON_DEVICE_MODEL_ID, {
+      allowUnknown: false,
+      disabled: true,
+    });
+    updateOnDevicePanel();
+    return;
+  }
+
   populateDefaultModelControl(providerId, [], preferredModel, {
     allowUnknown: true,
     disabled: true,
@@ -472,6 +779,7 @@ function syncModelDraftFromControl() {
  * @returns {string | undefined}
  */
 function preferredDefaultModel(providerId) {
+  if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
   const draft = modelDrafts[providerId];
   if (draft && isPlausibleModelForProvider(providerId, draft)) return draft;
   return providers.find((p) => p.id === providerId)?.defaultModel || undefined;
@@ -546,6 +854,92 @@ checkOllamaButton.addEventListener("click", async () => {
     checkOllamaButton.disabled = false;
     checkOllamaButton.textContent = "Check again";
   }
+});
+
+/**
+ * Start the on-device download + default save. Call from a user-gesture handler
+ * (dialog Install) so LanguageModel.create keeps activation. Do not delegate to
+ * the service worker / offscreen host — that path cannot carry the gesture.
+ */
+async function beginOnDeviceInstall() {
+  if (onDeviceInstallController) return;
+  if (typeof globalThis.LanguageModel?.create !== "function") {
+    setStatus(
+      "Prompt API is not available in this page, so Install cannot run with the required user gesture.",
+      "err"
+    );
+    return;
+  }
+  onDeviceInstallController = new AbortController();
+  onDeviceProgress.value = 0;
+  updateOnDevicePanel();
+  setStatus("Installing on-device model…", "");
+  try {
+    await installLanguageModel({
+      LanguageModel: globalThis.LanguageModel,
+      signal: onDeviceInstallController.signal,
+      onProgress: (loaded) => {
+        onDeviceProgress.hidden = false;
+        onDeviceProgress.value = Math.min(1, Math.max(0, loaded));
+      },
+    });
+    await refreshOnDeviceStatus();
+    const nextId = populateProviderSelect(providerSelect, ON_DEVICE_PROVIDER_ID);
+    modelBoundProviderId = nextId;
+    modelDrafts[ON_DEVICE_PROVIDER_ID] = ON_DEVICE_MODEL_ID;
+    updateProviderChrome(nextId);
+    await refreshDefaultModels(nextId, preferredDefaultModel(nextId));
+    // Persist only when the offscreen inference path is Ready — not merely
+    // because in-page LanguageModel.create succeeded.
+    if (!isOnDeviceReady()) {
+      setStatus(
+        onDeviceStatus.message ||
+          "Model installed, but the on-device host is not ready. Reload the extension, then Save.",
+        "err"
+      );
+      return;
+    }
+    await persistDefaultSettings(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+    onDeviceProgress.value = 1;
+    setStatus(
+      "Success — on-device model installed and ready to use. Saved as your default.",
+      "ok"
+    );
+  } catch (err) {
+    if (
+      onDeviceInstallController?.signal.aborted ||
+      (err && /** @type {any} */ (err).code === "aborted")
+    ) {
+      setStatus("Install canceled.", "");
+    } else {
+      setStatus(
+        err instanceof Error ? err.message : "Install failed",
+        "err"
+      );
+    }
+    await refreshOnDeviceStatus();
+    updateOnDevicePanel();
+  } finally {
+    onDeviceInstallController = null;
+    updateOnDevicePanel();
+  }
+}
+
+onDeviceInstallButton.addEventListener("click", () => {
+  if (onDeviceInstallController) return;
+  onDeviceInstallDialog.returnValue = "";
+  onDeviceInstallDialog.showModal();
+});
+
+document
+  .getElementById("onDeviceInstallConfirm")
+  .addEventListener("click", () => {
+    // Same gesture as dialog Install — do not await the dialog close first.
+    void beginOnDeviceInstall();
+  });
+
+onDeviceCancelButton.addEventListener("click", () => {
+  onDeviceInstallController?.abort();
 });
 
 /**
@@ -639,6 +1033,7 @@ async function renderOrigins() {
      * @returns {string}
      */
     function readOriginModelValue(providerId) {
+      if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
       if (usesModelAutosuggest(providerId, originModels)) {
         return originModelInput.value.trim();
       }
@@ -679,6 +1074,29 @@ async function renderOrigins() {
      */
     async function loadOriginModels(providerId, selectedModel) {
       const loadId = ++originModelsLoadId;
+
+      if (providerId === ON_DEVICE_PROVIDER_ID) {
+        originModels = [
+          { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+        ];
+        populateOriginModelControl(providerId, originModels, ON_DEVICE_MODEL_ID, {
+          allowUnknown: false,
+          disabled: true,
+        });
+        if (!isOnDeviceOffered()) {
+          modelStatus.textContent =
+            "On-device AI is not available in this browser.";
+          return false;
+        }
+        if (!isOnDeviceReady()) {
+          modelStatus.textContent =
+            "Install the on-device model above before using it for this site.";
+          return false;
+        }
+        modelStatus.textContent = "Browser-chosen on-device model.";
+        return true;
+      }
+
       populateOriginModelControl(providerId, [], selectedModel, {
         allowUnknown: true,
         disabled: true,
@@ -784,7 +1202,10 @@ async function renderOrigins() {
         // autosuggest input that stays blank when selected is omitted, unlike
         // <select> which auto-picks the first catalog entry.
         const preferredModel =
-          providers.find((p) => p.id === providerId)?.defaultModel || undefined;
+          providerId === ON_DEVICE_PROVIDER_ID
+            ? ON_DEVICE_MODEL_ID
+            : providers.find((p) => p.id === providerId)?.defaultModel ||
+              undefined;
         const applied = await loadOriginModels(providerId, preferredModel);
         if (!applied || originProviderSelect.value !== providerId) {
           return;
@@ -884,14 +1305,39 @@ function populateOriginProviderSelect(select, selectedId) {
   }
 
   for (const provider of providers) {
+    if (
+      provider.id === ON_DEVICE_PROVIDER_ID &&
+      !isOnDeviceOffered() &&
+      selectedId !== ON_DEVICE_PROVIDER_ID
+    ) {
+      continue;
+    }
+
     const option = document.createElement("option");
     option.value = provider.id;
-    const unavailable = provider.id === "ollama" && !ollamaStatus.available;
-    // Allow keeping the current grant visible; block switching *to* Ollama when down.
-    option.disabled = unavailable && !(known && selectedId === "ollama");
-    option.textContent = unavailable
-      ? `${provider.label} (unavailable)`
-      : provider.label;
+    const ollamaDown = provider.id === "ollama" && !ollamaStatus.available;
+    const onDeviceGone =
+      provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceOffered();
+    const onDeviceNeedsInstall =
+      provider.id === ON_DEVICE_PROVIDER_ID &&
+      isOnDeviceOffered() &&
+      !isOnDeviceReady();
+    // Allow keeping the current grant visible; block switching *to* unready providers.
+    option.disabled =
+      ((ollamaDown || onDeviceGone || onDeviceNeedsInstall) &&
+        selectedId !== provider.id) ||
+      false;
+    if (onDeviceGone) {
+      option.textContent = `${provider.label} (unavailable)`;
+    } else if (onDeviceNeedsInstall) {
+      option.textContent = `${provider.label} (install required)`;
+      // Still allow selecting current grant; block switching *to* until installed.
+      option.disabled = selectedId !== ON_DEVICE_PROVIDER_ID;
+    } else if (ollamaDown) {
+      option.textContent = `${provider.label} (unavailable)`;
+    } else {
+      option.textContent = provider.label;
+    }
     if (known && provider.id === selectedId) option.selected = true;
     select.append(option);
   }
@@ -1094,7 +1540,7 @@ compatSaveButton.addEventListener("click", async () => {
 
 async function load() {
   await loadProviders();
-  await refreshOllamaStatus();
+  await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
   compatEndpoints = settings.compatEndpoints;
   savedDefaultProviderId = settings.defaultProviderId;
@@ -1111,6 +1557,9 @@ async function load() {
   ) {
     modelDrafts[settings.defaultProviderId] = settings.defaultModel;
   }
+  if (settings.defaultProviderId === ON_DEVICE_PROVIDER_ID) {
+    modelDrafts[ON_DEVICE_PROVIDER_ID] = ON_DEVICE_MODEL_ID;
+  }
   apiKeyDrafts = { ...settings.apiKeys };
   apiKeyBoundProviderId = "";
   const effectiveProvider = populateProviderSelect(
@@ -1125,6 +1574,46 @@ async function load() {
   await renderBlocked();
 }
 
+/**
+ * Persist default provider + model + API key drafts (shared by Save and Install).
+ * @param {string} providerId
+ * @param {string} model
+ */
+async function persistDefaultSettings(providerId, model) {
+  syncApiKeyDraftFromInput();
+  syncModelDraftFromControl();
+  modelDrafts[providerId] = model;
+
+  /** @type {Record<string, string>} */
+  const apiKeys = {};
+  for (const provider of providers) {
+    if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
+    apiKeys[provider.id] = apiKeyDrafts[provider.id] || "";
+  }
+
+  const previousSettings = await getSettings();
+  let refreshModelsAfterKeyChange = false;
+  for (const provider of providers) {
+    if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
+    const prev = (previousSettings.apiKeys[provider.id] || "").trim();
+    const next = (apiKeys[provider.id] || "").trim();
+    if (prev === next) continue;
+    modelCache.delete(provider.id);
+    if (provider.id === providerId) refreshModelsAfterKeyChange = true;
+  }
+
+  await saveSettings({
+    apiKeys,
+    defaultProviderId: providerId,
+    defaultModel: model,
+    defaultModels: modelDrafts,
+  });
+  savedDefaultProviderId = providerId;
+  if (refreshModelsAfterKeyChange) {
+    await refreshDefaultModels(providerId, model);
+  }
+}
+
 saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
   try {
@@ -1136,6 +1625,13 @@ saveButton.addEventListener("click", async () => {
     }
     if (providerId === "ollama" && !ollamaStatus.available) {
       setStatus("Ollama is unavailable. Choose another provider or click Check again.", "err");
+      return;
+    }
+    if (providerId === ON_DEVICE_PROVIDER_ID && !isOnDeviceReady()) {
+      setStatus(
+        "Install the on-device model before saving it as the default provider.",
+        "err"
+      );
       return;
     }
     if (
@@ -1158,44 +1654,7 @@ saveButton.addEventListener("click", async () => {
       return;
     }
 
-    syncApiKeyDraftFromInput();
-    syncModelDraftFromControl();
-    modelDrafts[providerId] = model;
-
-    // Persist drafts for every key-capable provider so switching to Ollama
-    // and saving does not wipe remote keys, while clearing the visible field
-    // still clears that provider's stored key.
-    /** @type {Record<string, string>} */
-    const apiKeys = {};
-    for (const provider of providers) {
-      if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
-      apiKeys[provider.id] = apiKeyDrafts[provider.id] || "";
-    }
-
-    // A prior list-models result (e.g. empty catalog without a key) can stick
-    // in modelCache after the key changes; drop those entries and refresh the
-    // visible picker when the current provider's key was updated.
-    const previousSettings = await getSettings();
-    let refreshModelsAfterKeyChange = false;
-    for (const provider of providers) {
-      if (!provider.requiresApiKey && !provider.optionalApiKey) continue;
-      const prev = (previousSettings.apiKeys[provider.id] || "").trim();
-      const next = (apiKeys[provider.id] || "").trim();
-      if (prev === next) continue;
-      modelCache.delete(provider.id);
-      if (provider.id === providerId) refreshModelsAfterKeyChange = true;
-    }
-
-    await saveSettings({
-      apiKeys,
-      defaultProviderId: providerId,
-      defaultModel: model,
-      defaultModels: modelDrafts,
-    });
-    savedDefaultProviderId = providerId;
-    if (refreshModelsAfterKeyChange) {
-      await refreshDefaultModels(providerId, model);
-    }
+    await persistDefaultSettings(providerId, model);
     setStatus("Saved.", "ok");
   } catch (err) {
     setStatus(err instanceof Error ? err.message : "Failed to save", "err");

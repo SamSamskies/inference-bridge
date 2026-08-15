@@ -32,6 +32,7 @@ The ZIP allowlist includes only:
 - `src/`
 - `ui/`
 - `icons/`
+- `offscreen/`
 
 Excluded: tests, docs, `node_modules`, `.git`, scripts, CI config, README, privacy docs, and secrets.
 
@@ -63,7 +64,7 @@ Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an
 • Experimental function tools via window.inference.experimental (page-executed; keys stay in the extension)
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
-• OpenAI, Anthropic, OpenRouter, local Ollama, or named OpenAI-compatible endpoints
+• OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
 • Optional host access is requested only for each custom server origin you save
 • Local Ollama and other loopback servers work without special ORIGINS setup
 • Injects only on https and localhost pages
@@ -79,6 +80,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 
 - **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
+- **offscreen** — Host the browser Prompt API (`LanguageModel`) in an offscreen document for the On-device provider; the API is not reliable in the service worker.
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.

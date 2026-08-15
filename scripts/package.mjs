@@ -23,6 +23,7 @@ const ALLOWLIST = [
   "src",
   "ui",
   "icons",
+  "offscreen",
 ];
 
 mkdirSync(outDir, { recursive: true });

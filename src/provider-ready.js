@@ -8,12 +8,18 @@
  *   optionalApiKey?: boolean,
  *   hasApiKey?: boolean,
  * }} provider
- * @param {{ ollamaAvailable?: boolean }} [status]
+ * @param {{
+ *   ollamaAvailable?: boolean,
+ *   onDeviceAvailable?: boolean,
+ * }} [status]
  * @returns {boolean}
  */
 export function isApprovalProviderReady(provider, status = {}) {
   if (provider.id === "ollama") {
     return Boolean(status.ollamaAvailable);
+  }
+  if (provider.id === "on-device") {
+    return Boolean(status.onDeviceAvailable);
   }
   // Compat endpoints may work without a key; required-key BYOK needs one saved.
   // Missing hasApiKey means settings were unread — do not block Allow (stream still enforces).
@@ -36,7 +42,12 @@ export const isApprovalProviderChoosable = isApprovalProviderReady;
  *   optionalApiKey?: boolean,
  *   hasApiKey?: boolean,
  * }} provider
- * @param {{ ollamaAvailable?: boolean, ollamaMessage?: string }} [status]
+ * @param {{
+ *   ollamaAvailable?: boolean,
+ *   ollamaMessage?: string,
+ *   onDeviceAvailable?: boolean,
+ *   onDeviceMessage?: string,
+ * }} [status]
  * @returns {string}
  */
 export function approvalProviderSetupHint(provider, status = {}) {
@@ -44,6 +55,12 @@ export function approvalProviderSetupHint(provider, status = {}) {
     return (
       status.ollamaMessage ||
       "Ollama is unavailable at http://localhost:11434."
+    );
+  }
+  if (provider.id === "on-device" && !status.onDeviceAvailable) {
+    return (
+      status.onDeviceMessage ||
+      "Install the on-device model in Options before allowing this site."
     );
   }
   if (

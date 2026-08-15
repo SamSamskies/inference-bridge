@@ -20,6 +20,21 @@ describe("isApprovalProviderReady", () => {
     ).toBe(true);
   });
 
+  it("requires on-device Prompt API model to be installed", () => {
+    expect(
+      isApprovalProviderReady(
+        { id: "on-device", requiresApiKey: false },
+        { onDeviceAvailable: false }
+      )
+    ).toBe(false);
+    expect(
+      isApprovalProviderReady(
+        { id: "on-device", requiresApiKey: false },
+        { onDeviceAvailable: true }
+      )
+    ).toBe(true);
+  });
+
   it("requires a saved API key for BYOK providers", () => {
     expect(
       isApprovalProviderReady({
@@ -76,6 +91,13 @@ describe("approvalProviderSetupHint", () => {
         }
       )
     ).toBe("Ollama is unavailable at http://localhost:11434.");
+
+    expect(
+      approvalProviderSetupHint(
+        { id: "on-device", label: "On-device" },
+        { onDeviceAvailable: false }
+      )
+    ).toBe("Install the on-device model in Options before allowing this site.");
 
     expect(
       approvalProviderSetupHint({

@@ -13,6 +13,10 @@ import {
   hostedToolLabel,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
+import {
+  ON_DEVICE_MODEL_ID,
+  ON_DEVICE_PROVIDER_ID,
+} from "../src/prompt-api-core.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -38,6 +42,7 @@ try {
 const originEl = document.getElementById("origin");
 const providerSelect = document.getElementById("provider");
 const providerHint = document.getElementById("providerHint");
+const modelField = document.getElementById("modelField");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
 const modelInput = document.getElementById("modelInput");
@@ -96,6 +101,19 @@ let ollamaStatus = {
   message: "",
 };
 
+/**
+ * @type {{
+ *   available: boolean,
+ *   availability: string,
+ *   message: string,
+ * }}
+ */
+let onDeviceStatus = {
+  available: false,
+  availability: "missing",
+  message: "",
+};
+
 function showError(message) {
   errorEl.hidden = false;
   errorEl.textContent = message;
@@ -120,6 +138,8 @@ function updateProviderHint(providerId = providerSelect.value) {
     ? approvalProviderSetupHint(provider, {
         ollamaAvailable: ollamaStatus.available,
         ollamaMessage: ollamaStatus.message,
+        onDeviceAvailable: onDeviceStatus.available,
+        onDeviceMessage: onDeviceStatus.message,
       })
     : "";
   if (!hint) {
@@ -184,7 +204,7 @@ function renderTools(tools) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return providerId !== "ollama";
+  return providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
 }
 
 /**
@@ -211,6 +231,7 @@ function updateClearModelButton() {
  * @returns {string}
  */
 function readModelValue(providerId) {
+  if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
   if (usesModelAutosuggest(providerId, currentModels)) {
     return modelInput.value.trim();
   }
@@ -252,6 +273,7 @@ function updateAllowEnabled() {
   const providerReady = provider
     ? isApprovalProviderReady(provider, {
         ollamaAvailable: ollamaStatus.available,
+        onDeviceAvailable: onDeviceStatus.available,
       })
     : false;
   const valid = isModelValid(readModelValue(providerId), currentModels, {
@@ -320,6 +342,45 @@ async function refreshOllamaStatus() {
   return ollamaStatus;
 }
 
+async function refreshOnDeviceStatus() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "on-device-status",
+    });
+    const availability =
+      typeof response?.availability === "string"
+        ? response.availability
+        : "missing";
+    onDeviceStatus = {
+      availability,
+      available: availability === "available",
+      message:
+        availability === "available"
+          ? ""
+          : availability === "missing" || availability === "unavailable"
+            ? "On-device AI is not available in this browser."
+            : "Install the on-device model in Options before allowing this site.",
+    };
+  } catch {
+    onDeviceStatus = {
+      availability: "missing",
+      available: false,
+      message: "On-device AI is not available in this browser.",
+    };
+  }
+  return onDeviceStatus;
+}
+
+/**
+ * @returns {boolean}
+ */
+function isOnDeviceOffered() {
+  return (
+    onDeviceStatus.availability !== "missing" &&
+    onDeviceStatus.availability !== "unavailable"
+  );
+}
+
 /**
  * Prefer the requested provider when it exists (even if not ready for Allow),
  * so the setup hint can explain a missing key / Ollama downtime. Unknown ids
@@ -331,7 +392,10 @@ function resolveSelectableProviderId(selectedId) {
   if (providers.some((p) => p.id === selectedId)) {
     return selectedId;
   }
-  const status = { ollamaAvailable: ollamaStatus.available };
+  const status = {
+    ollamaAvailable: ollamaStatus.available,
+    onDeviceAvailable: onDeviceStatus.available,
+  };
   return (
     providers.find(
       (p) => p.id === "openai" && isApprovalProviderReady(p, status)
@@ -351,6 +415,13 @@ function fillProviders(selectedId) {
   const effectiveId = resolveSelectableProviderId(selectedId);
 
   for (const provider of providers) {
+    if (
+      provider.id === ON_DEVICE_PROVIDER_ID &&
+      !isOnDeviceOffered() &&
+      selectedId !== ON_DEVICE_PROVIDER_ID
+    ) {
+      continue;
+    }
     const option = document.createElement("option");
     option.value = provider.id;
     // Keep unready providers selectable so the hint can explain why Allow is off.
@@ -369,6 +440,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   const loadId = ++modelsLoadId;
   modelsReady = false;
   currentModels = [];
+  modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
   updateAllowEnabled();
   updateProviderHint(providerId);
   updateCapabilityWarning(providerId);
@@ -405,6 +477,24 @@ async function loadModelsForProvider(providerId, preferredModel) {
     updateAllowEnabled();
     return;
   }
+
+  if (providerId === ON_DEVICE_PROVIDER_ID) {
+    if (!isCurrentLoad()) return;
+    modelField.hidden = true;
+    currentModels = [
+      { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+    ];
+    populateModelControl(providerId, currentModels, ON_DEVICE_MODEL_ID, {
+      allowUnknown: false,
+      disabled: true,
+    });
+    setModelHint("");
+    modelsReady = onDeviceStatus.available;
+    updateAllowEnabled();
+    return;
+  }
+
+  modelField.hidden = false;
 
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
@@ -548,6 +638,7 @@ async function decide(action) {
       !provider ||
       !isApprovalProviderReady(provider, {
         ollamaAvailable: ollamaStatus.available,
+        onDeviceAvailable: onDeviceStatus.available,
       })
     ) {
       updateProviderHint(providerId);
@@ -625,7 +716,7 @@ async function load() {
     return;
   }
 
-  await refreshOllamaStatus();
+  await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
 
   const response = await chrome.runtime.sendMessage({
     type: "get-approval",

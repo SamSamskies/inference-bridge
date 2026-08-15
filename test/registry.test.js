@@ -17,9 +17,15 @@ beforeEach(() => {
 });
 
 describe("provider registry", () => {
-  it("registers openai, anthropic, openrouter, and ollama", () => {
+  it("registers openai, anthropic, openrouter, ollama, and on-device", () => {
     const ids = listProviders().map((p) => p.id).sort();
-    expect(ids).toEqual(["anthropic", "ollama", "openai", "openrouter"]);
+    expect(ids).toEqual([
+      "anthropic",
+      "ollama",
+      "on-device",
+      "openai",
+      "openrouter",
+    ]);
     expect(getDefaultProvider().id).toBe("openai");
     expect(getProvider("missing")).toBeUndefined();
   });
@@ -51,6 +57,7 @@ describe("provider registry", () => {
       expect(all.map((p) => p.id).sort()).toEqual([
         "anthropic",
         "ollama",
+        "on-device",
         "openai",
         "openrouter",
       ]);
@@ -84,10 +91,12 @@ describe("provider registry", () => {
     expect(getProvider("openrouter")?.supportsFunctionTools).toBe(true);
     expect(getProvider("ollama")?.supportsFunctionTools).toBe(true);
     expect(getProvider("anthropic")?.supportsFunctionTools).toBe(true);
+    expect(getProvider("on-device")?.supportsFunctionTools).toBe(false);
     expect(getProvider("openai")?.hostedTools).toEqual([]);
     expect(getProvider("openrouter")?.hostedTools).toEqual([]);
     expect(getProvider("ollama")?.hostedTools).toEqual([]);
     expect(getProvider("anthropic")?.hostedTools).toEqual([]);
+    expect(getProvider("on-device")?.hostedTools).toEqual([]);
 
     await saveCompatEndpoints([
       {

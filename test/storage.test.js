@@ -277,6 +277,12 @@ describe("isPlausibleModelForProvider", () => {
     );
     expect(isPlausibleModelForProvider("anthropic", "")).toBe(false);
   });
+
+  it("accepts only the on-device sentinel model id", () => {
+    expect(isPlausibleModelForProvider("on-device", "on-device")).toBe(true);
+    expect(isPlausibleModelForProvider("on-device", "gemini-nano")).toBe(false);
+    expect(isPlausibleModelForProvider("on-device", "")).toBe(false);
+  });
 });
 
 describe("compatEndpoints", () => {
