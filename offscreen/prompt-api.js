@@ -21,6 +21,13 @@ const pendingAbortRequestIds = new Set();
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.target !== "prompt-api-offscreen") return false;
 
+  // Handshake so ensurePromptApiOffscreen can wait past createDocument until
+  // this module has registered (createDocument resolves before imports finish).
+  if (message.type === "prompt-api-ping") {
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === "prompt-api-availability") {
     void probeLanguageModelAvailability()
       .then((availability) => {

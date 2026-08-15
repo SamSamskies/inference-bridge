@@ -25,8 +25,32 @@ async function hasOffscreenDocument() {
 }
 
 /**
- * Create the Prompt API offscreen document if needed.
- * Single-flights concurrent callers so only one createDocument runs.
+ * Wait until the offscreen page's onMessage listener is registered.
+ * createDocument (and getContexts) can succeed while the module script is
+ * still loading, so the first RPC would otherwise hit "Receiving end does not exist".
+ * @returns {Promise<void>}
+ */
+async function waitUntilPromptApiOffscreenReady() {
+  const maxAttempts = 50;
+  const delayMs = 20;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "prompt-api-ping",
+        target: "prompt-api-offscreen",
+      });
+      if (response?.ok) return;
+    } catch {
+      // No receiver yet — module still loading.
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  throw new Error("Prompt API offscreen document did not become ready");
+}
+
+/**
+ * Create the Prompt API offscreen document if needed, then wait until it can
+ * serve RPCs. Single-flights concurrent callers so only one createDocument runs.
  * @returns {Promise<void>}
  */
 export async function ensurePromptApiOffscreen() {
@@ -37,20 +61,21 @@ export async function ensurePromptApiOffscreen() {
   }
 
   creating = (async () => {
-    if (await hasOffscreenDocument()) return;
-    try {
-      await chrome.offscreen.createDocument({
-        url: PROMPT_API_OFFSCREEN_PATH,
-        // LanguageModel needs a document context; no dedicated AI reason exists yet.
-        reasons: ["DOM_SCRAPING"],
-        justification:
-          "Host the browser Prompt API (LanguageModel) for on-device inference; not available in the service worker.",
-      });
-    } catch (err) {
-      // Another path may have created it between check and create.
-      if (await hasOffscreenDocument()) return;
-      throw err;
+    if (!(await hasOffscreenDocument())) {
+      try {
+        await chrome.offscreen.createDocument({
+          url: PROMPT_API_OFFSCREEN_PATH,
+          // LanguageModel needs a document context; no dedicated AI reason exists yet.
+          reasons: ["DOM_SCRAPING"],
+          justification:
+            "Host the browser Prompt API (LanguageModel) for on-device inference; not available in the service worker.",
+        });
+      } catch (err) {
+        // Another path may have created it between check and create.
+        if (!(await hasOffscreenDocument())) throw err;
+      }
     }
+    await waitUntilPromptApiOffscreenReady();
   })();
 
   try {
