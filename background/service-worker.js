@@ -25,6 +25,12 @@ import {
 } from "../src/providers/registry.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import {
+  getOnDeviceAvailability,
+  installOnDeviceModel,
+  cancelOnDeviceInstall,
+} from "../src/prompt-api-client.js";
+import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
+import {
   canAcceptRebind,
   canAcceptStartedAck,
   decidePortDisconnect,
@@ -146,6 +152,15 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // Offscreen Prompt API host + progress fan-out — not handled here.
+  if (
+    message?.target === "prompt-api-offscreen" ||
+    message?.type === "prompt-api-install-progress" ||
+    message?.type === "prompt-api-stream-delta"
+  ) {
+    return false;
+  }
+
   if (message?.type === "get-approval") {
     sendResponse({ request: getPendingApproval(message.requestId) });
     return false;
@@ -160,6 +175,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }),
     });
     return false;
+  }
+
+  if (message?.type === "on-device-status") {
+    void getOnDeviceAvailability()
+      .then((availability) => {
+        sendResponse({ ok: true, availability });
+      })
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          availability: "missing",
+          error: err instanceof Error ? err.message : "status failed",
+        });
+      });
+    return true;
+  }
+
+  if (message?.type === "on-device-install") {
+    void installOnDeviceModel({})
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          code: /** @type {any} */ (err)?.code || "provider_error",
+          error: err instanceof Error ? err.message : "Install failed",
+        });
+      });
+    return true;
+  }
+
+  if (message?.type === "on-device-cancel-install") {
+    void cancelOnDeviceInstall()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: true }));
+    return true;
   }
 
   if (message?.type === "list-providers") {
@@ -434,7 +484,9 @@ async function handleStart(port, msg, onStreamId) {
     // A saved grant can outlive or differ from the global default provider.
     // Never use settings.defaultModel here: it may name a model belonging to
     // another provider.
-    const model = permission.model || provider.defaultModel;
+    const model =
+      permission.model ||
+      (provider.id === "on-device" ? ON_DEVICE_MODEL_ID : provider.defaultModel);
     if (!model) {
       if (provider.id === "ollama") {
         throwInference(
@@ -446,6 +498,12 @@ async function handleStart(port, msg, onStreamId) {
         throwInference(
           "unavailable",
           "No OpenRouter model selected. Choose a model in the extension Options or approval dialog."
+        );
+      }
+      if (provider.id === "on-device") {
+        throwInference(
+          "unavailable",
+          "Install the on-device model in Inference Bridge Options before using this provider."
         );
       }
       throwInference("unavailable", "No model selected for this provider.");

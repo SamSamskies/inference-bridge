@@ -3,7 +3,7 @@
   "name": "Inference Bridge",
   "version": "0.5.0",
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
-  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["storage", "declarativeNetRequestWithHostAccess", "offscreen"],
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",

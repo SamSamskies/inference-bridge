@@ -73,6 +73,7 @@ export function isPlausibleModelForProvider(providerId, model) {
     return trimmed.startsWith("claude-") && !trimmed.includes("/");
   }
   if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
+  if (providerId === "on-device") return trimmed === "on-device";
   return true;
 }
 

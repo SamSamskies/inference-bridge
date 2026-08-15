@@ -27,7 +27,17 @@
           <p class="hint" id="ollamaHint"></p>
           <button type="button" class="ghost" id="checkOllama">Check again</button>
         </div>
-        <label class="field">
+        <div id="onDevicePanel" hidden>
+          <p class="hint" id="onDeviceHint"></p>
+          <progress
+            id="onDeviceProgress"
+            class="on-device-progress"
+            max="1"
+            value="0"
+            hidden
+          ></progress>
+        </div>
+        <label class="field" id="modelField">
           <span>Default model</span>
           <select id="modelSelect"></select>
           <div class="model-input-row" id="modelInputRow" hidden>
@@ -75,10 +85,37 @@
           </div>
         </div>
         <div class="actions actions-end">
+          <button type="button" class="ghost" id="onDeviceCancel" hidden>
+            Cancel
+          </button>
+          <button type="button" class="primary" id="onDeviceInstall" hidden>
+            Install
+          </button>
           <button type="button" class="primary" id="save">Save</button>
         </div>
         <div class="status status-end" id="status" role="status" aria-live="polite"></div>
       </section>
+
+      <dialog
+        id="onDeviceInstallDialog"
+        class="confirm-dialog"
+        aria-labelledby="onDeviceInstallTitle"
+      >
+        <form method="dialog" class="confirm-dialog-body stack">
+          <h2 id="onDeviceInstallTitle">Install on-device model?</h2>
+          <p class="hint">
+            The browser will download its built-in model onto this device. The
+            file may be large and the download can take a while. When it
+            finishes, On-device is saved as your default provider.
+          </p>
+          <div class="actions actions-end">
+            <button type="submit" value="cancel" class="ghost">Cancel</button>
+            <button type="submit" value="confirm" class="primary" id="onDeviceInstallConfirm">
+              Install
+            </button>
+          </div>
+        </form>
+      </dialog>
 
       <section class="panel stack">
         <h2>OpenAI-compatible servers</h2>

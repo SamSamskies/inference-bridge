@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, browser **On-device** Prompt API when available, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -12,7 +12,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`; `options.reasoningEffort: true`)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
-- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
+- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
@@ -39,8 +39,9 @@ For local development or unreleased builds, use the load-unpacked steps below.
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — no API key; models are listed from your local Ollama install
+   - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
-8. Click **Save**
+8. Click **Save** (skip if you just used On-device **Install**, which already saves)
 
 ## Supported Providers
 
@@ -50,6 +51,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
+| On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
 To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/anthropic.js`](src/providers/anthropic.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); Anthropic uses a dedicated Messages API adapter). Models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js). Register the provider in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the named-endpoint UI instead.
@@ -114,6 +116,18 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 6. Run the snippet above on an HTTPS or localhost page
 
 Inference Bridge strips the `chrome-extension://` `Origin` header on requests to local Ollama (see the [spec README](https://github.com/SamSamskies/inference-provider-api/blob/main/README.md) “Local providers” section). After updating the extension, use **Reload** on `chrome://extensions` so that rule is installed. If you still see HTTP 403, you can fall back to restarting Ollama with `OLLAMA_ORIGINS=chrome-extension://*`, but origin stripping is preferred.
+
+### On-device (Prompt API, no API key)
+
+Uses the browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`) when it is present (Chrome 138+ extension support; hardware requirements apply). This is **not** a cloud Gemini / AI Studio key provider — inference stays on-device and the browser picks the model (see `chrome://on-device-internals`). There is no model dropdown.
+
+1. Open Options. If Prompt API is available, **On-device** appears in the provider list
+2. Select **On-device**. When the model is not installed yet, click **Install** — that may download a large model file, then saves On-device as your default (availability comes from the browser; Bridge does not store an “installed” flag). If it is already installed, select On-device and click **Save** like any other provider.
+3. Run the snippet above on an HTTPS or localhost page — origin Allow/Deny works as usual (no model picker)
+
+If Prompt API is missing or `unavailable`, the provider is hidden. Persistent grants that still point at On-device fail closed with `unavailable` / `provider_error` rather than silently switching providers.
+
+Prompt API does not expose a way to delete the downloaded model. To free disk space, turn off **On-device AI** under Chrome **Settings → System** ([instructions](https://support.google.com/chrome/answer/16961953)).
 
 ### OpenAI-compatible servers
 
@@ -186,6 +200,9 @@ If you are building your own IPA extension with local providers, follow the Orig
     ollama-origin-bypass.js      # strip chrome-extension Origin for local Ollama
     loopback-origin-bypass.js    # same for other loopback OpenAI-compatible hosts
     host-permissions.js          # optional host permission helpers for custom endpoints
+    prompt-api-core.js           # LanguageModel helpers (map messages, install, stream)
+    prompt-api-offscreen.js      # ensure offscreen Prompt API host
+    prompt-api-client.js         # SW ↔ offscreen Prompt API client
     providers/
       types.js                   # Provider / ModelInfo contract
       registry.js                # built-ins + dynamic compat endpoints
@@ -195,6 +212,9 @@ If you are building your own IPA extension with local providers, follow the Orig
       anthropic.js               # Anthropic Messages API streaming adapter
       openrouter.js              # OpenRouter /api/v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
+      on-device.js               # browser Prompt API (LanguageModel) adapter
+  offscreen/
+    prompt-api.html|.js          # LanguageModel host (SW cannot run Prompt API reliably)
   ui/
     options.html|.js             # provider + model + API keys + compat endpoints
     approval.html|.js            # origin permission prompt
@@ -488,6 +508,7 @@ console.log("[final]", final.message.content);
 | OpenRouter | Chat Completions `tools` |
 | Ollama | `/api/chat` `tools` |
 | OpenAI-compatible | Chat Completions `tools` |
+| On-device | Not supported (`toolCalling` stays false for this provider) |
 
 Approval shows an **Experimental** banner and a Tools preview (function names). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
