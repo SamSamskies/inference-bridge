@@ -14,6 +14,10 @@ let installController = null;
 /** @type {Map<string, AbortController>} */
 const streamControllers = new Map();
 
+/** Aborts that arrived before the matching stream was registered. */
+/** @type {Set<string>} */
+const pendingAbortRequestIds = new Set();
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.target !== "prompt-api-offscreen") return false;
 
@@ -82,6 +86,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, error: "Missing requestId" });
       return false;
     }
+    // Abort may have arrived while the offscreen doc was still starting.
+    if (pendingAbortRequestIds.delete(requestId)) {
+      sendResponse({ ok: false, code: "aborted", error: "Request aborted" });
+      return false;
+    }
     const controller = new AbortController();
     streamControllers.set(requestId, controller);
 
@@ -117,8 +126,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const requestId =
       typeof message.requestId === "string" ? message.requestId : "";
     const controller = streamControllers.get(requestId);
-    controller?.abort();
-    streamControllers.delete(requestId);
+    if (controller) {
+      controller.abort();
+      streamControllers.delete(requestId);
+    } else if (requestId) {
+      pendingAbortRequestIds.add(requestId);
+    }
     sendResponse({ ok: true });
     return false;
   }

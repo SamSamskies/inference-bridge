@@ -26,23 +26,32 @@ async function hasOffscreenDocument() {
 
 /**
  * Create the Prompt API offscreen document if needed.
+ * Single-flights concurrent callers so only one createDocument runs.
  * @returns {Promise<void>}
  */
 export async function ensurePromptApiOffscreen() {
-  if (await hasOffscreenDocument()) return;
-
+  // Assign `creating` before any await so parallel first-use paths share one create.
   if (creating) {
     await creating;
     return;
   }
 
-  creating = chrome.offscreen.createDocument({
-    url: PROMPT_API_OFFSCREEN_PATH,
-    // LanguageModel needs a document context; no dedicated AI reason exists yet.
-    reasons: ["DOM_SCRAPING"],
-    justification:
-      "Host the browser Prompt API (LanguageModel) for on-device inference; not available in the service worker.",
-  });
+  creating = (async () => {
+    if (await hasOffscreenDocument()) return;
+    try {
+      await chrome.offscreen.createDocument({
+        url: PROMPT_API_OFFSCREEN_PATH,
+        // LanguageModel needs a document context; no dedicated AI reason exists yet.
+        reasons: ["DOM_SCRAPING"],
+        justification:
+          "Host the browser Prompt API (LanguageModel) for on-device inference; not available in the service worker.",
+      });
+    } catch (err) {
+      // Another path may have created it between check and create.
+      if (await hasOffscreenDocument()) return;
+      throw err;
+    }
+  })();
 
   try {
     await creating;

@@ -961,6 +961,11 @@ async function renderOrigins() {
           allowUnknown: false,
           disabled: true,
         });
+        if (!isOnDeviceOffered()) {
+          modelStatus.textContent =
+            "On-device AI is not available in this browser.";
+          return false;
+        }
         if (!isOnDeviceReady()) {
           modelStatus.textContent =
             "Install the on-device model above before using it for this site.";
