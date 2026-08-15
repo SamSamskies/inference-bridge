@@ -248,31 +248,57 @@ function isOnDeviceReady() {
 }
 
 /**
- * Probe Prompt API. Prefer in-page LanguageModel (Options is a document);
- * fall back to the offscreen host via the service worker.
+ * Probe Prompt API for Options. Chat/approval use the offscreen host, so Ready
+ * requires that path. In-page LanguageModel still drives Install UX
+ * (downloadable / downloading) because create() needs a user gesture here.
  */
 async function refreshOnDeviceStatus() {
   const local = await probeLanguageModelAvailability();
-  if (local !== "missing") {
-    onDeviceStatus = {
-      availability: local,
-      message: "",
-    };
-    return onDeviceStatus;
-  }
 
+  /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */
+  let remote = "missing";
+  let remoteError = "";
   try {
     const response = await chrome.runtime.sendMessage({
       type: "on-device-status",
     });
-    const availability =
+    remote =
       typeof response?.availability === "string"
         ? response.availability
         : "missing";
-    onDeviceStatus = { availability, message: response?.error || "" };
+    remoteError = response?.error || "";
   } catch {
-    onDeviceStatus = { availability: "missing", message: "" };
+    remote = "missing";
+    remoteError = "";
   }
+
+  // Inference path — only offscreen "available" means Ready for default / grants.
+  if (remote === "available") {
+    onDeviceStatus = { availability: "available", message: "" };
+    return onDeviceStatus;
+  }
+
+  // In-page ready but offscreen is not: never claim Ready.
+  if (local === "available") {
+    onDeviceStatus = {
+      availability:
+        remote === "downloadable" || remote === "downloading"
+          ? remote
+          : "unavailable",
+      message:
+        remoteError ||
+        "On-device AI is installed, but the extension host is not ready.",
+    };
+    return onDeviceStatus;
+  }
+
+  // Prefer in-page for Install / download progress when the API exists here.
+  if (local !== "missing") {
+    onDeviceStatus = { availability: local, message: "" };
+    return onDeviceStatus;
+  }
+
+  onDeviceStatus = { availability: remote, message: remoteError };
   return onDeviceStatus;
 }
 
@@ -860,6 +886,16 @@ async function beginOnDeviceInstall() {
     modelDrafts[ON_DEVICE_PROVIDER_ID] = ON_DEVICE_MODEL_ID;
     updateProviderChrome(nextId);
     await refreshDefaultModels(nextId, preferredDefaultModel(nextId));
+    // Persist only when the offscreen inference path is Ready — not merely
+    // because in-page LanguageModel.create succeeded.
+    if (!isOnDeviceReady()) {
+      setStatus(
+        onDeviceStatus.message ||
+          "Model installed, but the on-device host is not ready. Reload the extension, then Save.",
+        "err"
+      );
+      return;
+    }
     await persistDefaultSettings(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
     setStatus("On-device model installed and saved as default.", "ok");
   } catch (err) {
