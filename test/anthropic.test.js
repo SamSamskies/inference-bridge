@@ -791,7 +791,7 @@ describe("anthropicProvider", () => {
     expect(result.message).toEqual({ role: "assistant", content: "72F" });
   });
 
-  it("maps options.reasoningEffort onto thinking / max_tokens", async () => {
+  it("maps options.reasoningEffort onto adaptive thinking / output_config", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -815,6 +815,9 @@ describe("anthropicProvider", () => {
       thinking: { type: "disabled" },
       max_tokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
     });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+      "output_config"
+    );
 
     await anthropicProvider.streamChat({
       apiKey: "sk-ant-test",
@@ -825,11 +828,9 @@ describe("anthropicProvider", () => {
       onDelta: () => {},
     });
     const highBody = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(highBody.thinking).toEqual({
-      type: "enabled",
-      budget_tokens: 16384,
-    });
-    expect(highBody.max_tokens).toBeGreaterThan(16384);
+    expect(highBody.thinking).toEqual({ type: "adaptive" });
+    expect(highBody.output_config).toEqual({ effort: "high" });
+    expect(highBody.max_tokens).toBe(ANTHROPIC_DEFAULT_MAX_TOKENS);
 
     await anthropicProvider.streamChat({
       apiKey: "sk-ant-test",
@@ -839,8 +840,9 @@ describe("anthropicProvider", () => {
       signal: new AbortController().signal,
       onDelta: () => {},
     });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).not.toHaveProperty(
-      "thinking"
-    );
+    const autoBody = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(autoBody).not.toHaveProperty("thinking");
+    expect(autoBody).not.toHaveProperty("output_config");
   });
 });
+

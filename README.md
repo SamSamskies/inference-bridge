@@ -231,9 +231,9 @@ if (features.options?.reasoningEffort) {
 
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
-| omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` | omit `think` |
+| omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
 | `"none"` | `reasoning_effort: "none"` | `thinking: { type: "disabled" }` | `think: false` |
-| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | `thinking: { type: "enabled", budget_tokens }` (tiers; may bump `max_tokens`) | `think: "low"` / `"medium"` / `"high"` |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | `thinking: { type: "adaptive" }` + `output_config: { effort }` | `think: "low"` / `"medium"` / `"high"` |
 
 Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
 

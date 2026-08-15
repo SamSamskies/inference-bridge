@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ANTHROPIC_THINKING_BUDGETS,
   mapReasoningEffortForAnthropic,
   mapReasoningEffortForOllama,
   mapReasoningEffortForOpenAICompat,
@@ -22,35 +21,28 @@ describe("mapReasoningEffortForOpenAICompat", () => {
 
 describe("mapReasoningEffortForAnthropic", () => {
   it("omits auto and undefined", () => {
-    expect(mapReasoningEffortForAnthropic(undefined, 8192)).toBeUndefined();
-    expect(mapReasoningEffortForAnthropic("auto", 8192)).toBeUndefined();
+    expect(mapReasoningEffortForAnthropic(undefined)).toBeUndefined();
+    expect(mapReasoningEffortForAnthropic("auto")).toBeUndefined();
   });
 
   it("disables thinking for none", () => {
-    expect(mapReasoningEffortForAnthropic("none", 8192)).toEqual({
+    expect(mapReasoningEffortForAnthropic("none")).toEqual({
       thinking: { type: "disabled" },
     });
   });
 
-  it("enables thinking with budget tiers and bumps max_tokens when needed", () => {
-    expect(mapReasoningEffortForAnthropic("low", 8192)).toEqual({
-      thinking: {
-        type: "enabled",
-        budget_tokens: ANTHROPIC_THINKING_BUDGETS.low,
-      },
+  it("enables adaptive thinking with output_config.effort", () => {
+    expect(mapReasoningEffortForAnthropic("low")).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
     });
-    expect(mapReasoningEffortForAnthropic("medium", 8192)).toEqual({
-      thinking: {
-        type: "enabled",
-        budget_tokens: ANTHROPIC_THINKING_BUDGETS.medium,
-      },
+    expect(mapReasoningEffortForAnthropic("medium")).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
     });
-    expect(mapReasoningEffortForAnthropic("high", 8192)).toEqual({
-      thinking: {
-        type: "enabled",
-        budget_tokens: ANTHROPIC_THINKING_BUDGETS.high,
-      },
-      max_tokens: ANTHROPIC_THINKING_BUDGETS.high + 4096,
+    expect(mapReasoningEffortForAnthropic("high")).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
     });
   });
 });

@@ -313,14 +313,11 @@ export const anthropicProvider = {
         toolChoice !== undefined ? toolChoice : "auto"
       );
     }
-    const thinking = mapReasoningEffortForAnthropic(
-      options?.reasoningEffort,
-      ANTHROPIC_DEFAULT_MAX_TOKENS
-    );
+    const thinking = mapReasoningEffortForAnthropic(options?.reasoningEffort);
     if (thinking) {
       requestBody.thinking = thinking.thinking;
-      if (thinking.max_tokens !== undefined) {
-        requestBody.max_tokens = thinking.max_tokens;
+      if (thinking.output_config !== undefined) {
+        requestBody.output_config = thinking.output_config;
       }
     }
 

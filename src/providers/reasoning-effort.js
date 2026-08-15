@@ -7,13 +7,6 @@
 
 /** @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort */
 
-/** Anthropic extended-thinking budget tiers (tokens). */
-export const ANTHROPIC_THINKING_BUDGETS = Object.freeze({
-  low: 1024,
-  medium: 4096,
-  high: 16384,
-});
-
 /**
  * OpenAI Chat Completions / OpenRouter / OpenAI-compat: `reasoning_effort`.
  * @param {ReasoningEffort | undefined} effort
@@ -25,25 +18,22 @@ export function mapReasoningEffortForOpenAICompat(effort) {
 }
 
 /**
- * Anthropic Messages API: `thinking` (+ optional `max_tokens` bump for headroom).
+ * Anthropic Messages API: adaptive thinking + `output_config.effort`
+ * (replaces deprecated `thinking.type: "enabled"` + `budget_tokens`).
  * @param {ReasoningEffort | undefined} effort
- * @param {number} defaultMaxTokens
  * @returns {{
- *   thinking: { type: "disabled" } | { type: "enabled", budget_tokens: number },
- *   max_tokens?: number,
+ *   thinking: { type: "disabled" } | { type: "adaptive" },
+ *   output_config?: { effort: "low" | "medium" | "high" },
  * } | undefined}
  */
-export function mapReasoningEffortForAnthropic(effort, defaultMaxTokens) {
+export function mapReasoningEffortForAnthropic(effort) {
   if (effort == null || effort === "auto") return undefined;
   if (effort === "none") {
     return { thinking: { type: "disabled" } };
   }
-  const budget_tokens = ANTHROPIC_THINKING_BUDGETS[effort];
-  // max_tokens must exceed budget_tokens when thinking is enabled.
-  const max_tokens = Math.max(defaultMaxTokens, budget_tokens + 4096);
   return {
-    thinking: { type: "enabled", budget_tokens },
-    ...(max_tokens !== defaultMaxTokens ? { max_tokens } : {}),
+    thinking: { type: "adaptive" },
+    output_config: { effort },
   };
 }
 
