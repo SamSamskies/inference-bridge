@@ -152,13 +152,16 @@ function setStatus(message, kind) {
   statusEl.textContent = message;
   statusEl.className = `status status-end${kind ? ` ${kind}` : ""}`;
   if (kind === "ok" && message) {
+    // Keep install/save success visible longer — fast downloads finish before
+    // users notice the progress bar, so the status line is the main cue.
+    const clearAfterMs = /installed and ready/i.test(message) ? 8000 : 2500;
     statusClearTimer = window.setTimeout(() => {
       statusClearTimer = 0;
       if (statusEl.classList.contains("ok")) {
         statusEl.textContent = "";
         statusEl.className = "status status-end";
       }
-    }, 2500);
+    }, clearAfterMs);
   }
 }
 
@@ -371,9 +374,9 @@ function updateOnDevicePanel() {
     const isDefault = savedDefaultProviderId === ON_DEVICE_PROVIDER_ID;
     setOnDeviceHint(
       isDefault
-        ? "Ready — browser-chosen on-device model. No model list; the browser picks it."
-        : "Ready — browser-chosen on-device model. Click Save to make On-device your default.",
-      { manageLink: true }
+        ? "Installed and ready to use. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build"
+        : "Installed and ready. Click Save to make On-device your default. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build",
+      { internalsLink: true, manageLink: true }
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = true;
@@ -897,7 +900,11 @@ async function beginOnDeviceInstall() {
       return;
     }
     await persistDefaultSettings(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
-    setStatus("On-device model installed and saved as default.", "ok");
+    onDeviceProgress.value = 1;
+    setStatus(
+      "Success — on-device model installed and ready to use. Saved as your default.",
+      "ok"
+    );
   } catch (err) {
     if (
       onDeviceInstallController?.signal.aborted ||
