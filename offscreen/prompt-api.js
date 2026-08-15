@@ -101,22 +101,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const controller = new AbortController();
     streamControllers.set(requestId, controller);
 
+    /** @type {Promise<unknown>[]} */
+    const pendingDeltas = [];
+
     void streamLanguageModelChat({
       LanguageModel: globalThis.LanguageModel,
       messages: Array.isArray(message.messages) ? message.messages : [],
       signal: controller.signal,
       onDelta: (content) => {
-        void chrome.runtime.sendMessage({
-          type: "prompt-api-stream-delta",
-          requestId,
-          content,
-        });
+        // Track delivery so we do not complete the RPC (and drop the SW
+        // listener) while a delta is still in flight.
+        pendingDeltas.push(
+          chrome.runtime
+            .sendMessage({
+              type: "prompt-api-stream-delta",
+              requestId,
+              content,
+            })
+            .catch(() => {})
+        );
       },
     })
-      .then((result) => {
+      .then(async (result) => {
+        await Promise.all(pendingDeltas);
         sendResponse({ ok: true, result });
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        await Promise.all(pendingDeltas);
         sendResponse({
           ok: false,
           code: /** @type {any} */ (err)?.code || "provider_error",
