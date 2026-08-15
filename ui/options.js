@@ -319,7 +319,21 @@ function updateOnDevicePanel() {
     return;
   }
 
-  // downloadable
+  // downloadable — Install must call LanguageModel.create in this page so the
+  // click keeps user activation; the SW/offscreen path cannot.
+  const canInstallInPage =
+    typeof globalThis.LanguageModel?.create === "function";
+  if (!canInstallInPage) {
+    setOnDeviceHint(
+      "On-device model is downloadable, but Install needs the Prompt API in this Options page (for the required user gesture). It is not available here."
+    );
+    onDeviceInstallButton.hidden = true;
+    onDeviceCancelButton.hidden = true;
+    onDeviceProgress.hidden = true;
+    saveButton.hidden = false;
+    return;
+  }
+
   setOnDeviceHint(
     "Browser-chosen on-device model. Install may download a large file and take a while, then saves On-device as your default. The browser picks which model (see chrome://on-device-internals)."
   );
@@ -747,33 +761,31 @@ checkOllamaButton.addEventListener("click", async () => {
 
 /**
  * Start the on-device download + default save. Call from a user-gesture handler
- * (dialog Install) so LanguageModel.create keeps activation.
+ * (dialog Install) so LanguageModel.create keeps activation. Do not delegate to
+ * the service worker / offscreen host — that path cannot carry the gesture.
  */
 async function beginOnDeviceInstall() {
   if (onDeviceInstallController) return;
+  if (typeof globalThis.LanguageModel?.create !== "function") {
+    setStatus(
+      "Prompt API is not available in this page, so Install cannot run with the required user gesture.",
+      "err"
+    );
+    return;
+  }
   onDeviceInstallController = new AbortController();
   onDeviceProgress.value = 0;
   updateOnDevicePanel();
   setStatus("Installing on-device model…", "");
   try {
-    // Prefer in-page LanguageModel so Install keeps user activation.
-    if (typeof globalThis.LanguageModel?.create === "function") {
-      await installLanguageModel({
-        LanguageModel: globalThis.LanguageModel,
-        signal: onDeviceInstallController.signal,
-        onProgress: (loaded) => {
-          onDeviceProgress.hidden = false;
-          onDeviceProgress.value = Math.min(1, Math.max(0, loaded));
-        },
-      });
-    } else {
-      const response = await chrome.runtime.sendMessage({
-        type: "on-device-install",
-      });
-      if (!response?.ok) {
-        throw new Error(response?.error || "Install failed");
-      }
-    }
+    await installLanguageModel({
+      LanguageModel: globalThis.LanguageModel,
+      signal: onDeviceInstallController.signal,
+      onProgress: (loaded) => {
+        onDeviceProgress.hidden = false;
+        onDeviceProgress.value = Math.min(1, Math.max(0, loaded));
+      },
+    });
     await refreshOnDeviceStatus();
     const nextId = populateProviderSelect(providerSelect, ON_DEVICE_PROVIDER_ID);
     modelBoundProviderId = nextId;
@@ -817,7 +829,6 @@ document
 
 onDeviceCancelButton.addEventListener("click", () => {
   onDeviceInstallController?.abort();
-  void chrome.runtime.sendMessage({ type: "on-device-cancel-install" });
 });
 
 /**
