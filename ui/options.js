@@ -113,8 +113,36 @@ let onDeviceStatus = {
 /** @type {AbortController | null} */
 let onDeviceInstallController = null;
 
+/**
+ * Poll timer while Prompt API reports "downloading" but this Options tab did
+ * not start Install (no AbortController / progress). Cleared when availability
+ * leaves that state or the on-device panel is hidden.
+ * @type {number}
+ */
+let onDeviceDownloadPollTimer = 0;
+
 /** Clears success feedback after a short delay; errors stay until replaced. */
 let statusClearTimer = 0;
+
+function stopOnDeviceDownloadPoll() {
+  if (onDeviceDownloadPollTimer) {
+    clearTimeout(onDeviceDownloadPollTimer);
+    onDeviceDownloadPollTimer = 0;
+  }
+}
+
+/**
+ * Re-probe availability until the browser leaves "downloading". Only used for
+ * downloads started elsewhere (or after Options was closed mid-install).
+ */
+function scheduleOnDeviceDownloadPoll() {
+  if (onDeviceDownloadPollTimer) return;
+  onDeviceDownloadPollTimer = window.setTimeout(async () => {
+    onDeviceDownloadPollTimer = 0;
+    await refreshOnDeviceStatus();
+    updateOnDevicePanel();
+  }, 2000);
+}
 
 function setStatus(message, kind) {
   if (statusClearTimer) {
@@ -284,6 +312,7 @@ function updateOnDevicePanel() {
   modelField.hidden = selected && isOnDeviceOffered();
 
   if (!selected || !isOnDeviceOffered()) {
+    stopOnDeviceDownloadPoll();
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = true;
     onDeviceProgress.hidden = true;
@@ -294,6 +323,7 @@ function updateOnDevicePanel() {
   const installing = Boolean(onDeviceInstallController);
 
   if (onDeviceStatus.availability === "available") {
+    stopOnDeviceDownloadPoll();
     const isDefault = savedDefaultProviderId === ON_DEVICE_PROVIDER_ID;
     setOnDeviceHint(
       isDefault
@@ -311,6 +341,7 @@ function updateOnDevicePanel() {
   // Only this page's Install can abort or auto-save the default. A browser-
   // reported "downloading" state (e.g. started elsewhere) has neither.
   if (installing) {
+    stopOnDeviceDownloadPoll();
     setOnDeviceHint(
       "Downloading the on-device model… This can take a while and the file may be large. When it finishes, On-device is saved as your default."
     );
@@ -322,6 +353,9 @@ function updateOnDevicePanel() {
   }
 
   if (onDeviceStatus.availability === "downloading") {
+    // Keep re-probing so Save appears when a download started elsewhere finishes
+    // (or after Options was closed mid-install).
+    scheduleOnDeviceDownloadPoll();
     setOnDeviceHint(
       "Downloading the on-device model… This can take a while and the file may be large. When it finishes, you can save On-device as your default."
     );
@@ -331,6 +365,8 @@ function updateOnDevicePanel() {
     saveButton.hidden = true;
     return;
   }
+
+  stopOnDeviceDownloadPoll();
 
   // downloadable — Install must call LanguageModel.create in this page so the
   // click keeps user activation; the SW/offscreen path cannot.
