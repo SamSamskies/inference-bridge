@@ -141,4 +141,44 @@ describe("onDeviceProvider", () => {
     expect(onDeviceProvider.supportsFunctionTools).toBe(false);
     expect(onDeviceProvider.hostedTools).toEqual([]);
   });
+
+  it("rejects non-user finals in preflight, before any provider work", () => {
+    try {
+      onDeviceProvider.preflightMessages?.([
+        { role: "assistant", content: "Hello" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message: "On-device provider expects the last message to be from the user.",
+      });
+    }
+  });
+
+  it("rejects tool messages in preflight", () => {
+    try {
+      onDeviceProvider.preflightMessages?.([
+        { role: "tool", content: "{}", toolCallId: "1" },
+        { role: "user", content: "hi" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message: "On-device provider does not support tool result messages.",
+      });
+    }
+  });
+
+  it("accepts user-final threads in preflight", () => {
+    expect(() =>
+      onDeviceProvider.preflightMessages?.([
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "Hi" },
+      ])
+    ).not.toThrow();
+  });
 });
