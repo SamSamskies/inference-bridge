@@ -471,6 +471,7 @@ async function handleStart(port, msg, onStreamId) {
       ...(experimental && validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
+      ...(validated.value.options ? { options: validated.value.options } : {}),
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;

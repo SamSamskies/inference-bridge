@@ -9,7 +9,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 ## Features
 
 - `window.inference.request()` for streaming text chat
-- `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`)
+- `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`; `options.reasoningEffort: true`)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), and local Ollama support
@@ -62,9 +62,16 @@ To add another **built-in** provider: implement the same shape as [`src/provider
 2. On any top-level HTTPS page (or `http://localhost`), open DevTools and run:
 
 ```js
+const features = window.inference.getFeatures?.() ?? {};
+const options =
+  features.options?.reasoningEffort
+    ? { reasoningEffort: "none" }
+    : undefined;
+
 for await (const chunk of window.inference.request({
   method: "chat",
   messages: [{ role: "user", content: "Say hello in one short sentence." }],
+  ...(options ? { options } : {}),
 })) {
   if (chunk.type === "accepted") {
     console.log("accepted");
@@ -204,11 +211,31 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Spec contract (`window.inference.request`, `getFeatures`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: false }` |
+| Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: false, options: { reasoningEffort: true } }` |
+| Request options | Implemented; `options.reasoningEffort` on stable + experimental `request` (best-effort provider mapping) |
 | Tools | Optional in IPA (`getFeatures().toolCalling`); Bridge-experimental only until graduation |
 | Vision / audio / embeddings | Not implemented; treat as future experimental candidates |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
+
+## Request options
+
+Stable `request` accepts IPA `options` (currently `reasoningEffort` only). Feature-detect before relying on it:
+
+```js
+const features = window.inference.getFeatures?.() ?? {};
+if (features.options?.reasoningEffort) {
+  // Bridge will validate and best-effort map options.reasoningEffort
+}
+```
+
+| IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
+| --- | --- | --- | --- |
+| omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` | omit `think` |
+| `"none"` | `reasoning_effort: "none"` | `thinking: { type: "disabled" }` | `think: false` |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | `thinking: { type: "enabled", budget_tokens }` (tiers; may bump `max_tokens`) | `think: "low"` / `"medium"` / `"high"` |
+
+Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
 
 ## Experimental Features
 
@@ -221,13 +248,13 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
 
 ```js
-window.inference.getFeatures()              // { toolCalling: false } — stable request surface only
-window.inference.request(...)               // IPA-stable chat only
+window.inference.getFeatures()              // { toolCalling: false, options: { reasoningEffort: true } }
+window.inference.request(...)               // IPA-stable chat (+ options when advertised)
 window.inference.experimental.request(...)  // Bridge experimental (tools, etc.)
 window.inference.experimental.runTools(...) // optional page-side agent loop helper
 ```
 
-`getFeatures()` reports what stable `request` accepts, not whether `experimental.request` can relay tools. Bridge returns `{ toolCalling: false }` until tools graduate; apps that want tools today should keep calling `experimental`.
+`getFeatures()` reports what stable `request` accepts, not whether `experimental.request` can relay tools. Bridge returns `toolCalling: false` until tools graduate; apps that want tools today should keep calling `experimental`. `options.reasoningEffort` is advertised on the stable surface and also accepted on `experimental.request`.
 
 Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
@@ -243,6 +270,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 | `messages` | yes | `ExperimentalMessage[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. |
 | `tools` | no | `Tool[]` | Non-empty when present. Function tools only for now. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
+| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high" }` | Same as stable IPA `options`; unknown keys ignored. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
 
 **`messages` shapes**
@@ -481,7 +509,10 @@ npm run package
 ### Manual checks
 
 - [ ] `window.inference` exists on `https://example.com` after install
-- [ ] `window.inference.getFeatures()` returns `{ toolCalling: false }` (sync, no prompt)
+- [ ] `window.inference.getFeatures()` returns `{ toolCalling: false, options: { reasoningEffort: true } }` (sync, no prompt)
+- [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
+- [ ] Invalid `options.reasoningEffort` → `invalid_request`
+- [ ] Unsupported model/provider still succeeds (best-effort mapping / no-op)
 - [ ] Missing on an `http://` non-localhost page (or request fails with `unavailable`)
 - [ ] Missing on `file://` pages
 - [ ] First request shows the approval popup with provider + model; Deny → `permission_denied`

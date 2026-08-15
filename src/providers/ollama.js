@@ -5,6 +5,7 @@
 
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
+import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
 
@@ -308,6 +309,7 @@ export const ollamaProvider = {
     messages,
     tools,
     toolChoice,
+    options,
     signal,
     onDelta,
     onReasoningDelta,
@@ -336,12 +338,16 @@ export const ollamaProvider = {
         // Default matches validateExperimentalInferenceRequest when tools present.
         body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
       }
+      const think = mapReasoningEffortForOllama(options?.reasoningEffort);
+      if (think !== undefined) {
+        body.think = think;
+      }
 
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Ollama enables thinking by default for supported models; omit `think`
-        // unless we add an explicit user control. See docs.ollama.com/capabilities/thinking.
+        // Ollama enables thinking by default for supported models; `think` is set
+        // when the page passes options.reasoningEffort (see reasoning-effort.js).
         body: JSON.stringify(body),
         signal,
       });

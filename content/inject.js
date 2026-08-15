@@ -505,9 +505,13 @@
       /**
        * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
        * toolCalling stays false until tools graduate from experimental.request.
+       * options.reasoningEffort is advertised once Bridge validates and maps it.
        */
       getFeatures() {
-        return { toolCalling: false };
+        return {
+          toolCalling: false,
+          options: { reasoningEffort: true },
+        };
       },
       experimental: Object.freeze({
         request(request) {

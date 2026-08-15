@@ -116,6 +116,7 @@ export const openrouterProvider = {
     messages,
     tools,
     toolChoice,
+    options,
     signal,
     onDelta,
     onReasoningDelta,
@@ -139,6 +140,7 @@ export const openrouterProvider = {
             ...(toolChoice !== undefined ? { toolChoice } : {}),
           }
         : {}),
+      ...(options ? { options } : {}),
       signal,
       onDelta,
       onReasoningDelta,

@@ -339,4 +339,29 @@ describe("openrouterProvider.streamChat", () => {
       },
     ]);
   });
+
+  it("maps options.reasoningEffort to reasoning_effort", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "low" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe(
+      "low"
+    );
+  });
 });

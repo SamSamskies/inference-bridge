@@ -32,9 +32,12 @@ function loadInference() {
 }
 
 describe("window.inference.getFeatures", () => {
-  it("returns a snapshot with toolCalling false", () => {
+  it("returns a snapshot with toolCalling false and options.reasoningEffort", () => {
     const inference = loadInference();
     expect(typeof inference.getFeatures).toBe("function");
-    expect(inference.getFeatures()).toEqual({ toolCalling: false });
+    expect(inference.getFeatures()).toEqual({
+      toolCalling: false,
+      options: { reasoningEffort: true },
+    });
   });
 });
