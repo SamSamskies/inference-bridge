@@ -283,13 +283,31 @@ async function refreshOnDeviceStatus() {
 const ON_DEVICE_MANAGE_HELP_URL =
   "https://support.google.com/chrome/answer/16961953";
 
+/** Chrome page that shows which on-device model the browser selected. */
+const ON_DEVICE_INTERNALS_URL = "chrome://on-device-internals";
+
 /**
  * @param {string} text
- * @param {{ manageLink?: boolean }} [opts]
+ * @param {{ manageLink?: boolean, internalsLink?: boolean }} [opts]
  */
 function setOnDeviceHint(text, opts = {}) {
   onDeviceHint.replaceChildren();
   onDeviceHint.append(document.createTextNode(text));
+
+  if (opts.internalsLink) {
+    onDeviceHint.append(document.createTextNode(" (see "));
+    const internalsLink = document.createElement("a");
+    internalsLink.href = ON_DEVICE_INTERNALS_URL;
+    internalsLink.textContent = "chrome://on-device-internals";
+    // chrome:// URLs cannot navigate from <a href>; open via tabs API.
+    internalsLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      void chrome.tabs.create({ url: ON_DEVICE_INTERNALS_URL });
+    });
+    onDeviceHint.append(internalsLink);
+    onDeviceHint.append(document.createTextNode(")."));
+  }
+
   if (!opts.manageLink) return;
 
   onDeviceHint.append(document.createTextNode(" "));
@@ -384,7 +402,8 @@ function updateOnDevicePanel() {
   }
 
   setOnDeviceHint(
-    "Browser-chosen on-device model. Install may download a large file and take a while, then saves On-device as your default. The browser picks which model (see chrome://on-device-internals)."
+    "Browser-chosen on-device model. Install may download a large file and take a while, then saves On-device as your default. The browser picks which model",
+    { internalsLink: true }
   );
   onDeviceInstallButton.hidden = false;
   onDeviceInstallButton.disabled = false;
