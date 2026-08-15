@@ -13,6 +13,28 @@ export const ON_DEVICE_PROVIDER_ID = "on-device";
 export const ON_DEVICE_MODEL_ID = "on-device";
 
 /**
+ * Languages Chrome's Prompt API currently accepts for text I/O.
+ * Required on create/availability so Chrome can attest output safety.
+ * This is the full supported set today (en, es, ja, de, fr); update when
+ * Chrome adds more — see the Prompt API docs.
+ * @see https://developer.chrome.com/docs/ai/prompt-api
+ */
+export const PROMPT_API_LANGUAGES = Object.freeze(["en", "es", "ja", "de", "fr"]);
+
+/**
+ * Shared LanguageModel.create / .availability options for text sessions.
+ * Chrome warns (and may harden later) if expectedOutputs languages are omitted.
+ */
+export const PROMPT_API_SESSION_OPTIONS = Object.freeze({
+  expectedInputs: Object.freeze([
+    Object.freeze({ type: "text", languages: PROMPT_API_LANGUAGES }),
+  ]),
+  expectedOutputs: Object.freeze([
+    Object.freeze({ type: "text", languages: PROMPT_API_LANGUAGES }),
+  ]),
+});
+
+/**
  * @param {string} code
  * @param {string} message
  * @returns {never}
@@ -39,7 +61,7 @@ export async function probeLanguageModelAvailability(scope = globalThis) {
     return "missing";
   }
   try {
-    const raw = await LM.availability();
+    const raw = await LM.availability({ ...PROMPT_API_SESSION_OPTIONS });
     if (
       raw === "unavailable" ||
       raw === "downloadable" ||
@@ -158,6 +180,7 @@ export async function installLanguageModel(args) {
   let session;
   try {
     session = await LM.create({
+      ...PROMPT_API_SESSION_OPTIONS,
       ...(signal ? { signal } : {}),
       monitor(m) {
         m.addEventListener("downloadprogress", (e) => {
@@ -224,6 +247,7 @@ export async function streamLanguageModelChat(args) {
   let session;
   try {
     session = await LM.create({
+      ...PROMPT_API_SESSION_OPTIONS,
       signal,
       ...(initialPrompts.length > 0 ? { initialPrompts } : {}),
     });

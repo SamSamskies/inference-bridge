@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ON_DEVICE_MODEL_ID,
+  PROMPT_API_SESSION_OPTIONS,
   applyStreamChunk,
   mapMessagesForPromptApi,
   probeLanguageModelAvailability,
@@ -60,14 +61,14 @@ describe("probeLanguageModelAvailability", () => {
     expect(await probeLanguageModelAvailability({})).toBe("missing");
   });
 
-  it("forwards availability strings", async () => {
+  it("forwards availability strings with session language options", async () => {
+    const availability = vi.fn(async () => "downloadable");
     expect(
       await probeLanguageModelAvailability({
-        LanguageModel: {
-          availability: async () => "downloadable",
-        },
+        LanguageModel: { availability },
       })
     ).toBe("downloadable");
+    expect(availability).toHaveBeenCalledWith({ ...PROMPT_API_SESSION_OPTIONS });
   });
 });
 
@@ -90,6 +91,12 @@ describe("installLanguageModel / streamLanguageModelChat", () => {
     });
     expect(onProgress).toHaveBeenCalledWith(0.5);
     expect(destroy).toHaveBeenCalled();
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedInputs: PROMPT_API_SESSION_OPTIONS.expectedInputs,
+        expectedOutputs: PROMPT_API_SESSION_OPTIONS.expectedOutputs,
+      })
+    );
   });
 
   it("streams deltas and returns the sentinel model id", async () => {
@@ -115,6 +122,12 @@ describe("installLanguageModel / streamLanguageModelChat", () => {
     expect(result.model).toBe(ON_DEVICE_MODEL_ID);
     expect(result.message.content).toBe("Hi there");
     expect(destroy).toHaveBeenCalled();
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedInputs: PROMPT_API_SESSION_OPTIONS.expectedInputs,
+        expectedOutputs: PROMPT_API_SESSION_OPTIONS.expectedOutputs,
+      })
+    );
   });
 
   it("refuses to stream until the model is installed", async () => {
