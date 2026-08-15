@@ -790,4 +790,59 @@ describe("anthropicProvider", () => {
     ]);
     expect(result.message).toEqual({ role: "assistant", content: "72F" });
   });
+
+  it("maps options.reasoningEffort onto adaptive thinking / output_config", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      thinking: { type: "disabled" },
+      max_tokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+      "output_config"
+    );
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "high" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    const highBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(highBody.thinking).toEqual({ type: "adaptive" });
+    expect(highBody.output_config).toEqual({ effort: "high" });
+    expect(highBody.max_tokens).toBe(ANTHROPIC_DEFAULT_MAX_TOKENS);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "auto" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    const autoBody = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(autoBody).not.toHaveProperty("thinking");
+    expect(autoBody).not.toHaveProperty("output_config");
+  });
 });
+

@@ -1,6 +1,13 @@
 const ROLES = new Set(["system", "user", "assistant"]);
 const EXPERIMENTAL_ROLES = new Set(["system", "user", "assistant", "tool"]);
 const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
+const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
+
+/**
+ * @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort
+ *
+ * @typedef {{ reasoningEffort?: ReasoningEffort }} InferenceOptions
+ */
 
 /**
  * @typedef {{
@@ -97,9 +104,40 @@ function rejectStableToolFields(req, messages) {
 }
 
 /**
+ * Validate IPA `options` (currently `reasoningEffort` only). Unknown keys ignored.
+ * @param {unknown} options
+ * @returns {{ ok: true, value?: InferenceOptions } | { ok: false, message: string }}
+ */
+function validateOptions(options) {
+  if (options == null || typeof options !== "object" || Array.isArray(options)) {
+    return { ok: false, message: "options must be an object when present." };
+  }
+  const opts = /** @type {Record<string, unknown>} */ (options);
+  if (!("reasoningEffort" in opts) || opts.reasoningEffort === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (
+    typeof opts.reasoningEffort !== "string" ||
+    !REASONING_EFFORTS.has(opts.reasoningEffort)
+  ) {
+    return {
+      ok: false,
+      message:
+        'options.reasoningEffort must be "auto", "none", "low", "medium", or "high".',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      reasoningEffort: /** @type {ReasoningEffort} */ (opts.reasoningEffort),
+    },
+  };
+}
+
+/**
  * Validate an InferenceRequest from a page script.
  * @param {unknown} request
- * @returns {{ ok: true, value: { method: "chat", messages: Array<{role: string, content: string, reasoning?: string}> } } | { ok: false, message: string }}
+ * @returns {{ ok: true, value: { method: "chat", messages: Array<{role: string, content: string, reasoning?: string}>, options?: InferenceOptions } } | { ok: false, message: string }}
  */
 export function validateInferenceRequest(request) {
   if (request == null || typeof request !== "object" || Array.isArray(request)) {
@@ -159,13 +197,16 @@ export function validateInferenceRequest(request) {
     // Ignore any serialized signal field if present.
   }
 
-  return {
-    ok: true,
-    value: {
-      method: "chat",
-      messages,
-    },
-  };
+  /** @type {{ method: "chat", messages: typeof messages, options?: InferenceOptions }} */
+  const value = { method: "chat", messages };
+
+  if (req.options !== undefined) {
+    const options = validateOptions(req.options);
+    if (!options.ok) return options;
+    if (options.value) value.options = options.value;
+  }
+
+  return { ok: true, value };
 }
 
 /**
@@ -352,6 +393,7 @@ function validateToolChoice(toolChoice) {
  *     messages: ExperimentalMessage[],
  *     tools?: Tool[],
  *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+ *     options?: InferenceOptions,
  *   },
  * } | { ok: false, message: string }}
  */
@@ -491,6 +533,7 @@ export function validateExperimentalInferenceRequest(request) {
    *   messages: ExperimentalMessage[],
    *   tools?: Tool[],
    *   toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+   *   options?: InferenceOptions,
    * }} */
   const value = { method: "chat", messages };
 
@@ -508,6 +551,12 @@ export function validateExperimentalInferenceRequest(request) {
   } else if (value.tools) {
     // Match common provider defaults when tools are present.
     value.toolChoice = "auto";
+  }
+
+  if (req.options !== undefined) {
+    const options = validateOptions(req.options);
+    if (!options.ok) return options;
+    if (options.value) value.options = options.value;
   }
 
   if ("signal" in req && req.signal != null) {

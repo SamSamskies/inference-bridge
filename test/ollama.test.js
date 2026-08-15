@@ -640,6 +640,47 @@ describe("ollamaProvider.streamChat", () => {
       },
     ]);
   });
+
+  it("maps options.reasoningEffort onto think", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).think).toBe(false);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "medium" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).think).toBe("medium");
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "auto" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).not.toHaveProperty(
+      "think"
+    );
+  });
 });
 
 describe("mapMessagesForOllama / tool helpers", () => {

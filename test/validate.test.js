@@ -181,6 +181,70 @@ describe("validateInferenceRequest", () => {
     ]);
   });
 
+  it("accepts options.reasoningEffort and ignores unknown options keys", () => {
+    const result = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none", temperature: 0.2 },
+    });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: { reasoningEffort: "none" },
+      },
+    });
+
+    const empty = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.2 },
+    });
+    expect(empty).toEqual({
+      ok: true,
+      value: {
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+      },
+    });
+  });
+
+  it("rejects invalid options / reasoningEffort values", () => {
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: null,
+      }).ok
+    ).toBe(false);
+    expect(
+      validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: [],
+      }).ok
+    ).toBe(false);
+
+    const bad = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "extreme" },
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.message).toMatch(/reasoningEffort/);
+
+    for (const reasoningEffort of ["auto", "none", "low", "medium", "high"]) {
+      const ok = validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: { reasoningEffort },
+      });
+      expect(ok.ok).toBe(true);
+      expect(ok.value.options).toEqual({ reasoningEffort });
+    }
+  });
+
   it("preserves optional message.reasoning and rejects non-string reasoning", () => {
     const ok = validateInferenceRequest({
       method: "chat",
@@ -234,6 +298,23 @@ describe("validateExperimentalInferenceRequest", () => {
         messages: [{ role: "user", content: "hi" }],
       },
     });
+  });
+
+  it("accepts options.reasoningEffort on the experimental path", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "low" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.options).toEqual({ reasoningEffort: "low" });
+
+    const bad = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "extreme" },
+    });
+    expect(bad.ok).toBe(false);
   });
 
   it("accepts function tools, hosted web_search, and toolChoice", () => {

@@ -38,6 +38,13 @@
  */
 
 /**
+ * IPA generation preferences (subset Bridge currently maps).
+ * @typedef {{
+ *   reasoningEffort?: "auto" | "none" | "low" | "medium" | "high",
+ * }} InferenceOptions
+ */
+
+/**
  * @typedef {{
  *   role: string,
  *   content: string | null,
@@ -65,6 +72,7 @@
  *     messages: ChatMessage[],
  *     tools?: Tool[],
  *     toolChoice?: ToolChoice,
+ *     options?: InferenceOptions,
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
  *     onReasoningDelta?: (content: string) => void,

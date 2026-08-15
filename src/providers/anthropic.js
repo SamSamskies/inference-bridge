@@ -4,6 +4,7 @@
  */
 
 import { filterFunctionTools } from "./openai-compat-stream.js";
+import { mapReasoningEffortForAnthropic } from "./reasoning-effort.js";
 
 export const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
@@ -289,6 +290,7 @@ export const anthropicProvider = {
     messages,
     tools,
     toolChoice,
+    options,
     signal,
     onDelta,
     onReasoningDelta,
@@ -310,6 +312,13 @@ export const anthropicProvider = {
       requestBody.tool_choice = mapToolChoiceForAnthropic(
         toolChoice !== undefined ? toolChoice : "auto"
       );
+    }
+    const thinking = mapReasoningEffortForAnthropic(options?.reasoningEffort);
+    if (thinking) {
+      requestBody.thinking = thinking.thinking;
+      if (thinking.output_config !== undefined) {
+        requestBody.output_config = thinking.output_config;
+      }
     }
 
     let response;

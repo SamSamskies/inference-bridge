@@ -147,4 +147,41 @@ describe("openaiProvider.streamChat", () => {
       },
     ]);
   });
+
+  it("maps options.reasoningEffort to reasoning_effort and omits auto", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe(
+      "none"
+    );
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "auto" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body)
+    ).not.toHaveProperty("reasoning_effort");
+  });
 });

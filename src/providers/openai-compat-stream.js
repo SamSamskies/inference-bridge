@@ -3,10 +3,13 @@
  * Used by OpenAI and OpenRouter adapters.
  */
 
+import { mapReasoningEffortForOpenAICompat } from "./reasoning-effort.js";
+
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
 /** @typedef {import("./types.js").Tool} Tool */
 /** @typedef {import("./types.js").ToolCall} ToolCall */
 /** @typedef {import("./types.js").ToolChoice} ToolChoice */
+/** @typedef {import("./types.js").InferenceOptions} InferenceOptions */
 
 /**
  * @param {string} code
@@ -140,6 +143,7 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *   messages: ChatMessage[],
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
+ *   options?: InferenceOptions,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
@@ -165,6 +169,7 @@ export async function streamOpenAICompatChat({
   messages,
   tools,
   toolChoice,
+  options,
   signal,
   onDelta,
   onReasoningDelta,
@@ -194,6 +199,12 @@ export async function streamOpenAICompatChat({
       body.tools = tools;
       // Default matches validateExperimentalInferenceRequest when tools present.
       body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
+    }
+    const reasoningEffort = mapReasoningEffortForOpenAICompat(
+      options?.reasoningEffort
+    );
+    if (reasoningEffort !== undefined) {
+      body.reasoning_effort = reasoningEffort;
     }
 
     response = await fetch(url, {
