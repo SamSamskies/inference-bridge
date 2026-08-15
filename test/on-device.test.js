@@ -40,6 +40,23 @@ describe("mapMessagesForPromptApi", () => {
       ])
     ).toThrow(/tool result/);
   });
+
+  it("rejects system messages that are not first in initialPrompts", () => {
+    expect(() =>
+      mapMessagesForPromptApi([
+        { role: "user", content: "Hi" },
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "Bye" },
+      ])
+    ).toThrow(/system message only as the first/);
+    expect(() =>
+      mapMessagesForPromptApi([
+        { role: "system", content: "A" },
+        { role: "system", content: "B" },
+        { role: "user", content: "Hi" },
+      ])
+    ).toThrow(/system message only as the first/);
+  });
 });
 
 describe("applyStreamChunk", () => {
@@ -182,6 +199,24 @@ describe("onDeviceProvider", () => {
       expect(err).toMatchObject({
         name: "InferenceError",
         message: "On-device provider does not support tool result messages.",
+      });
+    }
+  });
+
+  it("rejects misplaced system messages in preflight", () => {
+    try {
+      onDeviceProvider.preflightMessages?.([
+        { role: "user", content: "Hi" },
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "Bye" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message:
+          "On-device provider allows a system message only as the first message.",
       });
     }
   });

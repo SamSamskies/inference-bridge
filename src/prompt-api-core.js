@@ -127,7 +127,18 @@ export function mapMessagesForPromptApi(messages) {
       continue;
     }
 
-    if (role === "system" || role === "user" || role === "assistant") {
+    if (role === "system") {
+      // Prompt API allows system only at index 0 of initialPrompts.
+      if (initialPrompts.length > 0) {
+        throwInference(
+          "invalid_request",
+          "On-device provider allows a system message only as the first message."
+        );
+      }
+      initialPrompts.push({ role, content });
+      continue;
+    }
+    if (role === "user" || role === "assistant") {
       initialPrompts.push({ role, content });
     }
   }
