@@ -51,6 +51,26 @@ export function throwInference(code, message) {
  */
 
 /**
+ * Fail closed unless the on-device model is ready to create a session.
+ * Shared by stream and by the service worker so `accepted` is not sent first.
+ * @param {OnDeviceAvailability} availability
+ * @returns {void}
+ */
+export function assertOnDeviceAvailable(availability) {
+  if (availability === "available") return;
+  if (availability === "downloadable" || availability === "downloading") {
+    throwInference(
+      "unavailable",
+      "Install the on-device model in Inference Bridge Options before using this provider."
+    );
+  }
+  throwInference(
+    "unavailable",
+    "On-device AI is unavailable on this device (hardware, OS, or browser flags)."
+  );
+}
+
+/**
  * Probe LanguageModel in the current global. Does not start a download.
  * @param {typeof globalThis & { LanguageModel?: any }} [scope]
  * @returns {Promise<OnDeviceAvailability>}
@@ -239,18 +259,7 @@ export async function streamLanguageModelChat(args) {
   const availability = await probeLanguageModelAvailability(
     /** @type {any} */ ({ LanguageModel: LM })
   );
-  if (availability === "missing" || availability === "unavailable") {
-    throwInference(
-      "unavailable",
-      "On-device AI is unavailable on this device (hardware, OS, or browser flags)."
-    );
-  }
-  if (availability === "downloadable" || availability === "downloading") {
-    throwInference(
-      "unavailable",
-      "Install the on-device model in Inference Bridge Options before using this provider."
-    );
-  }
+  assertOnDeviceAvailable(availability);
 
   const { initialPrompts, prompt } = mapMessagesForPromptApi(messages);
 

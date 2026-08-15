@@ -3,6 +3,7 @@ import {
   ON_DEVICE_MODEL_ID,
   PROMPT_API_SESSION_OPTIONS,
   applyStreamChunk,
+  assertOnDeviceAvailable,
   mapMessagesForPromptApi,
   probeLanguageModelAvailability,
   streamLanguageModelChat,
@@ -70,6 +71,52 @@ describe("applyStreamChunk", () => {
       full: "Hello",
       delta: "lo",
     });
+  });
+});
+
+describe("assertOnDeviceAvailable", () => {
+  it("allows available", () => {
+    expect(() => assertOnDeviceAvailable("available")).not.toThrow();
+  });
+
+  it("rejects downloadable and downloading with install guidance", () => {
+    for (const availability of ["downloadable", "downloading"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          )
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message:
+            "Install the on-device model in Inference Bridge Options before using this provider.",
+        });
+      }
+    }
+  });
+
+  it("rejects missing and unavailable as device-level unavailable", () => {
+    for (const availability of ["missing", "unavailable"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          )
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message:
+            "On-device AI is unavailable on this device (hardware, OS, or browser flags).",
+        });
+      }
+    }
   });
 });
 

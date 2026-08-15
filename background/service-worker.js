@@ -29,7 +29,10 @@ import {
   installOnDeviceModel,
   cancelOnDeviceInstall,
 } from "../src/prompt-api-client.js";
-import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
+import {
+  ON_DEVICE_MODEL_ID,
+  assertOnDeviceAvailable,
+} from "../src/prompt-api-core.js";
 import {
   canAcceptRebind,
   canAcceptStartedAck,
@@ -512,6 +515,12 @@ async function handleStart(port, msg, onStreamId) {
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
+
+    // Always-allow grants skip the approval UI install gate — probe Prompt API
+    // readiness here so downloadable/missing fail before `accepted`.
+    if (provider.id === "on-device") {
+      assertOnDeviceAvailable(await getOnDeviceAvailability());
+    }
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
     livePort.postMessage({
