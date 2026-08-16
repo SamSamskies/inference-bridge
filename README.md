@@ -524,7 +524,7 @@ console.log("[final]", final.message.content);
 | OpenAI-compatible | Chat Completions `tools` |
 | On-device | Not supported (`toolCalling` stays false for this provider) |
 
-Approval shows an **Experimental** banner and a Tools preview (function names). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+Approval shows an **Experimental** banner and a Tools preview (function names). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (hosted-tool gaps still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
 ## Development
 

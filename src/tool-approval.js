@@ -259,8 +259,26 @@ export function hostedToolLabel(hostedId) {
 }
 
 /**
+ * True when the request includes function tools the provider cannot relay.
+ * Approval should disable Allow and ask the user to pick another provider.
+ * Unsupported hosted tools stay soft-warn only (chat can still proceed).
+ *
+ * @param {{
+ *   supportsFunctionTools?: boolean,
+ * } | null | undefined} provider
+ * @param {Tool[] | undefined | null} tools
+ * @returns {boolean}
+ */
+export function blocksAllowForUnsupportedFunctionTools(provider, tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return false;
+  const summary = summarizeToolsForPreview(tools);
+  return summary.functions.length > 0 && !provider?.supportsFunctionTools;
+}
+
+/**
  * Capability warnings for the selected provider vs requested tools.
- * Warn only — callers must not hard-block Allow.
+ * Function tools on an unsupported provider also block Allow (see
+ * `blocksAllowForUnsupportedFunctionTools`). Hosted-tool gaps warn only.
  *
  * @param {{
  *   supportsFunctionTools?: boolean,
@@ -280,9 +298,9 @@ export function capabilityWarnings(provider, tools) {
       ? provider.label
       : "This provider";
 
-  if (summary.functions.length > 0 && !provider?.supportsFunctionTools) {
+  if (blocksAllowForUnsupportedFunctionTools(provider, tools)) {
     warnings.push(
-      `${label} may not support function tools. The request can still proceed, but tool calls may fail.`
+      `${label} does not support function tools. Choose another provider to allow this request.`
     );
   }
 
