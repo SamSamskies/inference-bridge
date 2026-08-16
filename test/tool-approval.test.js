@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  blocksAllowForUnsupportedFunctionTools,
   capabilityWarnings,
   fingerprintTools,
   fingerprintTrailingToolCalls,
@@ -347,14 +348,53 @@ describe("summarizeToolsForPreview / hostedToolLabel", () => {
   });
 });
 
+describe("blocksAllowForUnsupportedFunctionTools", () => {
+  it("blocks when function tools are present and provider lacks support", () => {
+    expect(
+      blocksAllowForUnsupportedFunctionTools(
+        { supportsFunctionTools: false },
+        [weatherTool]
+      )
+    ).toBe(true);
+  });
+
+  it("does not block when provider supports function tools", () => {
+    expect(
+      blocksAllowForUnsupportedFunctionTools(
+        { supportsFunctionTools: true },
+        [weatherTool]
+      )
+    ).toBe(false);
+  });
+
+  it("does not block hosted-only tools", () => {
+    expect(
+      blocksAllowForUnsupportedFunctionTools(
+        { supportsFunctionTools: false, hostedTools: [] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(false);
+  });
+
+  it("does not block when tools are absent", () => {
+    expect(
+      blocksAllowForUnsupportedFunctionTools(
+        { supportsFunctionTools: false },
+        undefined
+      )
+    ).toBe(false);
+  });
+});
+
 describe("capabilityWarnings", () => {
   it("warns when function tools are unsupported", () => {
     const warnings = capabilityWarnings(
-      { label: "Demo", supportsFunctionTools: false, hostedTools: [] },
+      { label: "On-device", supportsFunctionTools: false, hostedTools: [] },
       [weatherTool]
     );
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/function tools/i);
+    expect(warnings[0]).toMatch(/does not support function tools/i);
+    expect(warnings[0]).toMatch(/choose another provider/i);
   });
 
   it("warns when web_search is not in hostedTools", () => {

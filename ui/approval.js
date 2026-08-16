@@ -9,6 +9,7 @@ import {
   isApprovalProviderReady,
 } from "../src/provider-ready.js";
 import {
+  blocksAllowForUnsupportedFunctionTools,
   capabilityWarnings,
   hostedToolLabel,
   summarizeToolsForPreview,
@@ -279,7 +280,12 @@ function updateAllowEnabled() {
   const valid = isModelValid(readModelValue(providerId), currentModels, {
     allowUnknown: allowUnknownFor(providerId),
   });
-  allowBtn.disabled = !providerReady || !modelsReady || !valid;
+  const toolsBlocked = blocksAllowForUnsupportedFunctionTools(
+    provider,
+    requestTools
+  );
+  allowBtn.disabled =
+    !providerReady || !modelsReady || !valid || toolsBlocked;
 }
 
 /**
