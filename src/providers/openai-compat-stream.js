@@ -4,6 +4,7 @@
  */
 
 import { mapReasoningEffortForOpenAICompat } from "./reasoning-effort.js";
+import { mapTemperatureForOpenAICompat } from "./temperature.js";
 
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
 /** @typedef {import("./types.js").Tool} Tool */
@@ -205,6 +206,10 @@ export async function streamOpenAICompatChat({
     );
     if (reasoningEffort !== undefined) {
       body.reasoning_effort = reasoningEffort;
+    }
+    const temperature = mapTemperatureForOpenAICompat(options?.temperature);
+    if (temperature !== undefined) {
+      body.temperature = temperature;
     }
 
     response = await fetch(url, {

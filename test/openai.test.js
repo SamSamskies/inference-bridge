@@ -184,4 +184,38 @@ describe("openaiProvider.streamChat", () => {
       JSON.parse(fetchMock.mock.calls[1][1].body)
     ).not.toHaveProperty("reasoning_effort");
   });
+
+  it("maps options.temperature to temperature", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.2 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0.2);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hi" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body)
+    ).not.toHaveProperty("temperature");
+  });
 });

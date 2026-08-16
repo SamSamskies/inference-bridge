@@ -364,4 +364,27 @@ describe("openrouterProvider.streamChat", () => {
       "low"
     );
   });
+
+  it("maps options.temperature to temperature", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 1.5 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(1.5);
+  });
 });

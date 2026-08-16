@@ -181,25 +181,39 @@ describe("validateInferenceRequest", () => {
     ]);
   });
 
-  it("accepts options.reasoningEffort and ignores unknown options keys", () => {
+  it("accepts options.reasoningEffort and options.temperature; ignores unknown keys", () => {
     const result = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "none", temperature: 0.2 },
+      options: { reasoningEffort: "none", temperature: 0.2, foo: 1 },
     });
     expect(result).toEqual({
       ok: true,
       value: {
         method: "chat",
         messages: [{ role: "user", content: "hi" }],
-        options: { reasoningEffort: "none" },
+        options: { reasoningEffort: "none", temperature: 0.2 },
+      },
+    });
+
+    const tempOnly = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.2 },
+    });
+    expect(tempOnly).toEqual({
+      ok: true,
+      value: {
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: { temperature: 0.2 },
       },
     });
 
     const empty = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      options: { temperature: 0.2 },
+      options: { foo: 1 },
     });
     expect(empty).toEqual({
       ok: true,
@@ -210,7 +224,7 @@ describe("validateInferenceRequest", () => {
     });
   });
 
-  it("rejects invalid options / reasoningEffort values", () => {
+  it("rejects invalid options / reasoningEffort / temperature values", () => {
     expect(
       validateInferenceRequest({
         method: "chat",
@@ -242,6 +256,26 @@ describe("validateInferenceRequest", () => {
       });
       expect(ok.ok).toBe(true);
       expect(ok.value.options).toEqual({ reasoningEffort });
+    }
+
+    for (const temperature of [0, 1, 2, 0.7]) {
+      const ok = validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: { temperature },
+      });
+      expect(ok.ok).toBe(true);
+      expect(ok.value.options).toEqual({ temperature });
+    }
+
+    for (const temperature of [-0.1, 2.1, NaN, Infinity, "0.5", null]) {
+      const badTemp = validateInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        options: { temperature },
+      });
+      expect(badTemp.ok).toBe(false);
+      expect(badTemp.message).toMatch(/temperature/);
     }
   });
 
@@ -300,14 +334,17 @@ describe("validateExperimentalInferenceRequest", () => {
     });
   });
 
-  it("accepts options.reasoningEffort on the experimental path", () => {
+  it("accepts options.reasoningEffort and options.temperature on the experimental path", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "low" },
+      options: { reasoningEffort: "low", temperature: 0.5 },
     });
     expect(result.ok).toBe(true);
-    expect(result.value.options).toEqual({ reasoningEffort: "low" });
+    expect(result.value.options).toEqual({
+      reasoningEffort: "low",
+      temperature: 0.5,
+    });
 
     const bad = validateExperimentalInferenceRequest({
       method: "chat",
@@ -315,6 +352,13 @@ describe("validateExperimentalInferenceRequest", () => {
       options: { reasoningEffort: "extreme" },
     });
     expect(bad.ok).toBe(false);
+
+    const badTemp = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 3 },
+    });
+    expect(badTemp.ok).toBe(false);
   });
 
   it("accepts function tools, hosted web_search, and toolChoice", () => {

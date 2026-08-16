@@ -6,6 +6,7 @@
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
+import { mapTemperatureForOllama } from "./temperature.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
 
@@ -341,6 +342,10 @@ export const ollamaProvider = {
       const think = mapReasoningEffortForOllama(options?.reasoningEffort);
       if (think !== undefined) {
         body.think = think;
+      }
+      const temperature = mapTemperatureForOllama(options?.temperature);
+      if (temperature !== undefined) {
+        body.options = { temperature };
       }
 
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {

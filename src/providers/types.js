@@ -41,6 +41,7 @@
  * IPA generation preferences (subset Bridge currently maps).
  * @typedef {{
  *   reasoningEffort?: "auto" | "none" | "low" | "medium" | "high",
+ *   temperature?: number,
  * }} InferenceOptions
  */
 
