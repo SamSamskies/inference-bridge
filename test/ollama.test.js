@@ -681,6 +681,39 @@ describe("ollamaProvider.streamChat", () => {
       "think"
     );
   });
+
+  it("maps options.temperature onto options.temperature", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.3 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).options).toEqual({
+      temperature: 0.3,
+    });
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty(
+      "options"
+    );
+  });
 });
 
 describe("mapMessagesForOllama / tool helpers", () => {

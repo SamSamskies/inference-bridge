@@ -6,7 +6,10 @@ const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
 /**
  * @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort
  *
- * @typedef {{ reasoningEffort?: ReasoningEffort }} InferenceOptions
+ * @typedef {{
+ *   reasoningEffort?: ReasoningEffort,
+ *   temperature?: number,
+ * }} InferenceOptions
  */
 
 /**
@@ -104,7 +107,7 @@ function rejectStableToolFields(req, messages) {
 }
 
 /**
- * Validate IPA `options` (currently `reasoningEffort` only). Unknown keys ignored.
+ * Validate IPA `options` (`reasoningEffort`, `temperature`). Unknown keys ignored.
  * @param {unknown} options
  * @returns {{ ok: true, value?: InferenceOptions } | { ok: false, message: string }}
  */
@@ -113,25 +116,42 @@ function validateOptions(options) {
     return { ok: false, message: "options must be an object when present." };
   }
   const opts = /** @type {Record<string, unknown>} */ (options);
-  if (!("reasoningEffort" in opts) || opts.reasoningEffort === undefined) {
+  /** @type {InferenceOptions} */
+  const value = {};
+
+  if ("reasoningEffort" in opts && opts.reasoningEffort !== undefined) {
+    if (
+      typeof opts.reasoningEffort !== "string" ||
+      !REASONING_EFFORTS.has(opts.reasoningEffort)
+    ) {
+      return {
+        ok: false,
+        message:
+          'options.reasoningEffort must be "auto", "none", "low", "medium", or "high".',
+      };
+    }
+    value.reasoningEffort = /** @type {ReasoningEffort} */ (opts.reasoningEffort);
+  }
+
+  if ("temperature" in opts && opts.temperature !== undefined) {
+    if (
+      typeof opts.temperature !== "number" ||
+      !Number.isFinite(opts.temperature) ||
+      opts.temperature < 0 ||
+      opts.temperature > 2
+    ) {
+      return {
+        ok: false,
+        message: "options.temperature must be a finite number in [0, 2].",
+      };
+    }
+    value.temperature = opts.temperature;
+  }
+
+  if (Object.keys(value).length === 0) {
     return { ok: true, value: undefined };
   }
-  if (
-    typeof opts.reasoningEffort !== "string" ||
-    !REASONING_EFFORTS.has(opts.reasoningEffort)
-  ) {
-    return {
-      ok: false,
-      message:
-        'options.reasoningEffort must be "auto", "none", "low", "medium", or "high".',
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      reasoningEffort: /** @type {ReasoningEffort} */ (opts.reasoningEffort),
-    },
-  };
+  return { ok: true, value };
 }
 
 /**

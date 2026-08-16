@@ -5,6 +5,7 @@
 
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForAnthropic } from "./reasoning-effort.js";
+import { mapTemperatureForAnthropic } from "./temperature.js";
 
 export const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
@@ -319,6 +320,10 @@ export const anthropicProvider = {
       if (thinking.output_config !== undefined) {
         requestBody.output_config = thinking.output_config;
       }
+    }
+    const temperature = mapTemperatureForAnthropic(options?.temperature);
+    if (temperature !== undefined) {
+      requestBody.temperature = temperature;
     }
 
     let response;

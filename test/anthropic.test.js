@@ -844,5 +844,38 @@ describe("anthropicProvider", () => {
     expect(autoBody).not.toHaveProperty("thinking");
     expect(autoBody).not.toHaveProperty("output_config");
   });
+
+  it("maps options.temperature and clamps above 1 for Anthropic", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.4 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0.4);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 1.8 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBe(1);
+  });
 });
 
