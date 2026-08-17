@@ -357,6 +357,77 @@ describe("streamOpenAICompatChat", () => {
     }
   });
 
+  it("retries once with minimal when the model rejects reasoning_effort none", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (body.reasoning_effort === "none") {
+        return jsonResponse(
+          {
+            error: {
+              message:
+                "Unsupported value: 'none' is not supported with the 'gpt-5-nano' model. Supported values are: 'minimal', 'low', 'medium', and 'high'.",
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAICompatChat(
+      baseArgs({ options: { reasoningEffort: "none" } })
+    );
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe(
+      "none"
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning_effort).toBe(
+      "minimal"
+    );
+  });
+
+  it("retries without reasoning_effort when the 400 cannot be parsed", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (Object.prototype.hasOwnProperty.call(body, "reasoning_effort")) {
+        return jsonResponse(
+          {
+            error: {
+              message: "Unsupported value: reasoning_effort is not supported",
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAICompatChat(
+      baseArgs({ options: { reasoningEffort: "none" } })
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body)
+    ).not.toHaveProperty("reasoning_effort");
+  });
+
   it("uses custom mapStatus when provided", async () => {
     vi.stubGlobal(
       "fetch",

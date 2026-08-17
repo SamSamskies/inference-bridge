@@ -399,11 +399,12 @@ describe("capabilityWarnings", () => {
 
   it("warns when web_search is not in hostedTools", () => {
     const warnings = capabilityWarnings(
-      { label: "OpenAI", supportsFunctionTools: true, hostedTools: [] },
+      { label: "Ollama", supportsFunctionTools: true, hostedTools: [] },
       [{ type: "web_search" }]
     );
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/web search/i);
+    expect(warnings[0]).toMatch(/web search is not supported by Ollama/i);
+    expect(warnings[0]).toMatch(/allow will still work/i);
   });
 
   it("returns no warnings when capabilities match", () => {

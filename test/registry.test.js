@@ -92,10 +92,10 @@ describe("provider registry", () => {
     expect(getProvider("ollama")?.supportsFunctionTools).toBe(true);
     expect(getProvider("anthropic")?.supportsFunctionTools).toBe(true);
     expect(getProvider("on-device")?.supportsFunctionTools).toBe(false);
-    expect(getProvider("openai")?.hostedTools).toEqual([]);
-    expect(getProvider("openrouter")?.hostedTools).toEqual([]);
+    expect(getProvider("openai")?.hostedTools).toEqual(["web_search"]);
+    expect(getProvider("openrouter")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("ollama")?.hostedTools).toEqual([]);
-    expect(getProvider("anthropic")?.hostedTools).toEqual([]);
+    expect(getProvider("anthropic")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("on-device")?.hostedTools).toEqual([]);
 
     await saveCompatEndpoints([

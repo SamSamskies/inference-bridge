@@ -280,6 +280,12 @@ describe("mapToolsForAnthropic / mapToolChoiceForAnthropic", () => {
     ]);
   });
 
+  it("maps hosted web_search to the pinned server tool", () => {
+    expect(mapToolsForAnthropic([{ type: "web_search" }])).toEqual([
+      { type: "web_search_20250305", name: "web_search" },
+    ]);
+  });
+
   it("maps tool_choice auto/none/required/named function", () => {
     expect(mapToolChoiceForAnthropic("auto")).toEqual({ type: "auto" });
     expect(mapToolChoiceForAnthropic("none")).toEqual({ type: "none" });
@@ -313,7 +319,7 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.models).toContain("claude-fable-5");
     expect(anthropicProvider.models).toContain("claude-sonnet-5");
     expect(anthropicProvider.supportsFunctionTools).toBe(true);
-    expect(anthropicProvider.hostedTools).toEqual([]);
+    expect(anthropicProvider.hostedTools).toEqual(["web_search"]);
   });
 
   it("rejects assistant-first threads in preflight, before any provider work", () => {
@@ -549,7 +555,7 @@ describe("anthropicProvider", () => {
     });
   });
 
-  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
+  it("forwards function tools and maps hosted web_search to the pinned server tool", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -592,6 +598,7 @@ describe("anthropicProvider", () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.tools).toEqual([
+      { type: "web_search_20250305", name: "web_search" },
       {
         name: "get_weather",
         description: "Weather lookup",
@@ -637,7 +644,7 @@ describe("anthropicProvider", () => {
     });
   });
 
-  it("omits tools and tool_choice when only hosted web_search is present", async () => {
+  it("sends the pinned web_search server tool when it is the only tool", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -660,8 +667,10 @@ describe("anthropicProvider", () => {
     });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.tools).toBeUndefined();
-    expect(body.tool_choice).toBeUndefined();
+    expect(body.tools).toEqual([
+      { type: "web_search_20250305", name: "web_search" },
+    ]);
+    expect(body.tool_choice).toEqual({ type: "auto" });
   });
 
   it("accumulates streamed tool_use input_json_delta into done.message.toolCalls", async () => {
@@ -843,6 +852,34 @@ describe("anthropicProvider", () => {
     const autoBody = JSON.parse(fetchMock.mock.calls[2][1].body);
     expect(autoBody).not.toHaveProperty("thinking");
     expect(autoBody).not.toHaveProperty("output_config");
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-haiku-4-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "medium" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body).thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 2048,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).not.toHaveProperty(
+      "output_config"
+    );
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-fable-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    const fableBody = JSON.parse(fetchMock.mock.calls[4][1].body);
+    expect(fableBody).not.toHaveProperty("thinking");
+    expect(fableBody).not.toHaveProperty("output_config");
   });
 
   it("maps options.temperature and clamps above 1 for Anthropic", async () => {

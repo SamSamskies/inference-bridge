@@ -15,6 +15,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
+- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed; Ollama / OpenAI-compatible / On-device warn only)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -64,14 +65,12 @@ To add another **built-in** provider: implement the same shape as [`src/provider
 2. On any top-level HTTPS page (or `http://localhost`), open DevTools and run:
 
 ```js
-const features = window.inference.getFeatures?.() ?? {};
-
 for await (const chunk of window.inference.request({
   method: "chat",
   messages: [{ role: "user", content: "Say hello in one short sentence." }],
   options: {
-    reasoningEffort: features.options?.reasoningEffort ? "none" : undefined,
-    temperature: features.options?.temperature ? 0.2 : undefined,
+    reasoningEffort: "none",
+    temperature: 0.2,
   },
 })) {
   if (chunk.type === "accepted") {
@@ -206,6 +205,8 @@ If you are building your own IPA extension with local providers, follow the Orig
       types.js                   # Provider / ModelInfo contract
       registry.js                # built-ins + dynamic compat endpoints
       openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
+      openai-responses.js        # OpenAI Responses API path (hosted web_search)
+      hosted-tools.js            # Bridge web_search identity + OpenRouter mapping
       openai-compat.js           # factory for user-named OpenAI-compatible servers
       openai.js                  # OpenAI streaming adapter
       anthropic.js               # Anthropic Messages API streaming adapter
@@ -256,10 +257,10 @@ if (features.options?.temperature) {
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` | `thinking: { type: "disabled" }` | `think: false` |
-| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | `thinking: { type: "adaptive" }` + `output_config: { effort }` | `think: "low"` / `"medium"` / `"high"` |
+| `"none"` | `reasoning_effort: "none"` on gpt-5.1+; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; omit on gpt-4.x | `thinking: { type: "disabled" }` (omit on Fable 5 — cannot disable) | `think: false` |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | `think: "low"` / `"medium"` / `"high"` |
 
-Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
+Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. OpenAI maps IPA `"none"` from the model id (gpt-5.1+ → `none`; earlier gpt-5 → `minimal`). Anthropic maps from the model id too (Claude 4.6+ adaptive; Claude 4.5 extended budgets; Fable 5 cannot disable thinking). A 400 that lists supported values is retried once with the next-lowest effort (or with the field omitted if the list cannot be parsed). Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
 
 ### `temperature`
 
@@ -294,7 +295,51 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
+Hosted `{ type: "web_search" }` is **provider-executed**. The selected provider may call the public internet and may charge tool usage. Bridge does not browse, add search host permissions, or run search itself.
+
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
+
+#### Hosted `web_search`
+
+| Provider | Hosted `{ type: "web_search" }` |
+| --- | --- |
+| OpenAI | Responses API (`/v1/responses`) only when `web_search` is present; function-tool-only stays on Chat Completions |
+| Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
+| OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
+| Ollama | Unsupported — approval warning (no hard-block). Bridge-executed ollama.com search is out of scope. |
+| OpenAI-compatible | Unsupported — approval warning (no standard hosted search across named endpoints) |
+| On-device | Unsupported — approval warning |
+
+Approval lists **Web search (provider-hosted)** and warns on unsupported providers. Allow still works; search will not run.
+
+Use OpenAI, Anthropic, or OpenRouter. Hosted search runs inside the provider request — you will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [
+    {
+      role: "system",
+      content:
+        "Answer with current conditions in one or two sentences. Search if needed. Do not ask follow-up questions.",
+    },
+    { role: "user", content: "What's the weather in New York City today?" },
+  ],
+  tools: [{ type: "web_search" }],
+})) {
+  if (chunk.type === "accepted") {
+    console.log("[accepted]");
+  }
+  if (chunk.type === "delta") {
+    console.log("[delta]", chunk.content);
+  }
+  if (chunk.type === "done") {
+    console.log("[done]", chunk.message.content);
+  }
+}
+```
+
+You can include function tools in the same `tools` array; those still execute on the page as usual.
 
 #### `experimental.request` parameters
 
@@ -302,7 +347,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 | --- | --- | --- | --- |
 | `method` | yes | `"chat"` | Only chat is supported. |
 | `messages` | yes | `ExperimentalMessage[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. |
-| `tools` | no | `Tool[]` | Non-empty when present. Function tools only for now. |
+| `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
 | `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as stable IPA `options`; unknown keys ignored. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
@@ -524,7 +569,7 @@ console.log("[final]", final.message.content);
 | OpenAI-compatible | Chat Completions `tools` |
 | On-device | Not supported (`toolCalling` stays false for this provider) |
 
-Approval shows an **Experimental** banner and a Tools preview (function names). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (hosted-tool gaps still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)**). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (hosted-tool gaps still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
 ## Development
 
@@ -533,7 +578,7 @@ npm install
 npm test
 ```
 
-Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, and function-tool streaming/accumulation for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible (no full MV3 e2e).
+Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses) (no full MV3 e2e).
 
 Package a release ZIP (runtime files only):
 
@@ -578,6 +623,9 @@ npm run package
 - [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
 - [ ] Function tool round-trip via `experimental.request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
 - [ ] `experimental.runTools` completes a page-executed loop with the same shape
+- [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI (OpenAI uses `/v1/responses` only when search is present)
+- [ ] Ollama / OpenAI-compatible / On-device: approval warns for `web_search`; Allow still works
+- [ ] Approval lists “Web search (provider-hosted)”
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 

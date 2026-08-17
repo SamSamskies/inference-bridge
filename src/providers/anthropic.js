@@ -3,7 +3,7 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
-import { filterFunctionTools } from "./openai-compat-stream.js";
+import { ANTHROPIC_WEB_SEARCH_TOOL } from "./hosted-tools.js";
 import { mapReasoningEffortForAnthropic } from "./reasoning-effort.js";
 import { mapTemperatureForAnthropic } from "./temperature.js";
 
@@ -80,14 +80,24 @@ function parseToolArguments(args) {
 }
 
 /**
- * Map Bridge function tools → Anthropic `tools` (`name`, `description`, `input_schema`).
- * @param {Extract<Tool, { type: "function" }>[]} tools
- * @returns {Array<{ name: string, description?: string, input_schema: object }>}
+ * Map Bridge tools → Anthropic Messages `tools`.
+ * Function tools become `name` / `description` / `input_schema`.
+ * `{ type: "web_search" }` becomes the pinned server tool.
+ * @param {Tool[]} tools
+ * @returns {Array<Record<string, unknown>>}
  */
 export function mapToolsForAnthropic(tools) {
-  return tools.map((t) => {
-    /** @type {{ name: string, description?: string, input_schema: object }} */
-    const out = {
+  /** @type {Array<Record<string, unknown>>} */
+  const out = [];
+  for (const t of tools) {
+    if (!t || typeof t !== "object") continue;
+    if (t.type === "web_search") {
+      out.push({ ...ANTHROPIC_WEB_SEARCH_TOOL });
+      continue;
+    }
+    if (t.type !== "function" || !t.function) continue;
+    /** @type {Record<string, unknown>} */
+    const mapped = {
       name: t.function.name,
       input_schema:
         t.function.parameters && typeof t.function.parameters === "object"
@@ -95,10 +105,11 @@ export function mapToolsForAnthropic(tools) {
           : { type: "object", properties: {} },
     };
     if (typeof t.function.description === "string" && t.function.description) {
-      out.description = t.function.description;
+      mapped.description = t.function.description;
     }
-    return out;
-  });
+    out.push(mapped);
+  }
+  return out;
 }
 
 /**
@@ -273,7 +284,7 @@ export const anthropicProvider = {
   models: ANTHROPIC_MODELS,
   defaultModel: "claude-sonnet-5",
   supportsFunctionTools: true,
-  hostedTools: Object.freeze([]),
+  hostedTools: Object.freeze(["web_search"]),
 
   /**
    * Anthropic rejects threads with no non-system turn or an assistant-first
@@ -297,7 +308,8 @@ export const anthropicProvider = {
     onReasoningDelta,
   }) {
     const mapped = mapMessagesForAnthropic(messages);
-    const functionTools = filterFunctionTools(tools);
+    const mappedTools =
+      Array.isArray(tools) && tools.length > 0 ? mapToolsForAnthropic(tools) : [];
 
     /** @type {Record<string, unknown>} */
     const requestBody = {
@@ -307,14 +319,17 @@ export const anthropicProvider = {
       ...(mapped.system ? { system: mapped.system } : {}),
       messages: mapped.messages,
     };
-    if (functionTools) {
-      requestBody.tools = mapToolsForAnthropic(functionTools);
+    if (mappedTools.length > 0) {
+      requestBody.tools = mappedTools;
       // Default matches validateExperimentalInferenceRequest when tools present.
       requestBody.tool_choice = mapToolChoiceForAnthropic(
         toolChoice !== undefined ? toolChoice : "auto"
       );
     }
-    const thinking = mapReasoningEffortForAnthropic(options?.reasoningEffort);
+    const thinking = mapReasoningEffortForAnthropic(
+      options?.reasoningEffort,
+      model
+    );
     if (thinking) {
       requestBody.thinking = thinking.thinking;
       if (thinking.output_config !== undefined) {
