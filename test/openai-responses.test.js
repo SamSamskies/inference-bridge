@@ -159,6 +159,9 @@ describe("streamOpenAIResponsesChat", () => {
           "event: response.function_call_arguments.delta",
           'data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\\"Austin\\"}"}',
           "",
+          "event: response.function_call_arguments.done",
+          'data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":"{\\"city\\":\\"Austin\\"}"}',
+          "",
           "event: response.output_text.delta",
           'data: {"type":"response.output_text.delta","delta":"looking"}',
           "",
@@ -180,6 +183,42 @@ describe("streamOpenAIResponsesChat", () => {
     });
 
     expect(result.message.content).toBe("looking");
+    expect(result.message.toolCalls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+  });
+
+  it("uses function_call_arguments.done when argument deltas are missing", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: response.output_item.added",
+          'data: {"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":""}}',
+          "",
+          "event: response.function_call_arguments.done",
+          'data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":"{\\"city\\":\\"Austin\\"}"}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAIResponsesChat({
+      apiKey: "sk-test",
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [
+        { type: "web_search" },
+        { type: "function", function: { name: "get_weather" } },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
     expect(result.message.toolCalls).toEqual([
       {
         id: "call_1",

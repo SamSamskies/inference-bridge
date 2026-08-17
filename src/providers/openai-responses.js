@@ -427,6 +427,17 @@ export async function streamOpenAIResponsesChat({
       return;
     }
 
+    if (type === "response.function_call_arguments.done") {
+      const itemId = typeof parsed.item_id === "string" ? parsed.item_id : "";
+      const args = typeof parsed.arguments === "string" ? parsed.arguments : "";
+      if (!itemId) return;
+      const entry = ensureFunctionCall(itemId);
+      // `.done` is the finalized JSON. Prefer it over accumulated deltas so
+      // missing/empty deltas still yield complete toolCalls arguments.
+      if (args) entry.arguments = args;
+      return;
+    }
+
     if (type === "response.completed" || type === "response.created") {
       const resp = parsed.response;
       if (!resp || typeof resp !== "object") return;
