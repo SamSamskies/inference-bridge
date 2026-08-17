@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, Anthropic, OpenRouter, local Ollama, or OpenAI-compatible servers). Keep listing copy focused on that purpose.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat requests to user-configured providers (OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI, or OpenAI-compatible servers). Keep listing copy focused on that purpose.
 
 ## Versioning
 
@@ -47,7 +47,7 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Ollama, or your own OpenAI-compatible server — keys stay in the extension. |
+| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Ollama, on-device browser AI, or your own OpenAI-compatible server — keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -58,7 +58,7 @@ unzip -l dist/inference-bridge-*.zip
 ```
 Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
 
-Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
+Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-device browser AI when available, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Experimental function tools via window.inference.experimental (page-executed; keys stay in the extension)
