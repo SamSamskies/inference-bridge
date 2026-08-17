@@ -61,8 +61,15 @@ export function mapReasoningEffortForOpenAICompat(effort, model) {
   return effort;
 }
 
+/** Request fields whose 400s use the same "Unsupported value … not supported" phrasing. */
+const UNRELATED_UNSUPPORTED_VALUE_FIELDS =
+  /\b(tool_choice|tools|temperature|max_tokens|max_completion_tokens|response_format)\b/i;
+
 /**
  * True when the provider rejected a reasoning-effort value (not auth/rate-limit).
+ * OpenAI's effort 400s often omit the field name and only quote the value, so
+ * `"unsupported value"` is a signal — but only when the quoted tokens look like
+ * efforts and the message is not about another request field.
  * @param {number} status
  * @param {string} message
  * @returns {boolean}
@@ -71,13 +78,13 @@ export function isUnsupportedReasoningEffortError(status, message) {
   if (status !== 400 && status !== 422) return false;
   if (typeof message !== "string" || !message) return false;
   const lower = message.toLowerCase();
-  const mentionsEffort =
-    lower.includes("reasoning") ||
-    lower.includes("effort") ||
-    lower.includes("unsupported value");
   const rejected =
     lower.includes("not supported") || lower.includes("supported values");
-  return mentionsEffort && rejected;
+  if (!rejected) return false;
+  if (lower.includes("reasoning") || lower.includes("effort")) return true;
+  if (!lower.includes("unsupported value")) return false;
+  if (UNRELATED_UNSUPPORTED_VALUE_FIELDS.test(lower)) return false;
+  return parseSupportedReasoningEfforts(message).length > 0;
 }
 
 /**

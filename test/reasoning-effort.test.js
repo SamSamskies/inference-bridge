@@ -111,6 +111,24 @@ describe("OpenAI-compat reasoning-effort retry helpers", () => {
     expect(
       isUnsupportedReasoningEffortError(400, "status 400")
     ).toBe(false);
+    expect(
+      isUnsupportedReasoningEffortError(
+        400,
+        "Unsupported value: 'none' is not supported for parameter 'tool_choice'."
+      )
+    ).toBe(false);
+    expect(
+      isUnsupportedReasoningEffortError(
+        400,
+        "Unsupported value: 'web_search' is not supported with this model for 'tools'."
+      )
+    ).toBe(false);
+    expect(
+      isUnsupportedReasoningEffortError(
+        400,
+        "Unsupported value: '0.2' is not supported with this model. Temperature is not supported."
+      )
+    ).toBe(false);
   });
 
   it("parses quoted efforts and prefers the next-lowest after none", () => {
@@ -138,6 +156,13 @@ describe("OpenAI-compat reasoning-effort retry helpers", () => {
     ).toEqual({ retry: true, effort: "minimal" });
     expect(
       nextOpenAICompatReasoningEffortAfterError(400, "status 400", "none")
+    ).toEqual({ retry: false });
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(
+        400,
+        "Unsupported value: 'none' is not supported for parameter 'tool_choice'.",
+        "none"
+      )
     ).toEqual({ retry: false });
     expect(
       nextOpenAICompatReasoningEffortAfterError(400, NANO_NONE_ERROR, undefined)
