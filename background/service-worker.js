@@ -8,7 +8,7 @@ import {
   validateExperimentalInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
-import { getSettings } from "../src/storage.js";
+import { getSettings, hasStoredApiKey } from "../src/storage.js";
 import {
   ensurePermission,
   resolveApproval,
@@ -230,7 +230,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
         ),
         ...(apiKeys
-          ? { hasApiKey: Boolean(apiKeys[p.id]) }
+          ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) }
           : {}),
         defaultModel: p.defaultModel,
         supportsFunctionTools: Boolean(p.supportsFunctionTools),

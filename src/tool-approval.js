@@ -298,7 +298,8 @@ export function blocksAllowForUnsupportedFunctionTools(provider, tools) {
  * True when Ollama is selected for hosted web_search but no ollama.com key is
  * saved. Allow cannot succeed (Bridge will not silently strip search).
  * `hasApiKey === undefined` (settings unread) does not block — the stream
- * still enforces the key.
+ * still enforces the key. Callers must set `hasApiKey: false` for
+ * whitespace-only keys (`hasStoredApiKey` / `hasOllamaWebSearchApiKey`).
  *
  * @param {{
  *   id?: string,

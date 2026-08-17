@@ -13,6 +13,7 @@ import {
   normalizeProviderId,
   isPlausibleModelForProvider,
   isCompatProviderId,
+  hasStoredApiKey,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
@@ -329,7 +330,7 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys) {
   return !blocksAllowForMissingOllamaWebSearchKey(
     {
       id: provider?.id,
-      hasApiKey: typeof raw === "string" && raw.trim().length > 0,
+      hasApiKey: hasStoredApiKey(raw),
     },
     tools
   );

@@ -726,6 +726,29 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt2-ollama-key")).toBeNull();
   });
 
+  it("re-prompts Always-allow Ollama web_search when the saved key is whitespace-only", async () => {
+    chromeMock.store.set("apiKeys", { ollama: "   " });
+    await grantOriginAlways("https://ollama-search-ws.example", {
+      providerId: "ollama",
+      model: "gemma4",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-ollama-ws",
+      origin: "https://ollama-search-ws.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-ollama-ws");
+    resolveApproval("rt2-ollama-ws", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("re-prompts Allow-once Ollama web_search follow-ups after the account key is removed", async () => {
     await saveSettings({ apiKeys: { ollama: "ollama-key" } });
 
