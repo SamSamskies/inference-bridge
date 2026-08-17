@@ -332,7 +332,9 @@ describe("streamOpenAIResponsesChat", () => {
     });
   });
 
-  it("throws provider_error on response.incomplete stream events", async () => {
+  it("completes with accumulated text on response.incomplete (e.g. max_output_tokens)", async () => {
+    /** @type {string[]} */
+    const deltas = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -342,26 +344,27 @@ describe("streamOpenAIResponsesChat", () => {
             'data: {"type":"response.output_text.delta","delta":"partial"}',
             "",
             "event: response.incomplete",
-            'data: {"type":"response.incomplete","response":{"status":"incomplete","error":null,"incomplete_details":{"reason":"max_output_tokens"}}}',
+            'data: {"type":"response.incomplete","response":{"model":"gpt-resolved","status":"incomplete","error":null,"incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":4,"output_tokens":2}}}',
             "",
           ].join("\n")
         )
       )
     );
 
-    await expect(
-      streamOpenAIResponsesChat({
-        apiKey: "sk-test",
-        model: "gpt-5.6-luna",
-        messages: [{ role: "user", content: "hi" }],
-        tools: [{ type: "web_search" }],
-        signal: new AbortController().signal,
-        onDelta: () => {},
-      })
-    ).rejects.toMatchObject({
-      name: "InferenceError",
-      code: "provider_error",
-      message: "OpenAI response incomplete: max_output_tokens",
+    const result = await streamOpenAIResponsesChat({
+      apiKey: "sk-test",
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      signal: new AbortController().signal,
+      onDelta: (c) => deltas.push(c),
+    });
+
+    expect(deltas).toEqual(["partial"]);
+    expect(result).toEqual({
+      model: "gpt-resolved",
+      message: { role: "assistant", content: "partial" },
+      usage: { inputTokens: 4, outputTokens: 2 },
     });
   });
 

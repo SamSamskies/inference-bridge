@@ -363,12 +363,7 @@ export async function streamOpenAIResponsesChat({
   function handleEvent(parsed) {
     const type = typeof parsed.type === "string" ? parsed.type : currentEvent;
 
-    if (
-      type === "error" ||
-      type === "response.failed" ||
-      type === "response.incomplete" ||
-      parsed.error
-    ) {
+    if (type === "error" || type === "response.failed" || parsed.error) {
       throwInference("provider_error", responsesStreamErrorMessage(parsed, type));
     }
 
@@ -438,7 +433,13 @@ export async function streamOpenAIResponsesChat({
       return;
     }
 
-    if (type === "response.completed" || type === "response.created") {
+    // Incomplete is terminal but not fatal (e.g. max_output_tokens): keep
+    // accumulated deltas and emit IPA `done`, matching Chat Completions.
+    if (
+      type === "response.completed" ||
+      type === "response.created" ||
+      type === "response.incomplete"
+    ) {
       const resp = parsed.response;
       if (!resp || typeof resp !== "object") return;
       const r = /** @type {Record<string, unknown>} */ (resp);
