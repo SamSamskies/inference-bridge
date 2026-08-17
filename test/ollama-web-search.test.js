@@ -294,6 +294,52 @@ describe("runOllamaHostedSearchLoop", () => {
     );
   });
 
+  it("returns page function toolCalls when mixed with hosted search in the same turn", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const streamTurn = vi.fn(async () => ({
+      model: "qwen3",
+      message: {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "ollama_call_0",
+            type: "function",
+            function: {
+              name: "web_search",
+              arguments: JSON.stringify({ query: "Austin weather" }),
+            },
+          },
+          {
+            id: "ollama_call_1",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+          },
+        ],
+      },
+    }));
+    const result = await runOllamaHostedSearchLoop({
+      apiKey: "k",
+      tools: [
+        { type: "web_search" },
+        { type: "function", function: { name: "get_weather" } },
+      ],
+      messages: [{ role: "user", content: "weather?" }],
+      signal: new AbortController().signal,
+      streamTurn,
+    });
+    expect(result.message.toolCalls).toEqual([
+      {
+        id: "ollama_call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+    expect(streamTurn).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns page function toolCalls without calling ollama.com", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

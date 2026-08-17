@@ -440,8 +440,23 @@ export async function runOllamaHostedSearchLoop({
     const hostedCalls = toolCalls.filter((c) =>
       isOllamaHostedSearchToolName(c.function?.name)
     );
-    if (hostedCalls.length === 0) {
-      return last;
+    const pageCalls = toolCalls.filter(
+      (c) => !isOllamaHostedSearchToolName(c.function?.name)
+    );
+    // Stop when any page tools are present so they are not dropped from a
+    // hosted-only follow-up. Mixed turns surface page calls only; hosted
+    // names stay Bridge-executed and must not appear as IPA toolCalls.
+    if (pageCalls.length > 0) {
+      if (pageCalls.length === toolCalls.length) {
+        return last;
+      }
+      return {
+        ...last,
+        message: {
+          ...last.message,
+          toolCalls: pageCalls,
+        },
+      };
     }
 
     if (turn === OLLAMA_HOSTED_SEARCH_MAX_TURNS - 1) {
