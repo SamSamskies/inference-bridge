@@ -20,9 +20,9 @@
  */
 
 /**
- * Bridge-experimental tool definition. Hosted tools (e.g. web_search) are
- * declared here for the capability matrix; Chat Completions adapters only
- * forward `type: "function"` entries.
+ * Bridge-experimental tool definition. Hosted `{ type: "web_search" }` is
+ * forwarded on OpenAI (Responses), Anthropic (Messages server tool), and
+ * OpenRouter (Chat Completions). Other adapters only forward `type: "function"`.
  * @typedef {{
  *   type: "function",
  *   function: {

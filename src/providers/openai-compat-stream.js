@@ -3,7 +3,10 @@
  * Used by OpenAI and OpenRouter adapters.
  */
 
-import { mapReasoningEffortForOpenAICompat } from "./reasoning-effort.js";
+import {
+  mapReasoningEffortForOpenAICompat,
+  nextOpenAICompatReasoningEffortAfterError,
+} from "./reasoning-effort.js";
 import { mapTemperatureForOpenAICompat } from "./temperature.js";
 
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
@@ -47,8 +50,35 @@ function defaultMapStatus(status, detail, label) {
 }
 
 /**
- * Keep only OpenAI-style function tools (hosted tools are out of scope for
- * Chat Completions adapters).
+ * @param {Record<string, unknown>} body
+ * @param {string | undefined} effort
+ */
+function setChatCompletionsReasoningEffort(body, effort) {
+  if (effort === undefined) {
+    delete body.reasoning_effort;
+  } else {
+    body.reasoning_effort = effort;
+  }
+}
+
+/**
+ * @param {Response} response
+ * @param {string} fallback
+ * @returns {Promise<string>}
+ */
+async function readProviderErrorDetail(response, fallback) {
+  try {
+    const body = await response.json();
+    if (body?.error?.message) return body.error.message;
+  } catch {
+    // ignore parse failure
+  }
+  return fallback;
+}
+
+/**
+ * Keep only OpenAI-style function tools (hosted tools are mapped by the
+ * provider adapter, not this Chat Completions helper).
  * @param {Tool[] | undefined} tools
  * @returns {Extract<Tool, { type: "function" }>[] | undefined}
  */
@@ -202,11 +232,10 @@ export async function streamOpenAICompatChat({
       body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
     }
     const reasoningEffort = mapReasoningEffortForOpenAICompat(
-      options?.reasoningEffort
+      options?.reasoningEffort,
+      model
     );
-    if (reasoningEffort !== undefined) {
-      body.reasoning_effort = reasoningEffort;
-    }
+    setChatCompletionsReasoningEffort(body, reasoningEffort);
     const temperature = mapTemperatureForOpenAICompat(options?.temperature);
     if (temperature !== undefined) {
       body.temperature = temperature;
@@ -218,7 +247,40 @@ export async function streamOpenAICompatChat({
       body: JSON.stringify(body),
       signal,
     });
+
+    if (!response.ok) {
+      let detail = await readProviderErrorDetail(
+        response,
+        `${label} HTTP ${response.status}`
+      );
+      const next = nextOpenAICompatReasoningEffortAfterError(
+        response.status,
+        detail,
+        reasoningEffort
+      );
+      if (next.retry) {
+        setChatCompletionsReasoningEffort(body, next.effort);
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal,
+        });
+        if (!response.ok) {
+          detail = await readProviderErrorDetail(
+            response,
+            `${label} HTTP ${response.status}`
+          );
+          const mappedRetry = mapStatus(response.status, detail, label);
+          throwInference(mappedRetry.code, mappedRetry.message);
+        }
+      } else {
+        const mapped = mapStatus(response.status, detail, label);
+        throwInference(mapped.code, mapped.message);
+      }
+    }
   } catch (err) {
+    if (/** @type {any} */ (err)?.code) throw err;
     if (signal.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
       throwInference("aborted", "Request aborted");
     }
@@ -226,18 +288,6 @@ export async function streamOpenAICompatChat({
       "unavailable",
       err instanceof Error ? err.message : `Network error contacting ${label}`
     );
-  }
-
-  if (!response.ok) {
-    let detail = `${label} HTTP ${response.status}`;
-    try {
-      const body = await response.json();
-      if (body?.error?.message) detail = body.error.message;
-    } catch {
-      // ignore parse failure
-    }
-    const mapped = mapStatus(response.status, detail, label);
-    throwInference(mapped.code, mapped.message);
   }
 
   if (!response.body) {

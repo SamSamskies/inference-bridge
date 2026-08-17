@@ -235,7 +235,7 @@ describe("openrouterProvider.streamChat", () => {
     });
   });
 
-  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
+  it("forwards function tools and maps hosted web_search to openrouter:web_search", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -264,7 +264,11 @@ describe("openrouterProvider.streamChat", () => {
     });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://openrouter.ai/api/v1/chat/completions"
+    );
     expect(body.tools).toEqual([
+      { type: "openrouter:web_search" },
       {
         type: "function",
         function: { name: "get_weather", parameters: { type: "object" } },
@@ -278,6 +282,32 @@ describe("openrouterProvider.streamChat", () => {
         function: { name: "get_weather", arguments: "{}" },
       },
     ]);
+  });
+
+  it("sends openrouter:web_search when it is the only tool", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [{ role: "user", content: "news?" }],
+      tools: [{ type: "web_search" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([{ type: "openrouter:web_search" }]);
+    expect(body.tool_choice).toBe("auto");
   });
 
   it("round-trips assistant toolCalls and tool follow-up messages", async () => {

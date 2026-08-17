@@ -3,10 +3,8 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
-import {
-  filterFunctionTools,
-  streamOpenAICompatChat,
-} from "./openai-compat-stream.js";
+import { mapToolsForOpenRouter } from "./hosted-tools.js";
+import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_CHAT_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
@@ -106,7 +104,7 @@ export const openrouterProvider = {
   // Placeholder until /api/v1/models is queried; Auto Router is a safe starter.
   defaultModel: "openrouter/auto",
   supportsFunctionTools: true,
-  hostedTools: Object.freeze([]),
+  hostedTools: Object.freeze(["web_search"]),
 
   listModels: listOpenRouterModels,
 
@@ -128,15 +126,15 @@ export const openrouterProvider = {
       );
     }
 
-    const functionTools = filterFunctionTools(tools);
+    const mappedTools = mapToolsForOpenRouter(tools);
     return streamOpenAICompatChat({
       url: OPENROUTER_CHAT_URL,
       apiKey,
       model,
       messages,
-      ...(functionTools
+      ...(mappedTools
         ? {
-            tools: functionTools,
+            tools: mappedTools,
             ...(toolChoice !== undefined ? { toolChoice } : {}),
           }
         : {}),

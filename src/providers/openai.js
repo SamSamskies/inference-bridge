@@ -1,12 +1,14 @@
 /**
- * OpenAI chat Completions streaming adapter.
- * Implements the provider interface used by the registry.
+ * OpenAI streaming adapter.
+ * Chat Completions by default; Responses API when hosted web_search is present.
  */
 
+import { hasHostedWebSearch } from "./hosted-tools.js";
 import {
   filterFunctionTools,
   streamOpenAICompatChat,
 } from "./openai-compat-stream.js";
+import { streamOpenAIResponsesChat } from "./openai-responses.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -37,7 +39,7 @@ export const openaiProvider = {
   models: OPENAI_MODELS,
   defaultModel: "gpt-5.6-luna",
   supportsFunctionTools: true,
-  hostedTools: Object.freeze([]),
+  hostedTools: Object.freeze(["web_search"]),
 
   async streamChat({
     apiKey,
@@ -50,6 +52,20 @@ export const openaiProvider = {
     onDelta,
     onReasoningDelta,
   }) {
+    if (hasHostedWebSearch(tools)) {
+      return streamOpenAIResponsesChat({
+        apiKey,
+        model,
+        messages,
+        tools,
+        toolChoice,
+        ...(options ? { options } : {}),
+        signal,
+        onDelta,
+        onReasoningDelta,
+      });
+    }
+
     const functionTools = filterFunctionTools(tools);
     return streamOpenAICompatChat({
       url: OPENAI_URL,

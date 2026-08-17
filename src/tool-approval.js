@@ -311,7 +311,7 @@ export function capabilityWarnings(provider, tools) {
     if (!hostedSupported.has(hosted)) {
       if (hosted === "web_search") {
         warnings.push(
-          `Web search is not available for ${label} yet. Allow will still work; search will not run until a provider mapping exists.`
+          `Web search is not supported by ${label}. Allow will still work; the provider will not run a hosted search.`
         );
       } else {
         warnings.push(

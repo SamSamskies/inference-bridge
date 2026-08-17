@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("openaiProvider.streamChat", () => {
-  it("forwards function tools only and returns accumulated toolCalls", async () => {
+  it("uses Chat Completions when only function tools are present", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -34,10 +34,7 @@ describe("openaiProvider.streamChat", () => {
       apiKey: "sk-test",
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: "weather?" }],
-      tools: [
-        { type: "web_search" },
-        { type: "function", function: { name: "get_weather" } },
-      ],
+      tools: [{ type: "function", function: { name: "get_weather" } }],
       toolChoice: { type: "function", function: { name: "get_weather" } },
       signal: new AbortController().signal,
       onDelta: () => {},
@@ -58,6 +55,43 @@ describe("openaiProvider.streamChat", () => {
         id: "call_1",
         type: "function",
         function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+  });
+
+  it("uses Responses when hosted web_search is requested", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"news"}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: "latest?" }],
+      tools: [
+        { type: "web_search" },
+        { type: "function", function: { name: "get_weather" } },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.openai.com/v1/responses");
+    const body = JSON.parse(init.body);
+    expect(body.tools).toEqual([
+      { type: "web_search" },
+      {
+        type: "function",
+        name: "get_weather",
+        parameters: { type: "object", properties: {} },
       },
     ]);
   });
@@ -174,6 +208,18 @@ describe("openaiProvider.streamChat", () => {
 
     await openaiProvider.streamChat({
       apiKey: "sk-test",
+      model: "gpt-5-nano",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning_effort).toBe(
+      "minimal"
+    );
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
       model: "gpt-5.4",
       messages: [{ role: "user", content: "hi" }],
       options: { reasoningEffort: "auto" },
@@ -181,7 +227,7 @@ describe("openaiProvider.streamChat", () => {
       onDelta: () => {},
     });
     expect(
-      JSON.parse(fetchMock.mock.calls[1][1].body)
+      JSON.parse(fetchMock.mock.calls[2][1].body)
     ).not.toHaveProperty("reasoning_effort");
   });
 
