@@ -260,6 +260,72 @@ describe("streamOpenAIResponsesChat", () => {
     });
   });
 
+  it("throws provider_error on response.failed stream events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse(
+          [
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"partial"}',
+            "",
+            "event: response.failed",
+            'data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"backend failed"}}}',
+            "",
+          ].join("\n")
+        )
+      )
+    );
+
+    await expect(
+      streamOpenAIResponsesChat({
+        apiKey: "sk-test",
+        model: "gpt-5.6-luna",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "provider_error",
+      message: "backend failed",
+    });
+  });
+
+  it("throws provider_error on response.incomplete stream events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse(
+          [
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"partial"}',
+            "",
+            "event: response.incomplete",
+            'data: {"type":"response.incomplete","response":{"status":"incomplete","error":null,"incomplete_details":{"reason":"max_output_tokens"}}}',
+            "",
+          ].join("\n")
+        )
+      )
+    );
+
+    await expect(
+      streamOpenAIResponsesChat({
+        apiKey: "sk-test",
+        model: "gpt-5.6-luna",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "provider_error",
+      message: "OpenAI response incomplete: max_output_tokens",
+    });
+  });
+
   it("throws provider_error on HTTP 401", async () => {
     vi.stubGlobal(
       "fetch",

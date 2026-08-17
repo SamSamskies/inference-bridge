@@ -32,6 +32,43 @@ function throwInference(code, message) {
 }
 
 /**
+ * @param {unknown} err
+ * @returns {string | undefined}
+ */
+function openaiErrorMessage(err) {
+  if (typeof err === "string" && err) return err;
+  if (err && typeof err === "object") {
+    const message = /** @type {any} */ (err).message;
+    if (typeof message === "string" && message) return message;
+  }
+  return undefined;
+}
+
+/**
+ * Terminal Responses failures put the error on `response.error`, not the
+ * top-level `error` field used by `type: "error"` SSE events.
+ * @param {Record<string, unknown>} parsed
+ * @param {string} type
+ * @returns {string}
+ */
+function responsesStreamErrorMessage(parsed, type) {
+  const top = openaiErrorMessage(parsed.error);
+  if (top) return top;
+  const resp = parsed.response;
+  if (resp && typeof resp === "object") {
+    const nested = openaiErrorMessage(/** @type {any} */ (resp).error);
+    if (nested) return nested;
+    const reason = /** @type {any} */ (resp).incomplete_details?.reason;
+    if (typeof reason === "string" && reason) {
+      return `OpenAI response incomplete: ${reason}`;
+    }
+  }
+  if (type === "response.failed") return "OpenAI response failed";
+  if (type === "response.incomplete") return "OpenAI response incomplete";
+  return "OpenAI stream error";
+}
+
+/**
  * @param {number} status
  * @param {string} detail
  * @returns {{ code: string, message: string }}
@@ -326,15 +363,13 @@ export async function streamOpenAIResponsesChat({
   function handleEvent(parsed) {
     const type = typeof parsed.type === "string" ? parsed.type : currentEvent;
 
-    if (type === "error" || parsed.error) {
-      const err = parsed.error;
-      const message =
-        err && typeof err === "object" && typeof /** @type {any} */ (err).message === "string"
-          ? /** @type {any} */ (err).message
-          : typeof err === "string"
-            ? err
-            : "OpenAI stream error";
-      throwInference("provider_error", message);
+    if (
+      type === "error" ||
+      type === "response.failed" ||
+      type === "response.incomplete" ||
+      parsed.error
+    ) {
+      throwInference("provider_error", responsesStreamErrorMessage(parsed, type));
     }
 
     if (type === "response.output_text.delta") {
