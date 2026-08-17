@@ -299,6 +299,100 @@ describe("runOllamaHostedSearchLoop", () => {
     );
   });
 
+  it("returns a page web_search function tool instead of executing it on ollama.com", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const pageSearch = {
+      type: "function",
+      function: { name: "web_search", description: "page tool" },
+    };
+    const result = await runOllamaHostedSearchLoop({
+      apiKey: "k",
+      tools: [{ type: "web_search" }, pageSearch],
+      messages: [{ role: "user", content: "search?" }],
+      signal: new AbortController().signal,
+      streamTurn: async () => ({
+        model: "qwen3",
+        message: {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "ollama_call_0",
+              type: "function",
+              function: {
+                name: "web_search",
+                arguments: JSON.stringify({ query: "page search" }),
+              },
+            },
+          ],
+        },
+      }),
+    });
+    expect(result.message.toolCalls).toEqual([
+      {
+        id: "ollama_call_0",
+        type: "function",
+        function: {
+          name: "web_search",
+          arguments: JSON.stringify({ query: "page search" }),
+        },
+      },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still executes hosted web_fetch when the page owns web_search", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ title: "Example" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const streamTurn = vi.fn(async () => {
+      if (streamTurn.mock.calls.length === 1) {
+        return {
+          model: "qwen3",
+          message: {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "ollama_call_0",
+                type: "function",
+                function: {
+                  name: "web_fetch",
+                  arguments: JSON.stringify({ url: "https://example.com" }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      return {
+        model: "qwen3",
+        message: { role: "assistant", content: "Fetched." },
+      };
+    });
+
+    const result = await runOllamaHostedSearchLoop({
+      apiKey: "k",
+      tools: [
+        { type: "web_search" },
+        {
+          type: "function",
+          function: { name: "web_search", description: "page tool" },
+        },
+      ],
+      messages: [{ role: "user", content: "fetch?" }],
+      signal: new AbortController().signal,
+      streamTurn,
+    });
+
+    expect(result.message.content).toBe("Fetched.");
+    expect(fetchMock.mock.calls[0][0]).toBe(OLLAMA_WEB_FETCH_URL);
+    expect(streamTurn.mock.calls[1][0].messages[1]).toMatchObject({
+      role: "assistant",
+      toolCalls: [{ function: { name: "web_fetch" } }],
+    });
+  });
+
   it("returns page function toolCalls when mixed with hosted search in the same turn", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

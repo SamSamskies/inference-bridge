@@ -119,6 +119,49 @@ export function isOllamaHostedSearchToolName(name) {
 }
 
 /**
+ * Function names the page already defined. Hosted search must not steal these.
+ * @param {Tool[] | undefined | null} tools
+ * @returns {Set<string>}
+ */
+function pageFunctionToolNames(tools) {
+  /** @type {Set<string>} */
+  const names = new Set();
+  if (!Array.isArray(tools)) return names;
+  for (const t of tools) {
+    if (
+      t &&
+      typeof t === "object" &&
+      t.type === "function" &&
+      typeof t.function?.name === "string" &&
+      t.function.name
+    ) {
+      names.add(t.function.name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Hosted `web_search` / `web_fetch` names Bridge will inject and execute.
+ * Page-owned names are excluded so a page function tool is not hijacked.
+ * @param {Tool[] | undefined | null} tools
+ * @returns {Set<string>}
+ */
+function hostedSearchFunctionNamesForRequest(tools) {
+  /** @type {Set<string>} */
+  const hosted = new Set();
+  if (!hasHostedWebSearch(tools)) return hosted;
+  const pageNames = pageFunctionToolNames(tools);
+  if (!pageNames.has(OLLAMA_WEB_SEARCH_FUNCTION_NAME)) {
+    hosted.add(OLLAMA_WEB_SEARCH_FUNCTION_NAME);
+  }
+  if (!pageNames.has(OLLAMA_WEB_FETCH_FUNCTION_NAME)) {
+    hosted.add(OLLAMA_WEB_FETCH_FUNCTION_NAME);
+  }
+  return hosted;
+}
+
+/**
  * Map Bridge tools onto local Ollama chat `tools`.
  * `{ type: "web_search" }` becomes `web_search` + `web_fetch` function tools;
  * page function tools are kept. Hosted schemas are skipped when the page
@@ -132,33 +175,21 @@ export function mapToolsForOllama(tools) {
 
   /** @type {Extract<Tool, { type: "function" }>[]} */
   const functionTools = [];
-  /** @type {Set<string>} */
-  const names = new Set();
-  let wantHosted = false;
-
   for (const t of tools) {
     if (!t || typeof t !== "object") continue;
-    if (t.type === "web_search") {
-      wantHosted = true;
-      continue;
-    }
     if (t.type === "function") {
       functionTools.push(t);
-      if (typeof t.function?.name === "string" && t.function.name) {
-        names.add(t.function.name);
-      }
     }
   }
 
+  const hostedNames = hostedSearchFunctionNamesForRequest(tools);
   /** @type {Extract<Tool, { type: "function" }>[]} */
   const out = [];
-  if (wantHosted) {
-    if (!names.has(OLLAMA_WEB_SEARCH_FUNCTION_NAME)) {
-      out.push(OLLAMA_WEB_SEARCH_FUNCTION_TOOL);
-    }
-    if (!names.has(OLLAMA_WEB_FETCH_FUNCTION_NAME)) {
-      out.push(OLLAMA_WEB_FETCH_FUNCTION_TOOL);
-    }
+  if (hostedNames.has(OLLAMA_WEB_SEARCH_FUNCTION_NAME)) {
+    out.push(OLLAMA_WEB_SEARCH_FUNCTION_TOOL);
+  }
+  if (hostedNames.has(OLLAMA_WEB_FETCH_FUNCTION_NAME)) {
+    out.push(OLLAMA_WEB_FETCH_FUNCTION_TOOL);
   }
   out.push(...functionTools);
   return out.length > 0 ? out : undefined;
@@ -460,6 +491,7 @@ export async function runOllamaHostedSearchLoop({
   }
 
   const mappedTools = mapToolsForOllama(tools);
+  const hostedNames = hostedSearchFunctionNamesForRequest(tools);
   /** @type {ChatMessage[]} */
   let nextMessages = [...messages];
   /** @type {T | undefined} */
@@ -479,10 +511,10 @@ export async function runOllamaHostedSearchLoop({
     }
 
     const hostedCalls = toolCalls.filter((c) =>
-      isOllamaHostedSearchToolName(c.function?.name)
+      hostedNames.has(c.function?.name)
     );
     const pageCalls = toolCalls.filter(
-      (c) => !isOllamaHostedSearchToolName(c.function?.name)
+      (c) => !hostedNames.has(c.function?.name)
     );
     // Stop when any page tools are present so they are not dropped from a
     // hosted-only follow-up. Mixed turns surface page calls only; hosted
