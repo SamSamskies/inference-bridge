@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  blocksAllowForMissingOllamaWebSearchKey,
+  blocksAllowForRequestTools,
   blocksAllowForUnsupportedFunctionTools,
   capabilityWarnings,
   fingerprintTools,
   fingerprintTrailingToolCalls,
+  hostedToolDescription,
   hostedToolLabel,
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
@@ -345,6 +348,13 @@ describe("summarizeToolsForPreview / hostedToolLabel", () => {
     expect(hostedToolLabel("web_search")).toBe(
       "Web search (provider-hosted)"
     );
+    expect(hostedToolLabel("web_search", { id: "ollama" })).toBe(
+      "Web search (Ollama cloud)"
+    );
+    expect(hostedToolDescription("web_search", { id: "ollama" })).toMatch(
+      /ollama\.com/
+    );
+    expect(hostedToolDescription("web_search", { id: "openai" })).toBe("");
   });
 });
 
@@ -386,6 +396,64 @@ describe("blocksAllowForUnsupportedFunctionTools", () => {
   });
 });
 
+describe("blocksAllowForMissingOllamaWebSearchKey", () => {
+  const ollamaNoKey = {
+    id: "ollama",
+    label: "Ollama",
+    supportsFunctionTools: true,
+    hostedTools: ["web_search"],
+    hasApiKey: false,
+  };
+
+  it("blocks Ollama web_search when the account key is missing", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(ollamaNoKey, [
+        { type: "web_search" },
+      ])
+    ).toBe(true);
+    expect(
+      blocksAllowForRequestTools(ollamaNoKey, [{ type: "web_search" }])
+    ).toBe(true);
+  });
+
+  it("does not block Ollama chat without hosted search", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(ollamaNoKey, [weatherTool])
+    ).toBe(false);
+    expect(blocksAllowForMissingOllamaWebSearchKey(ollamaNoKey, [])).toBe(
+      false
+    );
+  });
+
+  it("does not block when a key is saved or hasApiKey is unknown", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(
+        { ...ollamaNoKey, hasApiKey: true },
+        [{ type: "web_search" }]
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(
+        { id: "ollama", supportsFunctionTools: true },
+        [{ type: "web_search" }]
+      )
+    ).toBe(false);
+  });
+
+  it("does not block other providers", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(
+        {
+          id: "openai",
+          hasApiKey: false,
+          hostedTools: ["web_search"],
+        },
+        [{ type: "web_search" }]
+      )
+    ).toBe(false);
+  });
+});
+
 describe("capabilityWarnings", () => {
   it("warns when function tools are unsupported", () => {
     const warnings = capabilityWarnings(
@@ -399,12 +467,62 @@ describe("capabilityWarnings", () => {
 
   it("warns when web_search is not in hostedTools", () => {
     const warnings = capabilityWarnings(
-      { label: "Ollama", supportsFunctionTools: true, hostedTools: [] },
+      { id: "on-device", label: "On-device", supportsFunctionTools: false, hostedTools: [] },
       [{ type: "web_search" }]
     );
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/web search is not supported by Ollama/i);
-    expect(warnings[0]).toMatch(/allow will still work/i);
+    expect(warnings[0]).toMatch(/web search is not supported by On-device/i);
+    expect(warnings[0]).toMatch(/will not run a hosted search/i);
+    expect(warnings[0]).not.toMatch(/allow will still work/i);
+  });
+
+  it("does not name a custom OpenAI-compatible server in the web_search warning", () => {
+    const warnings = capabilityWarnings(
+      {
+        id: "compat:ppq",
+        label: "PPQ",
+        supportsFunctionTools: true,
+        hostedTools: [],
+      },
+      [{ type: "web_search" }]
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/OpenAI-compatible servers/i);
+    expect(warnings[0]).toMatch(/not mapped/i);
+    expect(warnings[0]).not.toMatch(/PPQ/);
+    expect(warnings[0]).not.toMatch(/allow will still work/i);
+  });
+
+  it("does not warn in red when Ollama web search is ready", () => {
+    expect(
+      capabilityWarnings(
+        {
+          id: "ollama",
+          label: "Ollama",
+          supportsFunctionTools: true,
+          hostedTools: ["web_search"],
+          hasApiKey: true,
+        },
+        [{ type: "web_search" }]
+      )
+    ).toEqual([]);
+  });
+
+  it("tells the user to save an Ollama API key when it is missing", () => {
+    const warnings = capabilityWarnings(
+      {
+        id: "ollama",
+        label: "Ollama",
+        supportsFunctionTools: true,
+        hostedTools: ["web_search"],
+        hasApiKey: false,
+      },
+      [{ type: "web_search" }]
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/ollama\.com/i);
+    expect(warnings[0]).toMatch(/save an Ollama account API key in Options/i);
+    expect(warnings[0]).toMatch(/enable Allow/i);
   });
 
   it("returns no warnings when capabilities match", () => {

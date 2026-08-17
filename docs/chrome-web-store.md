@@ -62,6 +62,7 @@ Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-de
 
 • Streaming chat via window.inference.request()
 • Experimental function tools via window.inference.experimental (page-executed; keys stay in the extension)
+• Experimental hosted web search on OpenAI, Anthropic, OpenRouter, and Ollama (Ollama search runs through ollama.com with an optional account key)
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
 • OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
@@ -84,6 +85,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
+- **https://ollama.com/**\* — Run hosted web search / fetch via Ollama cloud when the user selects Ollama and requests `{ type: "web_search" }` (optional Ollama account API key).
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
 - **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
 
@@ -112,7 +114,7 @@ Run through the README manual checklist on a clean profile:
 1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
 2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
-4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
+4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
 
 ## Submit (manual)
 

@@ -4,6 +4,12 @@
  */
 
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
+import { hasHostedWebSearch } from "./hosted-tools.js";
+import {
+  hasOllamaWebSearchApiKey,
+  missingOllamaWebSearchKeyMessage,
+  runOllamaHostedSearchLoop,
+} from "./ollama-web-search.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 import { mapTemperatureForOllama } from "./temperature.js";
@@ -291,30 +297,41 @@ export function finalizeOllamaToolCalls(toolCallsByIndex) {
     .filter((c) => c.function.name);
 }
 
-/** @typedef {import("./types.js").Provider} Provider */
-
-/** @type {Provider} */
-export const ollamaProvider = {
-  id: "ollama",
-  label: "Ollama",
-  requiresApiKey: false,
-  // Placeholder until /api/tags is queried; never used as a hardcoded catalog.
-  defaultModel: "",
-  supportsFunctionTools: true,
-  hostedTools: Object.freeze([]),
-
-  listModels: listOllamaModels,
-
-  async streamChat({
-    model,
-    messages,
-    tools,
-    toolChoice,
-    options,
-    signal,
-    onDelta,
-    onReasoningDelta,
-  }) {
+/**
+ * Stream a single Ollama `/api/chat` turn. Hosted web_search looping lives in
+ * `runOllamaHostedSearchLoop`; this helper always talks to localhost.
+ *
+ * @param {{
+ *   model: string,
+ *   messages: ChatMessage[],
+ *   tools?: Tool[],
+ *   toolChoice?: ToolChoice,
+ *   options?: import("./types.js").InferenceOptions,
+ *   signal: AbortSignal,
+ *   onDelta: (content: string) => void,
+ *   onReasoningDelta?: (content: string) => void,
+ * }} args
+ * @returns {Promise<{
+ *   model: string,
+ *   message: {
+ *     role: "assistant",
+ *     content: string,
+ *     reasoning?: string,
+ *     toolCalls?: ToolCall[],
+ *   },
+ *   usage?: { inputTokens?: number, outputTokens?: number },
+ * }>}
+ */
+export async function streamOllamaChatTurn({
+  model,
+  messages,
+  tools,
+  toolChoice,
+  options,
+  signal,
+  onDelta,
+  onReasoningDelta,
+}) {
     if (!model) {
       throwInference(
         "unavailable",
@@ -324,8 +341,6 @@ export const ollamaProvider = {
 
     await ensureOllamaOriginBypass();
 
-    const functionTools = filterFunctionTools(tools);
-
     let response;
     try {
       /** @type {Record<string, unknown>} */
@@ -334,8 +349,8 @@ export const ollamaProvider = {
         messages: mapMessagesForOllama(messages),
         stream: true,
       };
-      if (functionTools) {
-        body.tools = functionTools;
+      if (tools && tools.length > 0) {
+        body.tools = tools;
         // Default matches validateExperimentalInferenceRequest when tools present.
         body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
       }
@@ -508,5 +523,91 @@ export const ollamaProvider = {
       message,
       usage,
     };
+}
+
+/** @typedef {import("./types.js").Provider} Provider */
+
+/** @type {Provider} */
+export const ollamaProvider = {
+  id: "ollama",
+  label: "Ollama",
+  requiresApiKey: false,
+  optionalApiKey: true,
+  // Placeholder until /api/tags is queried; never used as a hardcoded catalog.
+  defaultModel: "",
+  supportsFunctionTools: true,
+  hostedTools: Object.freeze(["web_search"]),
+
+  listModels: listOllamaModels,
+
+  async streamChat({
+    apiKey,
+    model,
+    messages,
+    tools,
+    toolChoice,
+    options,
+    signal,
+    onDelta,
+    onReasoningDelta,
+  }) {
+    if (hasHostedWebSearch(tools)) {
+      if (!hasOllamaWebSearchApiKey(apiKey)) {
+        throwInference("unavailable", missingOllamaWebSearchKeyMessage());
+      }
+      let content = "";
+      let reasoning = "";
+      const result = await runOllamaHostedSearchLoop({
+        apiKey: /** @type {string} */ (apiKey),
+        tools,
+        messages,
+        signal,
+        streamTurn: ({ messages: turnMessages, tools: turnTools }) =>
+          streamOllamaChatTurn({
+            model,
+            messages: turnMessages,
+            tools: turnTools,
+            toolChoice,
+            options,
+            signal,
+            onDelta: (delta) => {
+              content += delta;
+              onDelta(delta);
+            },
+            onReasoningDelta: onReasoningDelta
+              ? (delta) => {
+                  reasoning += delta;
+                  onReasoningDelta(delta);
+                }
+              : undefined,
+          }),
+      });
+      /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
+      const message = {
+        role: "assistant",
+        content,
+        ...(result.message.toolCalls
+          ? { toolCalls: result.message.toolCalls }
+          : {}),
+      };
+      if (reasoning) {
+        message.reasoning = reasoning;
+      }
+      return {
+        ...result,
+        message,
+      };
+    }
+
+    return streamOllamaChatTurn({
+      model,
+      messages,
+      tools: filterFunctionTools(tools),
+      toolChoice,
+      options,
+      signal,
+      onDelta,
+      onReasoningDelta,
+    });
   },
 };

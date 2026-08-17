@@ -140,6 +140,15 @@ describe("listOllamaModels", () => {
   });
 });
 
+describe("ollamaProvider", () => {
+  it("advertises optional ollama.com key and hosted web_search", () => {
+    expect(ollamaProvider.requiresApiKey).toBe(false);
+    expect(ollamaProvider.optionalApiKey).toBe(true);
+    expect(ollamaProvider.supportsFunctionTools).toBe(true);
+    expect(ollamaProvider.hostedTools).toEqual(["web_search"]);
+  });
+});
+
 describe("ollamaProvider.streamChat", () => {
   it("streams message content deltas and maps usage from the done chunk", async () => {
     const body = [
@@ -427,7 +436,27 @@ describe("ollamaProvider.streamChat", () => {
     });
   });
 
-  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
+  it("errors when hosted web_search is requested without an Ollama API key", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ollamaProvider.streamChat({
+        model: "qwen3",
+        messages: [{ role: "user", content: "news?" }],
+        tools: [{ type: "web_search" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+      message: expect.stringMatching(/Ollama account API key/i),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("maps hosted web_search to function tools and keeps page function toolCalls", async () => {
     const fetchMock = vi.fn(async () =>
       ndjsonResponse(
         JSON.stringify({
@@ -451,6 +480,7 @@ describe("ollamaProvider.streamChat", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await ollamaProvider.streamChat({
+      apiKey: "ollama-key",
       model: "qwen3",
       messages: [{ role: "user", content: "weather?" }],
       tools: [
@@ -465,12 +495,13 @@ describe("ollamaProvider.streamChat", () => {
       onDelta: () => {},
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${OLLAMA_BASE_URL}/api/chat`);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.tools).toEqual([
-      {
-        type: "function",
-        function: { name: "get_weather", parameters: { type: "object" } },
-      },
+    expect(body.tools.map((t) => t.function.name)).toEqual([
+      "web_search",
+      "web_fetch",
+      "get_weather",
     ]);
     expect(body.tool_choice).toBe("auto");
     expect(result.message.toolCalls).toEqual([
@@ -478,6 +509,103 @@ describe("ollamaProvider.streamChat", () => {
         id: "ollama_call_0",
         type: "function",
         function: { name: "get_weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+  });
+
+  it("executes ollama.com web_search and continues local chat until text", async () => {
+    let chatTurns = 0;
+    const fetchMock = vi.fn(async (url, init) => {
+      const href = String(url);
+      if (href === `${OLLAMA_BASE_URL}/api/chat`) {
+        chatTurns += 1;
+        if (chatTurns === 1) {
+          return ndjsonResponse(
+            JSON.stringify({
+              message: {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  {
+                    function: {
+                      name: "web_search",
+                      arguments: { query: "NYC weather today" },
+                    },
+                  },
+                ],
+              },
+              done: true,
+            }) + "\n"
+          );
+        }
+        return ndjsonResponse(
+          JSON.stringify({
+            message: { role: "assistant", content: "Sunny in New York." },
+            done: true,
+          }) + "\n"
+        );
+      }
+      if (href === "https://ollama.com/api/web_search") {
+        expect(init.headers.Authorization).toBe("Bearer ollama-key");
+        expect(JSON.parse(init.body)).toEqual({ query: "NYC weather today" });
+        return jsonResponse({
+          results: [
+            {
+              title: "Weather",
+              url: "https://example.com",
+              content: "Sunny",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch ${href}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deltas = [];
+    const result = await ollamaProvider.streamChat({
+      apiKey: "ollama-key",
+      model: "qwen3",
+      messages: [{ role: "user", content: "What's the weather in NYC?" }],
+      tools: [{ type: "web_search" }],
+      signal: new AbortController().signal,
+      onDelta: (content) => deltas.push(content),
+    });
+
+    expect(chatTurns).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.message.content).toBe("Sunny in New York.");
+    expect(result.message.toolCalls).toBeUndefined();
+    expect(deltas.join("")).toBe("Sunny in New York.");
+
+    const followUp = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(followUp.messages).toEqual([
+      { role: "user", content: "What's the weather in NYC?" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            type: "function",
+            function: {
+              name: "web_search",
+              arguments: { query: "NYC weather today" },
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: JSON.stringify({
+          results: [
+            {
+              title: "Weather",
+              url: "https://example.com",
+              content: "Sunny",
+            },
+          ],
+        }),
+        tool_name: "web_search",
       },
     ]);
   });

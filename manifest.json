@@ -8,6 +8,7 @@
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://openrouter.ai/*",
+    "https://ollama.com/*",
     "http://localhost:11434/*",
     "http://127.0.0.1:11434/*"
   ],

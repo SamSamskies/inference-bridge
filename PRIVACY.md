@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-08-10
+**Last updated:** 2026-08-17
 
 Inference Bridge is a Chrome extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles.
 
@@ -15,7 +15,7 @@ Inference Bridge is a Chrome extension that implements the experimental [Inferen
 
 | Data | Purpose | Where |
 | --- | --- | --- |
-| Provider API keys (OpenAI, Anthropic, OpenRouter, optional keys for custom endpoints) | Authenticate requests to the selected provider | `chrome.storage.local` |
+| Provider API keys (OpenAI, Anthropic, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | `chrome.storage.local` |
 | Default provider and model | Pre-fill Options and approval UI | `chrome.storage.local` |
 | Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | `chrome.storage.local` |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | `chrome.storage.local` |
@@ -30,7 +30,7 @@ When the user allows a site to use inference:
 - **OpenAI:** chat messages and the stored OpenAI API key are sent to `https://api.openai.com` for the selected model.
 - **Anthropic:** chat messages and the stored Anthropic API key are sent to `https://api.anthropic.com` (Messages API) for the selected model.
 - **OpenRouter:** chat messages and the stored OpenRouter API key are sent to `https://openrouter.ai` for the selected model. The public model catalog (`GET /api/v1/models`) is fetched without an API key to populate the Options UI.
-- **Ollama:** chat messages are sent to the local Ollama endpoint (`http://localhost:11434` / `http://127.0.0.1:11434`). No remote third party is contacted for Ollama traffic.
+- **Ollama:** chat messages are sent to the local Ollama endpoint (`http://localhost:11434` / `http://127.0.0.1:11434`). When the user enables hosted `{ type: "web_search" }` and has saved an Ollama account API key, Inference Bridge also sends search queries (and optional page-fetch URLs) plus that key to `https://ollama.com` (`/api/web_search`, `/api/web_fetch`). Local chat does not use that key.
 - **On-device:** chat messages are processed by the browser Prompt API (`LanguageModel`) on the device. No API key is used. The browser chooses and may download the model when the user clicks **Install** in Options.
 - **OpenAI-compatible:** chat messages (and an optional API key, if configured) are sent only to the base URL the user saved. The extension may also call that server’s `/v1/models` to populate the model picker.
 
@@ -46,6 +46,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `https://api.openai.com/*` | Call the OpenAI Chat Completions API |
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog and Chat Completions API |
+| `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
 | `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |
 | Optional `http://*/*`, `https://*/*` | Not granted at install. When the user adds an OpenAI-compatible server, Chrome prompts for **that endpoint’s origin only** |
 
