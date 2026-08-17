@@ -251,17 +251,36 @@ export function summarizeToolsForPreview(tools) {
 /**
  * Human label for a hosted tool id in the approval UI.
  * @param {string} hostedId
+ * @param {{ id?: string } | null | undefined} [provider]
  * @returns {string}
  */
-export function hostedToolLabel(hostedId) {
-  if (hostedId === "web_search") return "Web search (provider-hosted)";
+export function hostedToolLabel(hostedId, provider) {
+  if (hostedId === "web_search") {
+    if (provider?.id === "ollama") return "Web search (Ollama cloud)";
+    return "Web search (provider-hosted)";
+  }
   return hostedId;
+}
+
+/**
+ * Optional muted description under a hosted tool in the approval Tools list.
+ * Used for context that is not an error (so it must not use the red warning).
+ * @param {string} hostedId
+ * @param {{ id?: string } | null | undefined} [provider]
+ * @returns {string}
+ */
+export function hostedToolDescription(hostedId, provider) {
+  if (hostedId === "web_search" && provider?.id === "ollama") {
+    return "Runs in Inference Bridge against ollama.com. An Ollama account and usage may apply.";
+  }
+  return "";
 }
 
 /**
  * True when the request includes function tools the provider cannot relay.
  * Approval should disable Allow and ask the user to pick another provider.
- * Unsupported hosted tools stay soft-warn only (chat can still proceed).
+ * Unsupported hosted tools stay soft-warn only (chat can still proceed),
+ * except Ollama `{ type: "web_search" }` without an account API key.
  *
  * @param {{
  *   supportsFunctionTools?: boolean,
@@ -276,14 +295,57 @@ export function blocksAllowForUnsupportedFunctionTools(provider, tools) {
 }
 
 /**
- * Capability warnings for the selected provider vs requested tools.
- * Function tools on an unsupported provider also block Allow (see
- * `blocksAllowForUnsupportedFunctionTools`). Hosted-tool gaps warn only.
+ * True when Ollama is selected for hosted web_search but no ollama.com key is
+ * saved. Allow cannot succeed (Bridge will not silently strip search).
+ * `hasApiKey === undefined` (settings unread) does not block — the stream
+ * still enforces the key. Callers must set `hasApiKey: false` for
+ * whitespace-only keys (`hasStoredApiKey` / `hasOllamaWebSearchApiKey`).
  *
  * @param {{
+ *   id?: string,
+ *   hasApiKey?: boolean,
+ * } | null | undefined} provider
+ * @param {Tool[] | undefined | null} tools
+ * @returns {boolean}
+ */
+export function blocksAllowForMissingOllamaWebSearchKey(provider, tools) {
+  if (!provider || provider.id !== "ollama") return false;
+  if (provider.hasApiKey !== false) return false;
+  if (!Array.isArray(tools) || tools.length === 0) return false;
+  return summarizeToolsForPreview(tools).hosted.includes("web_search");
+}
+
+/**
+ * True when Allow must stay disabled because of the request's tools.
+ * @param {{
+ *   id?: string,
+ *   supportsFunctionTools?: boolean,
+ *   hasApiKey?: boolean,
+ * } | null | undefined} provider
+ * @param {Tool[] | undefined | null} tools
+ * @returns {boolean}
+ */
+export function blocksAllowForRequestTools(provider, tools) {
+  return (
+    blocksAllowForUnsupportedFunctionTools(provider, tools) ||
+    blocksAllowForMissingOllamaWebSearchKey(provider, tools)
+  );
+}
+
+/**
+ * Capability warnings for the selected provider vs requested tools.
+ * Function tools on an unsupported provider also block Allow (see
+ * `blocksAllowForRequestTools`). Unsupported hosted tools warn only.
+ * Ollama web_search without a key blocks Allow and this warning tells the user
+ * to save a key in Options. When a key is saved, Ollama search is explained
+ * under the Tools list instead (not as a red warning).
+ *
+ * @param {{
+ *   id?: string,
  *   supportsFunctionTools?: boolean,
  *   hostedTools?: readonly string[],
  *   label?: string,
+ *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
  * @returns {string[]}
@@ -307,17 +369,31 @@ export function capabilityWarnings(provider, tools) {
   const hostedSupported = new Set(
     Array.isArray(provider?.hostedTools) ? provider.hostedTools : []
   );
+  const isOpenAICompat =
+    typeof provider?.id === "string" && provider.id.startsWith("compat:");
   for (const hosted of summary.hosted) {
     if (!hostedSupported.has(hosted)) {
       if (hosted === "web_search") {
         warnings.push(
-          `Web search is not supported by ${label}. Allow will still work; the provider will not run a hosted search.`
+          isOpenAICompat
+            ? "Hosted web search is not mapped for OpenAI-compatible servers. Inference Bridge will not run a hosted search."
+            : `Web search is not supported by ${label}. The provider will not run a hosted search.`
         );
       } else {
         warnings.push(
           `Hosted tool "${hosted}" is not supported by ${label}. Allow is still available.`
         );
       }
+      continue;
+    }
+    if (
+      hosted === "web_search" &&
+      provider?.id === "ollama" &&
+      provider.hasApiKey === false
+    ) {
+      warnings.push(
+        "Web search runs in Inference Bridge against ollama.com (not local Ollama). Save an Ollama account API key in Options to enable Allow, or choose another provider."
+      );
     }
   }
 

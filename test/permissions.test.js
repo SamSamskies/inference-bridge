@@ -35,6 +35,9 @@ const weatherTools = [
   },
 ];
 
+const webSearchTools = [{ type: "web_search" }];
+const ollamaSearchAndWeatherTools = [...weatherTools, { type: "web_search" }];
+
 const weatherFollowUpMessages = [
   { role: "user", content: "Weather in Austin?" },
   {
@@ -670,6 +673,122 @@ describe("ensurePermission with tools", () => {
       once: false,
     });
     expect(getPendingApproval("rt2b")).toBeNull();
+  });
+
+  it("re-prompts Always-allow Ollama web_search when the account key is missing", async () => {
+    await grantOriginAlways("https://ollama-search-nokey.example", {
+      providerId: "ollama",
+      model: "gemma4",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-ollama-nokey",
+      origin: "https://ollama-search-nokey.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-ollama-nokey");
+    expect(getPendingApproval("rt2-ollama-nokey")).toMatchObject({
+      providerId: "ollama",
+      model: "gemma4",
+      tools: webSearchTools,
+    });
+    resolveApproval("rt2-ollama-nokey", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips Always-allow Ollama web_search when the account key is saved", async () => {
+    await saveSettings({ apiKeys: { ollama: "ollama-key" } });
+    await grantOriginAlways("https://ollama-search-key.example", {
+      providerId: "ollama",
+      model: "gemma4",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2-ollama-key",
+        origin: "https://ollama-search-key.example",
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: false,
+    });
+    expect(getPendingApproval("rt2-ollama-key")).toBeNull();
+  });
+
+  it("re-prompts Always-allow Ollama web_search when the saved key is whitespace-only", async () => {
+    chromeMock.store.set("apiKeys", { ollama: "   " });
+    await grantOriginAlways("https://ollama-search-ws.example", {
+      providerId: "ollama",
+      model: "gemma4",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-ollama-ws",
+      origin: "https://ollama-search-ws.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-ollama-ws");
+    resolveApproval("rt2-ollama-ws", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts Allow-once Ollama web_search follow-ups after the account key is removed", async () => {
+    await saveSettings({ apiKeys: { ollama: "ollama-key" } });
+
+    const turn1 = ensurePermission({
+      requestId: "rt2-ollama-ep1",
+      origin: "https://ollama-search-episode.example",
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: ollamaSearchAndWeatherTools,
+    });
+    await waitForPending("rt2-ollama-ep1");
+    resolveApproval("rt2-ollama-ep1", {
+      decision: "allow_once",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turn1).resolves.toMatchObject({
+      allowed: true,
+      once: true,
+      providerId: "ollama",
+    });
+
+    await saveSettings({ apiKeys: { ollama: "" } });
+
+    const turn2 = ensurePermission({
+      requestId: "rt2-ollama-ep2",
+      origin: "https://ollama-search-episode.example",
+      messages: weatherFollowUpMessages,
+      tools: ollamaSearchAndWeatherTools,
+    });
+    await waitForPending("rt2-ollama-ep2");
+    expect(getPendingApproval("rt2-ollama-ep2")).toMatchObject({
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    resolveApproval("rt2-ollama-ep2", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "gemma4",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
 
   it("re-prompts when Always-allow tools grant does not cover new tools", async () => {

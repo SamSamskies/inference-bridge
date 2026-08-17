@@ -89,6 +89,16 @@ export function normalizeProviderId(providerId) {
 }
 
 /**
+ * True when a saved API key has non-whitespace content.
+ * Whitespace-only values are treated as missing (same as streaming).
+ * @param {unknown} apiKey
+ * @returns {boolean}
+ */
+export function hasStoredApiKey(apiKey) {
+  return typeof apiKey === "string" && apiKey.trim().length > 0;
+}
+
+/**
  * @param {unknown} value
  * @returns {Record<string, string>}
  */
@@ -97,8 +107,8 @@ function normalizeStringMap(value) {
   /** @type {Record<string, string>} */
   const out = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === "string" && entry.trim()) {
-      out[key] = entry.trim();
+    if (hasStoredApiKey(entry)) {
+      out[key] = /** @type {string} */ (entry).trim();
     }
   }
   return out;
@@ -382,9 +392,8 @@ export async function saveSettings(patch) {
     const merged = { ...current.apiKeys };
     for (const [providerId, key] of Object.entries(patch.apiKeys)) {
       if (typeof key !== "string") continue;
-      const trimmed = key.trim();
-      if (trimmed) {
-        merged[providerId] = trimmed;
+      if (hasStoredApiKey(key)) {
+        merged[providerId] = key.trim();
       } else {
         delete merged[providerId];
       }

@@ -22,7 +22,10 @@
 /**
  * Bridge-experimental tool definition. Hosted `{ type: "web_search" }` is
  * forwarded on OpenAI (Responses), Anthropic (Messages server tool), and
- * OpenRouter (Chat Completions). Other adapters only forward `type: "function"`.
+ * OpenRouter (Chat Completions). Ollama maps it to function tools and
+ * Inference Bridge executes `https://ollama.com/api/web_search` (and
+ * `web_fetch`) when an Ollama account API key is configured. Other adapters
+ * only forward `type: "function"`.
  * @typedef {{
  *   type: "function",
  *   function: {

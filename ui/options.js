@@ -31,6 +31,7 @@ const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
 const apiKeyLabel = document.getElementById("apiKeyLabel");
 const apiKeyInput = document.getElementById("apiKey");
+const apiKeyHint = document.getElementById("apiKeyHint");
 const toggleApiKeyButton = document.getElementById("toggleApiKey");
 const ollamaStatusRow = document.getElementById("ollamaStatusRow");
 const ollamaHint = document.getElementById("ollamaHint");
@@ -463,21 +464,39 @@ function updateApiKeyField(providerId) {
 
   if (!needsKey || !provider) {
     apiKeyBoundProviderId = "";
+    if (apiKeyHint) {
+      apiKeyHint.hidden = true;
+      apiKeyHint.textContent = "";
+    }
     return;
   }
 
   apiKeyBoundProviderId = provider.id;
-  apiKeyLabel.textContent = provider.optionalApiKey
-    ? `${provider.label} API key (optional)`
-    : `${provider.label} API key`;
-  apiKeyInput.placeholder =
-    provider.id === "openrouter"
-      ? "sk-or-..."
-      : provider.id === "anthropic"
-        ? "sk-ant-..."
-        : provider.optionalApiKey
-          ? "Leave blank if not required"
-          : "sk-...";
+  if (provider.id === "ollama") {
+    apiKeyLabel.textContent = "Ollama API key (optional, for web search)";
+    apiKeyInput.placeholder = "Ollama account API key";
+    if (apiKeyHint) {
+      apiKeyHint.hidden = false;
+      apiKeyHint.textContent =
+        "Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.";
+    }
+  } else {
+    apiKeyLabel.textContent = provider.optionalApiKey
+      ? `${provider.label} API key (optional)`
+      : `${provider.label} API key`;
+    apiKeyInput.placeholder =
+      provider.id === "openrouter"
+        ? "sk-or-..."
+        : provider.id === "anthropic"
+          ? "sk-ant-..."
+          : provider.optionalApiKey
+            ? "Leave blank if not required"
+            : "sk-...";
+    if (apiKeyHint) {
+      apiKeyHint.hidden = true;
+      apiKeyHint.textContent = "";
+    }
+  }
   apiKeyInput.value = apiKeyDrafts[provider.id] || "";
   apiKeyInput.type = "password";
   toggleApiKeyButton.textContent = "Show";

@@ -1,7 +1,8 @@
 /**
  * Bridge-normalized hosted `{ type: "web_search" }` helpers.
  * Function-tool filtering stays in openai-compat-stream.js; this file is the
- * hosted-tool identity + OpenRouter mapping.
+ * hosted-tool identity + OpenRouter mapping. Ollama’s Bridge-executed
+ * ollama.com loop lives in ollama-web-search.js.
  */
 
 /** @typedef {import("./types.js").Tool} Tool */

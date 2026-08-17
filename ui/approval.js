@@ -9,8 +9,9 @@ import {
   isApprovalProviderReady,
 } from "../src/provider-ready.js";
 import {
-  blocksAllowForUnsupportedFunctionTools,
+  blocksAllowForRequestTools,
   capabilityWarnings,
+  hostedToolDescription,
   hostedToolLabel,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
@@ -166,8 +167,9 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
 
 /**
  * @param {import("../src/providers/types.js").Tool[] | undefined} tools
+ * @param {string} [providerId]
  */
-function renderTools(tools) {
+function renderTools(tools, providerId = providerSelect.value) {
   toolsList.replaceChildren();
   const summary = summarizeToolsForPreview(tools);
   if (summary.functions.length === 0 && summary.hosted.length === 0) {
@@ -176,6 +178,7 @@ function renderTools(tools) {
   }
 
   toolsPanel.hidden = false;
+  const provider = providers.find((p) => p.id === providerId);
   for (const fn of summary.functions) {
     const li = document.createElement("li");
     const name = document.createElement("div");
@@ -194,8 +197,15 @@ function renderTools(tools) {
     const li = document.createElement("li");
     const name = document.createElement("div");
     name.className = "tool-name";
-    name.textContent = hostedToolLabel(hosted);
+    name.textContent = hostedToolLabel(hosted, provider);
     li.append(name);
+    const hostedDesc = hostedToolDescription(hosted, provider);
+    if (hostedDesc) {
+      const desc = document.createElement("p");
+      desc.className = "tool-desc";
+      desc.textContent = hostedDesc;
+      li.append(desc);
+    }
     toolsList.append(li);
   }
 }
@@ -280,10 +290,7 @@ function updateAllowEnabled() {
   const valid = isModelValid(readModelValue(providerId), currentModels, {
     allowUnknown: allowUnknownFor(providerId),
   });
-  const toolsBlocked = blocksAllowForUnsupportedFunctionTools(
-    provider,
-    requestTools
-  );
+  const toolsBlocked = blocksAllowForRequestTools(provider, requestTools);
   allowBtn.disabled =
     !providerReady || !modelsReady || !valid || toolsBlocked;
 }
@@ -450,6 +457,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   updateAllowEnabled();
   updateProviderHint(providerId);
   updateCapabilityWarning(providerId);
+  renderTools(requestTools, providerId);
   setModelHint("Loading models…");
   populateModelControl(providerId, [], preferredModel, {
     allowUnknown: true,
@@ -645,9 +653,11 @@ async function decide(action) {
       !isApprovalProviderReady(provider, {
         ollamaAvailable: ollamaStatus.available,
         onDeviceAvailable: onDeviceStatus.available,
-      })
+      }) ||
+      blocksAllowForRequestTools(provider, requestTools)
     ) {
       updateProviderHint(providerId);
+      updateCapabilityWarning(providerId);
       updateAllowEnabled();
       return;
     }
@@ -768,6 +778,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     if (!ok) return;
     updateProviderHint();
     updateCapabilityWarning();
+    renderTools(requestTools);
     updateAllowEnabled();
   });
 });
@@ -775,6 +786,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 providerSelect.addEventListener("change", () => {
   const provider = providers.find((p) => p.id === providerSelect.value);
   updateCapabilityWarning(providerSelect.value);
+  renderTools(requestTools, providerSelect.value);
   void loadModelsForProvider(
     providerSelect.value,
     provider?.defaultModel || undefined

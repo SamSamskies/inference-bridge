@@ -15,7 +15,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
-- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed; Ollama / OpenAI-compatible / On-device warn only)
+- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device warn only)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -39,7 +39,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
    - **OpenAI** — paste your API key and choose a default model
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
-   - **Ollama** — no API key; models are listed from your local Ollama install
+   - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
 8. Click **Save** (skip if you just used On-device **Install**, which already saves)
@@ -51,7 +51,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
-| Ollama | None | Fixed at `http://localhost:11434`; models from `GET /api/tags` |
+| Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
@@ -99,7 +99,7 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 2. In Options, paste the key under **OpenRouter API key**, set **Default provider** to OpenRouter (defaults to `openrouter/auto`; type to search for others), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 
-### Ollama (no API key)
+### Ollama (local chat; optional cloud key for web search)
 
 1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
 2. Pull at least one chat model, for example:
@@ -110,8 +110,9 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 
 3. In Options, set **Default provider** to **Ollama** (enabled only when Ollama is reachable and has at least one model)
 4. Confirm the model field populates from installed models (type to filter)
-5. Click **Save**
-6. Run the snippet above on an HTTPS or localhost page
+5. Optionally paste an [Ollama account API key](https://ollama.com/settings/keys) if you want hosted `{ type: "web_search" }` (local chat does not need this key)
+6. Click **Save**
+7. Run the snippet above on an HTTPS or localhost page
 
 Inference Bridge strips the `chrome-extension://` `Origin` header on requests to local Ollama (see the [spec README](https://github.com/SamSamskies/inference-provider-api/blob/main/README.md) “Local providers” section). After updating the extension, use **Reload** on `chrome://extensions` so that rule is installed. If you still see HTTP 403, you can fall back to restarting Ollama with `OLLAMA_ORIGINS=chrome-extension://*`, but origin stripping is preferred.
 
@@ -206,12 +207,13 @@ If you are building your own IPA extension with local providers, follow the Orig
       registry.js                # built-ins + dynamic compat endpoints
       openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
       openai-responses.js        # OpenAI Responses API path (hosted web_search)
-      hosted-tools.js            # Bridge web_search identity + OpenRouter mapping
+      hosted-tools.js            # Bridge web_search identity + OpenRouter/Anthropic/OpenAI mapping
       openai-compat.js           # factory for user-named OpenAI-compatible servers
       openai.js                  # OpenAI streaming adapter
       anthropic.js               # Anthropic Messages API streaming adapter
       openrouter.js              # OpenRouter /api/v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
+      ollama-web-search.js       # Bridge-executed ollama.com web_search / web_fetch
       on-device.js               # browser Prompt API (LanguageModel) adapter
   offscreen/
     prompt-api.html|.js          # LanguageModel host (SW cannot run Prompt API reliably)
@@ -295,7 +297,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **provider-executed**. The selected provider may call the public internet and may charge tool usage. Bridge does not browse, add search host permissions, or run search itself.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers still warn only.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -306,13 +308,13 @@ Hosted `{ type: "web_search" }` is **provider-executed**. The selected provider 
 | OpenAI | Responses API (`/v1/responses`) only when `web_search` is present; function-tool-only stays on Chat Completions |
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
-| Ollama | Unsupported — approval warning (no hard-block). Bridge-executed ollama.com search is out of scope. |
-| OpenAI-compatible | Unsupported — approval warning (no standard hosted search across named endpoints) |
+| Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
+| OpenAI-compatible | Not mapped — approval warning (no first-class hosted search across named endpoints) |
 | On-device | Unsupported — approval warning |
 
-Approval lists **Web search (provider-hosted)** and warns on unsupported providers. Allow still works; search will not run.
+Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge calls ollama.com). Unsupported providers warn that hosted search will not run. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
 
-Use OpenAI, Anthropic, or OpenRouter. Hosted search runs inside the provider request — you will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
+Use OpenAI, Anthropic, OpenRouter, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
 
 ```js
 for await (const chunk of window.inference.experimental.request({
@@ -569,7 +571,7 @@ console.log("[final]", final.message.content);
 | OpenAI-compatible | Chat Completions `tools` |
 | On-device | Not supported (`toolCalling` stays false for this provider) |
 
-Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)**). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (hosted-tool gaps still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (unsupported hosted tools still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
 ## Development
 
@@ -578,7 +580,7 @@ npm install
 npm test
 ```
 
-Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses) (no full MV3 e2e).
+Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses / Ollama Bridge-executed ollama.com loop) (no full MV3 e2e).
 
 Package a release ZIP (runtime files only):
 
@@ -624,8 +626,9 @@ npm run package
 - [ ] Function tool round-trip via `experimental.request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
 - [ ] `experimental.runTools` completes a page-executed loop with the same shape
 - [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI (OpenAI uses `/v1/responses` only when search is present)
-- [ ] Ollama / OpenAI-compatible / On-device: approval warns for `web_search`; Allow still works
-- [ ] Approval lists “Web search (provider-hosted)”
+- [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, experimental chat searches; without key, Allow is disabled (no silent strip)
+- [ ] OpenAI-compatible / On-device: approval warns for `web_search` (search is not run; copy does not claim Allow is enabled)
+- [ ] Approval lists “Web search (provider-hosted)” or “Web search (Ollama cloud)”
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 

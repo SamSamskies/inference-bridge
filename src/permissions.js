@@ -13,10 +13,12 @@ import {
   normalizeProviderId,
   isPlausibleModelForProvider,
   isCompatProviderId,
+  hasStoredApiKey,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
+  blocksAllowForMissingOllamaWebSearchKey,
   fingerprintTools,
   fingerprintTrailingToolCalls,
   isMessageHistoryExtension,
@@ -316,6 +318,25 @@ async function hasCompatHostAccess(provider) {
 }
 
 /**
+ * Always-allow / Allow-once may skip the popup only when streaming would not
+ * immediately fail for the same reason the approval UI disables Allow.
+ * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
+ * @param {Tool[] | undefined} tools
+ * @param {Record<string, string>} apiKeys
+ */
+async function canSkipApprovalPrompt(provider, tools, apiKeys) {
+  if (!(await hasCompatHostAccess(provider))) return false;
+  const raw = provider?.id ? apiKeys[provider.id] : undefined;
+  return !blocksAllowForMissingOllamaWebSearchKey(
+    {
+      id: provider?.id,
+      hasApiKey: hasStoredApiKey(raw),
+    },
+    tools
+  );
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -405,7 +426,7 @@ export async function ensurePermission(args) {
     const grantFallbackModel = grantProvider?.defaultModel || "";
     const grantModel = existing.model || grantFallbackModel;
 
-    if (await hasCompatHostAccess(grantProvider)) {
+    if (await canSkipApprovalPrompt(grantProvider, tools, settings.apiKeys)) {
       if (!toolFingerprint) {
         // Tool follow-ups may omit `tools`. If an Allow-once episode still
         // matches, fall through so episode logic (below) keeps that
@@ -463,9 +484,10 @@ export async function ensurePermission(args) {
   });
   if (episode) {
     const episodeProvider = await getProviderAsync(episode.providerId);
-    // Same host gate as Always-allow: revoked optional access must re-prompt
-    // rather than auto-approving and failing later in streaming.
-    if (await hasCompatHostAccess(episodeProvider)) {
+    // Same gates as Always-allow: revoked optional access or a missing Ollama
+    // web_search key must re-prompt rather than auto-approving and failing
+    // later in streaming.
+    if (await canSkipApprovalPrompt(episodeProvider, tools, settings.apiKeys)) {
       rememberToolEpisode(args.origin, {
         providerId: episode.providerId,
         model: episode.model,

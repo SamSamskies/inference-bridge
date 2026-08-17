@@ -10,6 +10,7 @@ import {
   setOriginLastUsed,
   getOriginLastUsed,
   blockOrigin,
+  hasStoredApiKey,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -26,6 +27,16 @@ describe("normalizeProviderId", () => {
     expect(normalizeProviderId("")).toBe("openai");
     expect(normalizeProviderId("   ")).toBe("openai");
     expect(normalizeProviderId(undefined)).toBe("openai");
+  });
+});
+
+describe("hasStoredApiKey", () => {
+  it("rejects blank and whitespace-only keys", () => {
+    expect(hasStoredApiKey(undefined)).toBe(false);
+    expect(hasStoredApiKey(null)).toBe(false);
+    expect(hasStoredApiKey("")).toBe(false);
+    expect(hasStoredApiKey("  ")).toBe(false);
+    expect(hasStoredApiKey("sk-real")).toBe(true);
   });
 });
 
