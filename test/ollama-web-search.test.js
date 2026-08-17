@@ -202,16 +202,21 @@ describe("executeOllamaWebSearch / web_fetch", () => {
     });
   });
 
-  it("truncates oversized JSON results", async () => {
+  it("truncates oversized JSON results to valid JSON within the cap", async () => {
+    const content = "x".repeat(20_000);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ content: "x".repeat(20_000) }))
+      vi.fn(async () => jsonResponse({ title: "Example", content }))
     );
     const result = await executeOllamaWebFetch({
       apiKey: "k",
       url: "https://example.com",
     });
-    expect(result.length).toBe(OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS);
+    expect(result.length).toBeLessThanOrEqual(OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS);
+    const parsed = JSON.parse(result);
+    expect(parsed.title).toBe("Example");
+    expect(content.startsWith(parsed.content)).toBe(true);
+    expect(parsed.content.length).toBeLessThan(content.length);
   });
 
   it("dispatches hosted tool calls by name", async () => {

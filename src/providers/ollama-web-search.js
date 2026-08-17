@@ -168,18 +168,59 @@ export function mapToolsForOllama(tools) {
  * @param {unknown} value
  * @returns {string}
  */
-function stringifyToolResult(value) {
-  let json;
+function toToolResultJson(value) {
   try {
-    json = JSON.stringify(value);
+    const json = JSON.stringify(value);
+    if (typeof json === "string") return json;
   } catch {
-    json = JSON.stringify({ error: "Search result was not JSON-serializable." });
+    // fall through
   }
-  if (typeof json !== "string") {
-    json = "null";
+  return JSON.stringify({ error: "Search result was not JSON-serializable." });
+}
+
+/**
+ * Shorten string fields so a size-capped tool payload stays valid JSON.
+ * @param {unknown} value
+ * @param {number} maxString
+ * @returns {unknown}
+ */
+function clipStrings(value, maxString) {
+  if (typeof value === "string") {
+    return value.length <= maxString ? value : value.slice(0, maxString);
   }
+  if (Array.isArray(value)) {
+    return value.map((item) => clipStrings(item, maxString));
+  }
+  if (value && typeof value === "object") {
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    for (const [key, nested] of Object.entries(value)) {
+      out[key] = clipStrings(nested, maxString);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function stringifyToolResult(value) {
+  let json = toToolResultJson(value);
   if (json.length <= OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS) return json;
-  return json.slice(0, OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS);
+
+  let maxString = OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS;
+  while (maxString > 0) {
+    maxString = Math.floor(maxString / 2);
+    json = toToolResultJson(clipStrings(value, maxString));
+    if (json.length <= OLLAMA_HOSTED_SEARCH_RESULT_MAX_CHARS) return json;
+  }
+
+  return JSON.stringify({
+    truncated: true,
+    error: "Search result exceeded the size cap.",
+  });
 }
 
 /**
