@@ -130,7 +130,7 @@ Prompt API does not expose a way to delete the downloaded model. To free disk sp
 
 ### OpenAI-compatible servers
 
-Use this for LM Studio, llama.cpp server, vLLM, LocalAI, or any self-hosted proxy that exposes OpenAI-style `/v1/models` and `/v1/chat/completions`.
+Use this for LM Studio, llama.cpp server, vLLM, LocalAI, or any self-hosted proxy that exposes OpenAI-style `/v1/models` and `/v1/chat/completions`. Hosted OpenAI-compatible gateways work the same way (for example [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) at `https://ai-gateway.vercel.sh/v1`, or [PayPerQ / PPQ](https://ppq.ai/api-docs) at `https://api.ppq.ai/v1`) — paste the gateway API key when you add the server.
 
 1. Start your server and note its host URL (e.g. `http://127.0.0.1:1234` or `http://192.168.1.67:1234`)
 2. In Options, under **OpenAI-compatible servers**, enter a **Name**, **Base URL**, and optional API key — `/v1` is appended automatically if you omit it (unusual paths like `/openai/v1` are kept as entered)
