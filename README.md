@@ -273,7 +273,7 @@ IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
 | omitted | omit `temperature` | omit `temperature` | omit `options.temperature` |
 | `0`–`2` | top-level `temperature` | top-level `temperature`, clamped to `[0, 1]` | nested `options: { temperature }` |
 
-Values outside `[0, 2]` or non-finite numbers are `invalid_request`. On-device Prompt API ignores temperature today (best-effort).
+Values outside `[0, 2]` or non-finite numbers are `invalid_request`. Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot honor the value. OpenAI-compatible APIs retry once without `temperature` when a 400 names that field (some GPT-5 reasoning models, including gpt-5-nano, only accept the default `1`). On-device Prompt API ignores temperature today.
 ## Experimental Features
 
 Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`. The page-side tool loop already lives in [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) for real apps; Bridge also exposes `experimental.runTools` for DevTools / no-bundler demos. Neither belongs on stable `window.inference`.

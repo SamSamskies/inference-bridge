@@ -395,6 +395,61 @@ describe("streamOpenAICompatChat", () => {
     );
   });
 
+  it("retries without temperature when the model rejects a non-default value", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (Object.prototype.hasOwnProperty.call(body, "temperature")) {
+        return jsonResponse(
+          {
+            error: {
+              message:
+                "Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.",
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAICompatChat(
+      baseArgs({ model: "gpt-5-nano", options: { temperature: 0 } })
+    );
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body)
+    ).not.toHaveProperty("temperature");
+  });
+
+  it("does not retry temperature on an unrelated 400", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ error: { message: "status 400" } }, 400)
+      )
+    );
+
+    await expect(
+      streamOpenAICompatChat(
+        baseArgs({ model: "gpt-5-nano", options: { temperature: 0 } })
+      )
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "provider_error",
+      message: "status 400",
+    });
+  });
+
   it("retries without reasoning_effort when the 400 cannot be parsed", async () => {
     const fetchMock = vi.fn(async (_url, init) => {
       const body = JSON.parse(init.body);
