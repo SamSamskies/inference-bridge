@@ -7,7 +7,10 @@ import {
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
-import { mapTemperatureForOpenAICompat } from "./temperature.js";
+import {
+  mapTemperatureForOpenAICompat,
+  nextOpenAICompatTemperatureAfterError,
+} from "./temperature.js";
 
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
 /** @typedef {import("./types.js").Tool} Tool */
@@ -253,30 +256,37 @@ export async function streamOpenAICompatChat({
         response,
         `${label} HTTP ${response.status}`
       );
-      const next = nextOpenAICompatReasoningEffortAfterError(
+      const nextTemperature = nextOpenAICompatTemperatureAfterError(
+        response.status,
+        detail,
+        temperature
+      );
+      const nextEffort = nextOpenAICompatReasoningEffortAfterError(
         response.status,
         detail,
         reasoningEffort
       );
-      if (next.retry) {
-        setChatCompletionsReasoningEffort(body, next.effort);
-        response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal,
-        });
-        if (!response.ok) {
-          detail = await readProviderErrorDetail(
-            response,
-            `${label} HTTP ${response.status}`
-          );
-          const mappedRetry = mapStatus(response.status, detail, label);
-          throwInference(mappedRetry.code, mappedRetry.message);
-        }
+      if (nextTemperature.retry) {
+        delete body.temperature;
+      } else if (nextEffort.retry) {
+        setChatCompletionsReasoningEffort(body, nextEffort.effort);
       } else {
         const mapped = mapStatus(response.status, detail, label);
         throwInference(mapped.code, mapped.message);
+      }
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (!response.ok) {
+        detail = await readProviderErrorDetail(
+          response,
+          `${label} HTTP ${response.status}`
+        );
+        const mappedRetry = mapStatus(response.status, detail, label);
+        throwInference(mappedRetry.code, mappedRetry.message);
       }
     }
   } catch (err) {

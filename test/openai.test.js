@@ -257,9 +257,61 @@ describe("openaiProvider.streamChat", () => {
       apiKey: "sk-test",
       model: "gpt-5.4",
       messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0 },
       signal: new AbortController().signal,
       onDelta: () => {},
     });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hi" }],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(
+      JSON.parse(fetchMock.mock.calls[2][1].body)
+    ).not.toHaveProperty("temperature");
+  });
+
+  it("retries gpt-5-nano without temperature after the model rejects 0", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (Object.prototype.hasOwnProperty.call(body, "temperature")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.",
+            },
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-5-nano",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0);
     expect(
       JSON.parse(fetchMock.mock.calls[1][1].body)
     ).not.toHaveProperty("temperature");

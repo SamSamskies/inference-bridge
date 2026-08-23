@@ -9,7 +9,10 @@ import {
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
-import { mapTemperatureForOpenAICompat } from "./temperature.js";
+import {
+  mapTemperatureForOpenAICompat,
+  nextOpenAICompatTemperatureAfterError,
+} from "./temperature.js";
 
 export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
@@ -284,30 +287,37 @@ export async function streamOpenAIResponsesChat({
         response,
         `OpenAI HTTP ${response.status}`
       );
-      const next = nextOpenAICompatReasoningEffortAfterError(
+      const nextTemperature = nextOpenAICompatTemperatureAfterError(
+        response.status,
+        detail,
+        temperature
+      );
+      const nextEffort = nextOpenAICompatReasoningEffortAfterError(
         response.status,
         detail,
         reasoningEffort
       );
-      if (next.retry) {
-        setResponsesReasoningEffort(body, next.effort);
-        response = await fetch(OPENAI_RESPONSES_URL, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal,
-        });
-        if (!response.ok) {
-          detail = await readProviderErrorDetail(
-            response,
-            `OpenAI HTTP ${response.status}`
-          );
-          const mappedRetry = mapOpenAIStatus(response.status, detail);
-          throwInference(mappedRetry.code, mappedRetry.message);
-        }
+      if (nextTemperature.retry) {
+        delete body.temperature;
+      } else if (nextEffort.retry) {
+        setResponsesReasoningEffort(body, nextEffort.effort);
       } else {
         const mapped = mapOpenAIStatus(response.status, detail);
         throwInference(mapped.code, mapped.message);
+      }
+      response = await fetch(OPENAI_RESPONSES_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (!response.ok) {
+        detail = await readProviderErrorDetail(
+          response,
+          `OpenAI HTTP ${response.status}`
+        );
+        const mappedRetry = mapOpenAIStatus(response.status, detail);
+        throwInference(mappedRetry.code, mappedRetry.message);
       }
     }
   } catch (err) {

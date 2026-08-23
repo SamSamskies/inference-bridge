@@ -299,6 +299,48 @@ describe("streamOpenAIResponsesChat", () => {
     });
   });
 
+  it("retries Responses without temperature after a model 400", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (Object.prototype.hasOwnProperty.call(body, "temperature")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.",
+            },
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return sseResponse(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAIResponsesChat({
+      apiKey: "sk-test",
+      model: "gpt-5-nano",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      options: { temperature: 0 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body)
+    ).not.toHaveProperty("temperature");
+  });
+
   it("throws provider_error on response.failed stream events", async () => {
     vi.stubGlobal(
       "fetch",
