@@ -18,7 +18,7 @@ import {
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
-  blocksAllowForMissingOllamaWebSearchKey,
+  blocksAllowForRequestTools,
   fingerprintTools,
   fingerprintTrailingToolCalls,
   isMessageHistoryExtension,
@@ -320,16 +320,23 @@ async function hasCompatHostAccess(provider) {
 /**
  * Always-allow / Allow-once may skip the popup only when streaming would not
  * immediately fail for the same reason the approval UI disables Allow.
- * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
+ * @param {{
+ *   id?: string,
+ *   baseUrl?: string,
+ *   supportsFunctionTools?: boolean,
+ *   hostedTools?: readonly string[],
+ * } | null | undefined} provider
  * @param {Tool[] | undefined} tools
  * @param {Record<string, string>} apiKeys
  */
 async function canSkipApprovalPrompt(provider, tools, apiKeys) {
   if (!(await hasCompatHostAccess(provider))) return false;
   const raw = provider?.id ? apiKeys[provider.id] : undefined;
-  return !blocksAllowForMissingOllamaWebSearchKey(
+  return !blocksAllowForRequestTools(
     {
       id: provider?.id,
+      supportsFunctionTools: provider?.supportsFunctionTools,
+      hostedTools: provider?.hostedTools,
       hasApiKey: hasStoredApiKey(raw),
     },
     tools
@@ -484,9 +491,9 @@ export async function ensurePermission(args) {
   });
   if (episode) {
     const episodeProvider = await getProviderAsync(episode.providerId);
-    // Same gates as Always-allow: revoked optional access or a missing Ollama
-    // web_search key must re-prompt rather than auto-approving and failing
-    // later in streaming.
+    // Same gates as Always-allow: revoked optional access, unsupported hosted
+    // web_search, or a missing Ollama web_search key must re-prompt rather
+    // than auto-approving and failing later in streaming.
     if (await canSkipApprovalPrompt(episodeProvider, tools, settings.apiKeys)) {
       rememberToolEpisode(args.origin, {
         providerId: episode.providerId,

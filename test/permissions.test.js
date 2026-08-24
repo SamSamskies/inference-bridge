@@ -726,6 +726,95 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt2-ollama-key")).toBeNull();
   });
 
+  it("re-prompts Always-allow hosted web_search when the grant provider cannot honor it", async () => {
+    await grantOriginAlways("https://on-device-search.example", {
+      providerId: "on-device",
+      model: "on-device",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-on-device-search",
+      origin: "https://on-device-search.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-on-device-search");
+    expect(getPendingApproval("rt2-on-device-search")).toMatchObject({
+      providerId: "on-device",
+      model: "on-device",
+      tools: webSearchTools,
+    });
+    resolveApproval("rt2-on-device-search", {
+      decision: "deny",
+      providerId: "on-device",
+      model: "on-device",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts Always-allow hosted web_search for OpenAI-compatible grants", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([
+      {
+        id: "compat:lm",
+        name: "LM Studio",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ]);
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    await grantOriginAlways("https://compat-search.example", {
+      providerId: "compat:lm",
+      model: "local-model",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-compat-search",
+      origin: "https://compat-search.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-compat-search");
+    expect(getPendingApproval("rt2-compat-search")).toMatchObject({
+      providerId: "compat:lm",
+      model: "local-model",
+      tools: webSearchTools,
+    });
+    resolveApproval("rt2-compat-search", {
+      decision: "deny",
+      providerId: "compat:lm",
+      model: "local-model",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips Always-allow hosted web_search when the grant provider honors it", async () => {
+    await grantOriginAlways("https://openai-search.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2-openai-search",
+        origin: "https://openai-search.example",
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: false,
+    });
+    expect(getPendingApproval("rt2-openai-search")).toBeNull();
+  });
+
   it("re-prompts Always-allow Ollama web_search when the saved key is whitespace-only", async () => {
     chromeMock.store.set("apiKeys", { ollama: "   " });
     await grantOriginAlways("https://ollama-search-ws.example", {
