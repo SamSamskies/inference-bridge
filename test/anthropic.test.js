@@ -673,6 +673,33 @@ describe("anthropicProvider", () => {
     expect(body.tool_choice).toEqual({ type: "auto" });
   });
 
+  it("omits hosted web_search when toolChoice is none", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: content_block_delta",
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
   it("accumulates streamed tool_use input_json_delta into done.message.toolCalls", async () => {
     const sse = [
       "event: content_block_delta",

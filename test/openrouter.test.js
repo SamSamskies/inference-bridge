@@ -310,6 +310,33 @@ describe("openrouterProvider.streamChat", () => {
     expect(body.tool_choice).toBe("auto");
   });
 
+  it("omits hosted web_search when toolChoice is none", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "openrouter/auto",
+      messages: [{ role: "user", content: "news?" }],
+      tools: [{ type: "web_search" }],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
   it("round-trips assistant toolCalls and tool follow-up messages", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"choices":[{"delta":{"content":"72F"}}]}\ndata: [DONE]\n')

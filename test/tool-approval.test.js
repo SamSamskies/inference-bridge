@@ -3,6 +3,7 @@ import {
   blocksAllowForMissingOllamaWebSearchKey,
   blocksAllowForRequestTools,
   blocksAllowForUnsupportedFunctionTools,
+  blocksAllowForUnsupportedHostedWebSearch,
   capabilityWarnings,
   fingerprintTools,
   fingerprintTrailingToolCalls,
@@ -354,6 +355,9 @@ describe("summarizeToolsForPreview / hostedToolLabel", () => {
     expect(hostedToolDescription("web_search", { id: "ollama" })).toMatch(
       /ollama\.com/
     );
+    expect(hostedToolDescription("web_search", { id: "ollama" })).toMatch(
+      /fetch/i
+    );
     expect(hostedToolDescription("web_search", { id: "openai" })).toBe("");
   });
 });
@@ -391,6 +395,32 @@ describe("blocksAllowForUnsupportedFunctionTools", () => {
       blocksAllowForUnsupportedFunctionTools(
         { supportsFunctionTools: false },
         undefined
+      )
+    ).toBe(false);
+  });
+});
+
+describe("blocksAllowForUnsupportedHostedWebSearch", () => {
+  it("blocks when web_search is requested and hostedTools does not include it", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "on-device", hostedTools: [] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(true);
+    expect(
+      blocksAllowForRequestTools(
+        { id: "compat:lm", supportsFunctionTools: true, hostedTools: [] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(true);
+  });
+
+  it("does not block providers that honor hosted web_search", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "openai", hostedTools: ["web_search"] },
+        [{ type: "web_search" }]
       )
     ).toBe(false);
   });
@@ -472,8 +502,7 @@ describe("capabilityWarnings", () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/web search is not supported by On-device/i);
-    expect(warnings[0]).toMatch(/will not run a hosted search/i);
-    expect(warnings[0]).not.toMatch(/allow will still work/i);
+    expect(warnings[0]).toMatch(/choose another provider/i);
   });
 
   it("does not name a custom OpenAI-compatible server in the web_search warning", () => {
@@ -489,8 +518,8 @@ describe("capabilityWarnings", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/OpenAI-compatible servers/i);
     expect(warnings[0]).toMatch(/not mapped/i);
+    expect(warnings[0]).toMatch(/choose another provider/i);
     expect(warnings[0]).not.toMatch(/PPQ/);
-    expect(warnings[0]).not.toMatch(/allow will still work/i);
   });
 
   it("does not warn in red when Ollama web search is ready", () => {

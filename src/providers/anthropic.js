@@ -3,7 +3,10 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
-import { ANTHROPIC_WEB_SEARCH_TOOL } from "./hosted-tools.js";
+import {
+  ANTHROPIC_WEB_SEARCH_TOOL,
+  omitHostedWebSearchIfNone,
+} from "./hosted-tools.js";
 import { mapReasoningEffortForAnthropic } from "./reasoning-effort.js";
 import { mapTemperatureForAnthropic } from "./temperature.js";
 
@@ -308,8 +311,11 @@ export const anthropicProvider = {
     onReasoningDelta,
   }) {
     const mapped = mapMessagesForAnthropic(messages);
+    const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
     const mappedTools =
-      Array.isArray(tools) && tools.length > 0 ? mapToolsForAnthropic(tools) : [];
+      Array.isArray(toolsForRequest) && toolsForRequest.length > 0
+        ? mapToolsForAnthropic(toolsForRequest)
+        : [];
 
     /** @type {Record<string, unknown>} */
     const requestBody = {

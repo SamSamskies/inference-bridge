@@ -456,6 +456,57 @@ describe("ollamaProvider.streamChat", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not call ollama.com when toolChoice is none", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      apiKey: "ollama-key",
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${OLLAMA_BASE_URL}/api/chat`);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+  });
+
+  it("does not require an Ollama API key when toolChoice is none", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse(
+        JSON.stringify({
+          message: { role: "assistant", content: "ok" },
+          done: true,
+        }) + "\n"
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ollamaProvider.streamChat({
+      model: "qwen3",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${OLLAMA_BASE_URL}/api/chat`);
+  });
+
   it("maps hosted web_search to function tools and keeps page function toolCalls", async () => {
     const fetchMock = vi.fn(async () =>
       ndjsonResponse(

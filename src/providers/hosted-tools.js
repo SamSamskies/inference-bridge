@@ -40,6 +40,94 @@ export function hasHostedWebSearch(tools) {
 }
 
 /**
+ * IPA: `toolChoice: "none"` suppresses hosted web_search as well as function calls.
+ * @param {unknown} toolChoice
+ * @returns {boolean}
+ */
+export function hostedWebSearchSuppressed(toolChoice) {
+  return toolChoice === "none";
+}
+
+/**
+ * True when hosted web_search is present and should actually run.
+ * @param {Tool[] | undefined | null} tools
+ * @param {unknown} [toolChoice]
+ * @returns {boolean}
+ */
+export function hostedWebSearchActive(tools, toolChoice) {
+  return hasHostedWebSearch(tools) && !hostedWebSearchSuppressed(toolChoice);
+}
+
+/**
+ * Drop hosted `{ type: "web_search" }` when `toolChoice` is `"none"`.
+ * Other tools are unchanged. Used so provider-executed search is omitted, not
+ * merely sent with `tool_choice: "none"`.
+ *
+ * @param {Tool[] | undefined | null} tools
+ * @param {unknown} [toolChoice]
+ * @returns {Tool[] | undefined | null}
+ */
+export function omitHostedWebSearchIfNone(tools, toolChoice) {
+  if (toolChoice !== "none" || !Array.isArray(tools)) return tools;
+  const out = tools.filter(
+    (t) => t != null && typeof t === "object" && t.type !== "web_search"
+  );
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * @param {string} code
+ * @param {string} message
+ * @returns {never}
+ */
+function throwInference(code, message) {
+  const error = new Error(message);
+  error.name = "InferenceError";
+  /** @type {any} */ (error).code = code;
+  throw error;
+}
+
+/**
+ * @param {{
+ *   id?: string,
+ *   label?: string,
+ * } | null | undefined} provider
+ * @returns {string}
+ */
+export function hostedWebSearchUnavailableMessage(provider) {
+  const isOpenAICompat =
+    typeof provider?.id === "string" && provider.id.startsWith("compat:");
+  if (isOpenAICompat) {
+    return "Hosted web search is not available for OpenAI-compatible servers. Choose another provider.";
+  }
+  const label =
+    provider && typeof provider.label === "string" && provider.label
+      ? provider.label
+      : "This provider";
+  return `Hosted web search is not supported by ${label}. Choose another provider.`;
+}
+
+/**
+ * Fail closed when hosted web_search is active but the provider cannot honor it.
+ * `toolChoice: "none"` suppresses search, so this is a no-op in that case.
+ *
+ * @param {{
+ *   id?: string,
+ *   label?: string,
+ *   hostedTools?: readonly string[],
+ * } | null | undefined} provider
+ * @param {Tool[] | undefined | null} tools
+ * @param {unknown} [toolChoice]
+ * @returns {void}
+ */
+export function assertHostedWebSearchSupported(provider, tools, toolChoice) {
+  if (!hostedWebSearchActive(tools, toolChoice)) return;
+  const hosted = Array.isArray(provider?.hostedTools) ? provider.hostedTools : [];
+  if (hosted.includes("web_search")) return;
+  throwInference("unavailable", hostedWebSearchUnavailableMessage(provider));
+}
+
+/**
  * Map Bridge tools onto OpenRouter Chat Completions `tools`.
  * Function tools stay OpenAI-shaped; `{ type: "web_search" }` becomes
  * `{ type: "openrouter:web_search" }`.

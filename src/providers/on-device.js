@@ -10,6 +10,7 @@ import {
   throwInference,
 } from "../prompt-api-core.js";
 import { streamOnDeviceChat } from "../prompt-api-client.js";
+import { assertHostedWebSearchSupported } from "./hosted-tools.js";
 
 /** @typedef {import("./types.js").Provider} Provider */
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
@@ -34,10 +35,11 @@ export const onDeviceProvider = {
     mapMessagesForPromptApi(messages);
   },
 
-  async streamChat({ messages, signal, onDelta }) {
+  async streamChat({ messages, tools, toolChoice, signal, onDelta }) {
     if (signal.aborted) {
       throwInference("aborted", "Request aborted");
     }
+    assertHostedWebSearchSupported(this, tools, toolChoice);
     return streamOnDeviceChat({ messages, signal, onDelta });
   },
 };

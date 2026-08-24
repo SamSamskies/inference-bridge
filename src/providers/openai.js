@@ -3,7 +3,10 @@
  * Chat Completions by default; Responses API when hosted web_search is present.
  */
 
-import { hasHostedWebSearch } from "./hosted-tools.js";
+import {
+  hasHostedWebSearch,
+  omitHostedWebSearchIfNone,
+} from "./hosted-tools.js";
 import {
   filterFunctionTools,
   streamOpenAICompatChat,
@@ -52,12 +55,13 @@ export const openaiProvider = {
     onDelta,
     onReasoningDelta,
   }) {
-    if (hasHostedWebSearch(tools)) {
+    const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
+    if (hasHostedWebSearch(toolsForRequest)) {
       return streamOpenAIResponsesChat({
         apiKey,
         model,
         messages,
-        tools,
+        tools: toolsForRequest,
         toolChoice,
         ...(options ? { options } : {}),
         signal,
@@ -66,7 +70,7 @@ export const openaiProvider = {
       });
     }
 
-    const functionTools = filterFunctionTools(tools);
+    const functionTools = filterFunctionTools(toolsForRequest);
     return streamOpenAICompatChat({
       url: OPENAI_URL,
       apiKey,

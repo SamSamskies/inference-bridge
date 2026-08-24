@@ -219,6 +219,20 @@ describe("onDeviceProvider", () => {
     expect(onDeviceProvider.hostedTools).toEqual([]);
   });
 
+  it("fails closed with unavailable when hosted web_search is requested", async () => {
+    await expect(
+      onDeviceProvider.streamChat({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+    });
+  });
+
   it("rejects non-user finals in preflight, before any provider work", () => {
     try {
       onDeviceProvider.preflightMessages?.([

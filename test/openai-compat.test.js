@@ -170,7 +170,93 @@ describe("createOpenAICompatProvider", () => {
     });
   });
 
-  it("forwards function tools and toolChoice; strips hosted web_search", async () => {
+  it("fails closed with unavailable when hosted web_search is requested", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenAICompatProvider(endpoint);
+
+    await expect(
+      provider.streamChat({
+        model: "local",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search" }],
+        toolChoice: "auto",
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of stripping web_search from a mixed tools array", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenAICompatProvider(endpoint);
+
+    await expect(
+      provider.streamChat({
+        model: "local",
+        messages: [{ role: "user", content: "weather?" }],
+        tools: [
+          { type: "web_search" },
+          {
+            type: "function",
+            function: { name: "get_weather", parameters: { type: "object" } },
+          },
+        ],
+        toolChoice: "auto",
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards function tools when toolChoice is none and omits hosted web_search", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAICompatProvider(endpoint);
+    await provider.streamChat({
+      model: "local",
+      messages: [{ role: "user", content: "weather?" }],
+      tools: [
+        { type: "web_search" },
+        {
+          type: "function",
+          function: { name: "get_weather", parameters: { type: "object" } },
+        },
+      ],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        function: { name: "get_weather", parameters: { type: "object" } },
+      },
+    ]);
+    expect(body.tool_choice).toBe("none");
+  });
+
+  it("forwards function tools and toolChoice when hosted web_search is absent", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
         [
@@ -187,7 +273,6 @@ describe("createOpenAICompatProvider", () => {
       model: "local",
       messages: [{ role: "user", content: "weather?" }],
       tools: [
-        { type: "web_search" },
         {
           type: "function",
           function: { name: "get_weather", parameters: { type: "object" } },
@@ -215,27 +300,6 @@ describe("createOpenAICompatProvider", () => {
         function: { name: "get_weather", arguments: '{"city":"Austin"}' },
       },
     ]);
-  });
-
-  it("omits tools and tool_choice when only hosted web_search is present", async () => {
-    const fetchMock = vi.fn(async () =>
-      sseResponse('data: {"choices":[{"delta":{"content":"ok"}}]}\ndata: [DONE]\n')
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const provider = createOpenAICompatProvider(endpoint);
-    await provider.streamChat({
-      model: "local",
-      messages: [{ role: "user", content: "hi" }],
-      tools: [{ type: "web_search" }],
-      toolChoice: "auto",
-      signal: new AbortController().signal,
-      onDelta: () => {},
-    });
-
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.tools).toBeUndefined();
-    expect(body.tool_choice).toBeUndefined();
   });
 
   it("accumulates streamed toolCalls by index into done.message.toolCalls", async () => {

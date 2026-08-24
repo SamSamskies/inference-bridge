@@ -3,6 +3,7 @@
  * (LM Studio, llama.cpp, vLLM, LocalAI, proxies, etc.).
  */
 
+import { assertHostedWebSearchSupported } from "./hosted-tools.js";
 import {
   filterFunctionTools,
   streamOpenAICompatChat,
@@ -125,6 +126,7 @@ export function createOpenAICompatProvider(endpoint) {
 
       await ensureReady(baseUrl, label);
 
+      assertHostedWebSearchSupported(this, tools, toolChoice);
       const functionTools = filterFunctionTools(tools);
       return streamOpenAICompatChat({
         url: chatUrl,

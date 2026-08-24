@@ -3,7 +3,10 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
-import { mapToolsForOpenRouter } from "./hosted-tools.js";
+import {
+  mapToolsForOpenRouter,
+  omitHostedWebSearchIfNone,
+} from "./hosted-tools.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -126,7 +129,9 @@ export const openrouterProvider = {
       );
     }
 
-    const mappedTools = mapToolsForOpenRouter(tools);
+    const mappedTools = mapToolsForOpenRouter(
+      omitHostedWebSearchIfNone(tools, toolChoice)
+    );
     return streamOpenAICompatChat({
       url: OPENROUTER_CHAT_URL,
       apiKey,
