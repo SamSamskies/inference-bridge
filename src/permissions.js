@@ -23,7 +23,7 @@ import {
   fingerprintTrailingToolCalls,
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
-  isToolFingerprintCovered,
+  isToolGrantCovered,
   startsWithMessageHistory,
 } from "./tool-approval.js";
 
@@ -53,6 +53,7 @@ export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
+ *   toolChoiceNone?: boolean,
  *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
  * }>>}
@@ -131,10 +132,10 @@ export function onAllowedOriginsStorageChanged(changes, areaName) {
  */
 function grantRoutingChanged(prev, next) {
   if (!next || typeof next !== "object") return true;
-  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown }} */ (
     prev && typeof prev === "object" ? prev : {}
   );
-  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown }} */ (
+  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown }} */ (
     next
   );
   const prevModel =
@@ -153,7 +154,8 @@ function grantRoutingChanged(prev, next) {
     normalizeProviderId(prevGrant.providerId) !==
       normalizeProviderId(nextGrant.providerId) ||
     prevModel !== nextModel ||
-    prevFp !== nextFp
+    prevFp !== nextFp ||
+    (prevGrant.toolChoiceNone === true) !== (nextGrant.toolChoiceNone === true)
   );
 }
 
@@ -164,6 +166,7 @@ function grantRoutingChanged(prev, next) {
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
+ *   toolChoiceNone?: boolean,
  *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
  * }>}
@@ -186,6 +189,7 @@ function liveToolEpisodes(origin, now) {
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
+ *   toolChoiceNone?: boolean,
  *   messages: ChatMessage[],
  * }} episode
  * @param {number} [now]
@@ -202,6 +206,9 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
     messagesPrefix: episode.messages.map((m) => structuredClone(m)),
     expiresAt: now + TOOL_EPISODE_TTL_MS,
   };
+  if (episode.toolChoiceNone === true) {
+    next.toolChoiceNone = true;
+  }
 
   const list = liveToolEpisodes(origin, now);
   // Update only when this turn continues an existing episode. Exact-prefix
@@ -245,9 +252,10 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
  * @param {{
  *   toolFingerprint: string,
  *   messages: ChatMessage[],
+ *   toolChoice?: ToolChoice,
  * }} args
  * @param {number} [now]
- * @returns {{ providerId: string, model: string, toolFingerprint: string } | null}
+ * @returns {{ providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean } | null}
  */
 function matchingToolEpisode(origin, args, now = Date.now()) {
   const list = liveToolEpisodes(origin, now);
@@ -264,7 +272,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   // If several share that length but disagree on provider/model (two tabs
   // Allow-once on the same opener), refuse to guess — re-prompt instead.
   let bestPrefixLen = -1;
-  /** @type {Array<{ providerId: string, model: string, toolFingerprint: string }>} */
+  /** @type {Array<{ providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean }>} */
   const tied = [];
   for (const episode of list) {
     // Same-origin callers can fabricate assistant toolCalls + tool results.
@@ -273,7 +281,14 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
     if (!isMessageHistoryExtension(args.messages, episode.messagesPrefix)) {
       continue;
     }
-    if (!isToolFingerprintCovered(requestFp, episode.toolFingerprint)) {
+    if (
+      !isToolGrantCovered(
+        requestFp,
+        episode.toolFingerprint,
+        args.toolChoice,
+        episode.toolChoiceNone === true
+      )
+    ) {
       continue;
     }
     const prefixLen = episode.messagesPrefix.length;
@@ -281,6 +296,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
       providerId: episode.providerId,
       model: episode.model,
       toolFingerprint: episode.toolFingerprint,
+      ...(episode.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
     };
     if (prefixLen > bestPrefixLen) {
       bestPrefixLen = prefixLen;
@@ -292,7 +308,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   }
   if (tied.length === 0) return null;
 
-  /** @type {Map<string, { providerId: string, model: string, toolFingerprint: string }>} */
+  /** @type {Map<string, { providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean }>} */
   const byBinding = new Map();
   for (const candidate of tied) {
     byBinding.set(`${candidate.providerId}\0${candidate.model}`, candidate);
@@ -453,6 +469,7 @@ export async function ensurePermission(args) {
         const episode = matchingToolEpisode(args.origin, {
           toolFingerprint,
           messages: args.messages,
+          toolChoice: args.toolChoice,
         });
         if (!episode) {
           // Unmatched tool continuations must not ride Always-allow (plain or
@@ -470,14 +487,22 @@ export async function ensurePermission(args) {
       } else if (
         // Tools: Always-allow only skips the prompt when the grant already covers
         // this tool set. Plain-chat grants (no toolFingerprint) still re-prompt.
+        // A toolChoice "none" grant must not cover a later request that can
+        // invoke tools (including hosted web_search under default "auto").
         typeof existing.toolFingerprint === "string" &&
-        isToolFingerprintCovered(toolFingerprint, existing.toolFingerprint)
+        isToolGrantCovered(
+          toolFingerprint,
+          existing.toolFingerprint,
+          args.toolChoice,
+          existing.toolChoiceNone === true
+        )
       ) {
         rememberToolEpisode(args.origin, {
           providerId: grantProviderId,
           model: grantModel,
           toolFingerprint: existing.toolFingerprint,
           messages: args.messages,
+          ...(existing.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
         });
         return {
           allowed: true,
@@ -500,6 +525,7 @@ export async function ensurePermission(args) {
   const episode = matchingToolEpisode(args.origin, {
     toolFingerprint,
     messages: args.messages,
+    toolChoice: args.toolChoice,
   });
   if (episode) {
     const episodeProvider = await getProviderAsync(episode.providerId);
@@ -519,6 +545,7 @@ export async function ensurePermission(args) {
         model: episode.model,
         toolFingerprint: episode.toolFingerprint,
         messages: args.messages,
+        ...(episode.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
       });
       return {
         allowed: true,
@@ -596,6 +623,9 @@ export async function ensurePermission(args) {
           providerId: chosenProviderId,
           model: chosenModel,
           ...(toolFingerprint ? { toolFingerprint } : {}),
+          ...(toolFingerprint && args.toolChoice === "none"
+            ? { toolChoiceNone: true }
+            : {}),
         });
         // Always-allow may narrow the persistent grant; drop prior episodes so
         // broader in-memory fingerprints (e.g. parallel same-length openers)
@@ -608,6 +638,7 @@ export async function ensurePermission(args) {
           model: chosenModel,
           toolFingerprint,
           messages: args.messages,
+          ...(args.toolChoice === "none" ? { toolChoiceNone: true } : {}),
         });
       }
       await setOriginLastUsed(args.origin, {

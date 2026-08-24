@@ -62,6 +62,29 @@ export function isToolFingerprintCovered(requestFp, grantedFp) {
 }
 
 /**
+ * True when a stored tools grant/episode covers this request.
+ * A `toolChoice: "none"` approval must not later skip a request that can
+ * invoke tools (including hosted web_search under default `"auto"`).
+ * @param {string} requestFp
+ * @param {string} grantedFp
+ * @param {unknown} [requestToolChoice]
+ * @param {boolean} [grantToolChoiceNone]
+ * @returns {boolean}
+ */
+export function isToolGrantCovered(
+  requestFp,
+  grantedFp,
+  requestToolChoice,
+  grantToolChoiceNone
+) {
+  if (!isToolFingerprintCovered(requestFp, grantedFp)) return false;
+  if (grantToolChoiceNone === true && requestToolChoice !== "none") {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Index of the assistant message that owns trailing tool results, or -1.
  * @param {Array<{ role?: string, toolCalls?: unknown }> | undefined | null} messages
  * @returns {number}

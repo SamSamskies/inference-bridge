@@ -12,6 +12,7 @@ import {
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
+  isToolGrantCovered,
   startsWithMessageHistory,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
@@ -78,6 +79,28 @@ describe("isToolFingerprintCovered", () => {
 
   it("rejects when grant has no fingerprint", () => {
     expect(isToolFingerprintCovered(fingerprintTools([weatherTool]), "")).toBe(
+      false
+    );
+  });
+});
+
+describe("isToolGrantCovered", () => {
+  const searchFp = fingerprintTools([{ type: "web_search" }]);
+
+  it("covers auto requests when the grant is not none-scoped", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "auto", false)).toBe(true);
+    expect(isToolGrantCovered(searchFp, searchFp, undefined, false)).toBe(true);
+  });
+
+  it("covers none requests from both none-scoped and auto grants", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "none", true)).toBe(true);
+    expect(isToolGrantCovered(searchFp, searchFp, "none", false)).toBe(true);
+  });
+
+  it("does not cover an auto request from a none-scoped grant", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "auto", true)).toBe(false);
+    expect(isToolGrantCovered(searchFp, searchFp, undefined, true)).toBe(false);
+    expect(isToolGrantCovered(searchFp, searchFp, "required", true)).toBe(
       false
     );
   });

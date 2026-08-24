@@ -658,6 +658,7 @@ describe("ensurePermission with tools", () => {
 
     const grant = await getOriginGrant("https://tools-grant.example");
     expect(grant?.toolFingerprint).toBe("fn:get_weather");
+    expect(grant?.toolChoiceNone).toBeUndefined();
 
     await expect(
       ensurePermission({
@@ -882,6 +883,128 @@ describe("ensurePermission with tools", () => {
       model: "on-device",
     });
     await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts Always-allow when a none-scoped tools grant later uses auto", async () => {
+    await grantOriginAlways("https://none-grant-auto.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+    });
+
+    const pending = ensurePermission({
+      requestId: "rt2-none-then-auto",
+      origin: "https://none-grant-auto.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-none-then-auto");
+    expect(getPendingApproval("rt2-none-then-auto")).toMatchObject({
+      tools: webSearchTools,
+    });
+    resolveApproval("rt2-none-then-auto", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips Always-allow hosted web_search when a none-scoped grant is reused with none", async () => {
+    await grantOriginAlways("https://none-grant-none.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2-none-then-none",
+        origin: "https://none-grant-none.example",
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+        toolChoice: "none",
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: false,
+    });
+    expect(getPendingApproval("rt2-none-then-none")).toBeNull();
+  });
+
+  it("persists toolChoiceNone on Always-allow and re-prompts later auto hosted search", async () => {
+    const first = ensurePermission({
+      requestId: "rt2-none-always",
+      origin: "https://none-always-auto.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+      toolChoice: "none",
+    });
+    await waitForPending("rt2-none-always");
+    resolveApproval("rt2-none-always", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(first).resolves.toMatchObject({ allowed: true, once: false });
+    await expect(
+      getOriginGrant("https://none-always-auto.example")
+    ).resolves.toMatchObject({
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+    });
+
+    const later = ensurePermission({
+      requestId: "rt2-none-always-auto",
+      origin: "https://none-always-auto.example",
+      messages: [{ role: "user", content: "search now?" }],
+      tools: webSearchTools,
+    });
+    await waitForPending("rt2-none-always-auto");
+    resolveApproval("rt2-none-always-auto", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(later).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts allow_once follow-ups that enable tools after a toolChoice none opening", async () => {
+    const turn1 = ensurePermission({
+      requestId: "rt2-none-ep1",
+      origin: "https://none-episode-auto.example",
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: ollamaSearchAndWeatherTools,
+      toolChoice: "none",
+    });
+    await waitForPending("rt2-none-ep1");
+    resolveApproval("rt2-none-ep1", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const turn2 = ensurePermission({
+      requestId: "rt2-none-ep2",
+      origin: "https://none-episode-auto.example",
+      messages: weatherFollowUpMessages,
+      tools: ollamaSearchAndWeatherTools,
+    });
+    await waitForPending("rt2-none-ep2");
+    expect(getPendingApproval("rt2-none-ep2")).toMatchObject({
+      tools: ollamaSearchAndWeatherTools,
+    });
+    resolveApproval("rt2-none-ep2", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
 
   it("re-prompts Always-allow Ollama web_search when the saved key is whitespace-only", async () => {
