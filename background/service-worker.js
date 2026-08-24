@@ -434,6 +434,9 @@ async function handleStart(port, msg, onStreamId) {
       ...(experimental && validated.value.tools
         ? { tools: validated.value.tools }
         : {}),
+      ...(experimental && validated.value.toolChoice !== undefined
+        ? { toolChoice: validated.value.toolChoice }
+        : {}),
     });
 
     // Aborted while the permission prompt was open (tab closed / explicit abort).

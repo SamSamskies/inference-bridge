@@ -383,6 +383,49 @@ describe("origin grants still work with openrouter", () => {
   });
 });
 
+describe("grantOriginAlways toolChoiceNone", () => {
+  it("persists toolChoiceNone only for tools grants approved with none", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toMatchObject({
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+    });
+
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+  });
+});
+
 describe("originLastUsed", () => {
   it("stores and reads the last approval choice without granting access", async () => {
     await setOriginLastUsed("https://app.example", {

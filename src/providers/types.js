@@ -24,8 +24,9 @@
  * forwarded on OpenAI (Responses), Anthropic (Messages server tool), and
  * OpenRouter (Chat Completions). Ollama maps it to function tools and
  * Inference Bridge executes `https://ollama.com/api/web_search` (and
- * `web_fetch`) when an Ollama account API key is configured. Other adapters
- * only forward `type: "function"`.
+ * `web_fetch`) when an Ollama account API key is configured.
+ * `toolChoice: "none"` omits hosted search (including the Ollama loop).
+ * Adapters that do not honor hosted search fail closed with `unavailable`.
  * @typedef {{
  *   type: "function",
  *   function: {

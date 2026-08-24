@@ -86,6 +86,8 @@ let modelsLoadId = 0;
 /** Tools from the pending approval request (experimental path). */
 /** @type {import("../src/providers/types.js").Tool[] | undefined} */
 let requestTools;
+/** @type {import("../src/providers/types.js").ToolChoice | undefined} */
+let requestToolChoice;
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
 allowBtn.disabled = true;
@@ -155,7 +157,7 @@ function updateProviderHint(providerId = providerSelect.value) {
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
   const provider = providers.find((p) => p.id === providerId);
-  const warnings = capabilityWarnings(provider, requestTools);
+  const warnings = capabilityWarnings(provider, requestTools, requestToolChoice);
   if (warnings.length === 0) {
     capabilityWarningEl.hidden = true;
     capabilityWarningEl.textContent = "";
@@ -290,7 +292,11 @@ function updateAllowEnabled() {
   const valid = isModelValid(readModelValue(providerId), currentModels, {
     allowUnknown: allowUnknownFor(providerId),
   });
-  const toolsBlocked = blocksAllowForRequestTools(provider, requestTools);
+  const toolsBlocked = blocksAllowForRequestTools(
+    provider,
+    requestTools,
+    requestToolChoice
+  );
   allowBtn.disabled =
     !providerReady || !modelsReady || !valid || toolsBlocked;
 }
@@ -654,7 +660,7 @@ async function decide(action) {
         ollamaAvailable: ollamaStatus.available,
         onDeviceAvailable: onDeviceStatus.available,
       }) ||
-      blocksAllowForRequestTools(provider, requestTools)
+      blocksAllowForRequestTools(provider, requestTools, requestToolChoice)
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -754,6 +760,8 @@ async function load() {
   const providerId = fillProviders(requestedId);
   updateProviderHint(providerId);
   requestTools = Array.isArray(request.tools) ? request.tools : undefined;
+  requestToolChoice =
+    request.toolChoice !== undefined ? request.toolChoice : undefined;
   renderTools(requestTools);
   updateCapabilityWarning(providerId);
   renderPreview(request.messages || []);

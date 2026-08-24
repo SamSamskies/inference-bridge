@@ -96,6 +96,35 @@ describe("openaiProvider.streamChat", () => {
     ]);
   });
 
+  it("does not use Responses when toolChoice is none", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ type: "web_search" }],
+      toolChoice: "none",
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.openai.com/v1/chat/completions");
+    const body = JSON.parse(init.body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
   it("defaults tool_choice to auto when tools are present and toolChoice is omitted", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(

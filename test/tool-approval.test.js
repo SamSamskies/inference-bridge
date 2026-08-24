@@ -3,6 +3,7 @@ import {
   blocksAllowForMissingOllamaWebSearchKey,
   blocksAllowForRequestTools,
   blocksAllowForUnsupportedFunctionTools,
+  blocksAllowForUnsupportedHostedWebSearch,
   capabilityWarnings,
   fingerprintTools,
   fingerprintTrailingToolCalls,
@@ -11,6 +12,7 @@ import {
   isMessageHistoryExtension,
   isToolEpisodeContinuation,
   isToolFingerprintCovered,
+  isToolGrantCovered,
   startsWithMessageHistory,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
@@ -77,6 +79,28 @@ describe("isToolFingerprintCovered", () => {
 
   it("rejects when grant has no fingerprint", () => {
     expect(isToolFingerprintCovered(fingerprintTools([weatherTool]), "")).toBe(
+      false
+    );
+  });
+});
+
+describe("isToolGrantCovered", () => {
+  const searchFp = fingerprintTools([{ type: "web_search" }]);
+
+  it("covers auto requests when the grant is not none-scoped", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "auto", false)).toBe(true);
+    expect(isToolGrantCovered(searchFp, searchFp, undefined, false)).toBe(true);
+  });
+
+  it("covers none requests from both none-scoped and auto grants", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "none", true)).toBe(true);
+    expect(isToolGrantCovered(searchFp, searchFp, "none", false)).toBe(true);
+  });
+
+  it("does not cover an auto request from a none-scoped grant", () => {
+    expect(isToolGrantCovered(searchFp, searchFp, "auto", true)).toBe(false);
+    expect(isToolGrantCovered(searchFp, searchFp, undefined, true)).toBe(false);
+    expect(isToolGrantCovered(searchFp, searchFp, "required", true)).toBe(
       false
     );
   });
@@ -354,6 +378,9 @@ describe("summarizeToolsForPreview / hostedToolLabel", () => {
     expect(hostedToolDescription("web_search", { id: "ollama" })).toMatch(
       /ollama\.com/
     );
+    expect(hostedToolDescription("web_search", { id: "ollama" })).toMatch(
+      /fetch/i
+    );
     expect(hostedToolDescription("web_search", { id: "openai" })).toBe("");
   });
 });
@@ -391,6 +418,49 @@ describe("blocksAllowForUnsupportedFunctionTools", () => {
       blocksAllowForUnsupportedFunctionTools(
         { supportsFunctionTools: false },
         undefined
+      )
+    ).toBe(false);
+  });
+});
+
+describe("blocksAllowForUnsupportedHostedWebSearch", () => {
+  it("blocks when web_search is requested and hostedTools does not include it", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "on-device", hostedTools: [] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(true);
+    expect(
+      blocksAllowForRequestTools(
+        { id: "compat:lm", supportsFunctionTools: true, hostedTools: [] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(true);
+  });
+
+  it("does not block providers that honor hosted web_search", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "openai", hostedTools: ["web_search"] },
+        [{ type: "web_search" }]
+      )
+    ).toBe(false);
+  });
+
+  it("does not block when toolChoice is none", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "on-device", hostedTools: [] },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForRequestTools(
+        { id: "compat:lm", supportsFunctionTools: true, hostedTools: [] },
+        [{ type: "web_search" }],
+        "none"
       )
     ).toBe(false);
   });
@@ -440,6 +510,19 @@ describe("blocksAllowForMissingOllamaWebSearchKey", () => {
     ).toBe(false);
   });
 
+  it("does not block when toolChoice is none", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(
+        ollamaNoKey,
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForRequestTools(ollamaNoKey, [{ type: "web_search" }], "none")
+    ).toBe(false);
+  });
+
   it("does not block other providers", () => {
     expect(
       blocksAllowForMissingOllamaWebSearchKey(
@@ -472,8 +555,7 @@ describe("capabilityWarnings", () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/web search is not supported by On-device/i);
-    expect(warnings[0]).toMatch(/will not run a hosted search/i);
-    expect(warnings[0]).not.toMatch(/allow will still work/i);
+    expect(warnings[0]).toMatch(/choose another provider/i);
   });
 
   it("does not name a custom OpenAI-compatible server in the web_search warning", () => {
@@ -489,8 +571,8 @@ describe("capabilityWarnings", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/OpenAI-compatible servers/i);
     expect(warnings[0]).toMatch(/not mapped/i);
+    expect(warnings[0]).toMatch(/choose another provider/i);
     expect(warnings[0]).not.toMatch(/PPQ/);
-    expect(warnings[0]).not.toMatch(/allow will still work/i);
   });
 
   it("does not warn in red when Ollama web search is ready", () => {
@@ -523,6 +605,34 @@ describe("capabilityWarnings", () => {
     expect(warnings[0]).toMatch(/ollama\.com/i);
     expect(warnings[0]).toMatch(/save an Ollama account API key in Options/i);
     expect(warnings[0]).toMatch(/enable Allow/i);
+  });
+
+  it("does not warn about web_search when toolChoice is none", () => {
+    expect(
+      capabilityWarnings(
+        {
+          id: "on-device",
+          label: "On-device",
+          supportsFunctionTools: false,
+          hostedTools: [],
+        },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toEqual([]);
+    expect(
+      capabilityWarnings(
+        {
+          id: "ollama",
+          label: "Ollama",
+          supportsFunctionTools: true,
+          hostedTools: ["web_search"],
+          hasApiKey: false,
+        },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toEqual([]);
   });
 
   it("returns no warnings when capabilities match", () => {

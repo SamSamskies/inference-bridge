@@ -15,7 +15,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
-- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device warn only)
+- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -297,7 +297,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers still warn only.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -309,10 +309,10 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
-| OpenAI-compatible | Not mapped — approval warning (no first-class hosted search across named endpoints) |
-| On-device | Unsupported — approval warning |
+| OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
+| On-device | Unsupported — Allow disabled / `unavailable` |
 
-Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge calls ollama.com). Unsupported providers warn that hosted search will not run. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
+Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge may search and fetch via ollama.com). Unsupported providers disable Allow and tell the user to pick another provider. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
 
 Use OpenAI, Anthropic, OpenRouter, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
 
@@ -571,7 +571,7 @@ console.log("[final]", final.message.content);
 | OpenAI-compatible | Chat Completions `tools` |
 | On-device | Not supported (`toolCalling` stays false for this provider) |
 
-Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools request, Allow stays disabled with a hint to pick another provider (unsupported hosted tools still warn only). Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools or hosted `web_search` request, Allow stays disabled with a hint to pick another provider. Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
 ## Development
 
@@ -627,10 +627,12 @@ npm run package
 - [ ] `experimental.runTools` completes a page-executed loop with the same shape
 - [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI (OpenAI uses `/v1/responses` only when search is present)
 - [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, experimental chat searches; without key, Allow is disabled (no silent strip)
-- [ ] OpenAI-compatible / On-device: approval warns for `web_search` (search is not run; copy does not claim Allow is enabled)
-- [ ] Approval lists “Web search (provider-hosted)” or “Web search (Ollama cloud)”
+- [ ] OpenAI-compatible / On-device: Allow disabled for `web_search`; if the request proceeds, `unavailable` (no silent strip)
+- [ ] `toolChoice: "none"` does not run hosted search (OpenAI / Anthropic / OpenRouter / Ollama ollama.com loop)
+- [ ] Approval lists “Web search (provider-hosted)” or “Web search (Ollama cloud)” (Ollama description mentions fetch)
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
+- [ ] `getFeatures()` still has no `webSearch: true`; stable `request` still rejects `tools`
 
 ### Current limitations
 

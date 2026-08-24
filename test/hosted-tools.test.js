@@ -3,8 +3,11 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL,
   OPENAI_WEB_SEARCH_TOOL,
   OPENROUTER_WEB_SEARCH_TOOL,
+  assertHostedWebSearchSupported,
   hasHostedWebSearch,
+  hostedWebSearchActive,
   mapToolsForOpenRouter,
+  omitHostedWebSearchIfNone,
 } from "../src/providers/hosted-tools.js";
 
 describe("hasHostedWebSearch", () => {
@@ -49,6 +52,65 @@ describe("mapToolsForOpenRouter", () => {
   it("returns undefined when nothing maps", () => {
     expect(mapToolsForOpenRouter(undefined)).toBeUndefined();
     expect(mapToolsForOpenRouter([])).toBeUndefined();
+  });
+});
+
+describe("hostedWebSearchActive / omitHostedWebSearchIfNone", () => {
+  const searchTools = [
+    { type: "web_search" },
+    { type: "function", function: { name: "get_weather" } },
+  ];
+
+  it("is inactive when toolChoice is none", () => {
+    expect(hostedWebSearchActive(searchTools, "none")).toBe(false);
+    expect(hostedWebSearchActive(searchTools, "auto")).toBe(true);
+    expect(hostedWebSearchActive(searchTools, undefined)).toBe(true);
+  });
+
+  it("drops hosted web_search when toolChoice is none", () => {
+    expect(omitHostedWebSearchIfNone(searchTools, "none")).toEqual([
+      { type: "function", function: { name: "get_weather" } },
+    ]);
+    expect(
+      omitHostedWebSearchIfNone([{ type: "web_search" }], "none")
+    ).toBeUndefined();
+    expect(omitHostedWebSearchIfNone(searchTools, "auto")).toEqual(searchTools);
+  });
+});
+
+describe("assertHostedWebSearchSupported", () => {
+  it("throws unavailable when the provider cannot honor active web_search", () => {
+    try {
+      assertHostedWebSearchSupported(
+        { id: "on-device", label: "On-device", hostedTools: [] },
+        [{ type: "web_search" }],
+        "auto"
+      );
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        code: "unavailable",
+        message: expect.stringMatching(/On-device/i),
+      });
+    }
+  });
+
+  it("is a no-op when toolChoice is none or the provider honors search", () => {
+    expect(() =>
+      assertHostedWebSearchSupported(
+        { id: "on-device", label: "On-device", hostedTools: [] },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertHostedWebSearchSupported(
+        { id: "openai", hostedTools: ["web_search"] },
+        [{ type: "web_search" }],
+        "auto"
+      )
+    ).not.toThrow();
   });
 });
 

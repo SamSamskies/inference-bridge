@@ -4,7 +4,7 @@
  */
 
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
-import { hasHostedWebSearch } from "./hosted-tools.js";
+import { hostedWebSearchActive } from "./hosted-tools.js";
 import {
   hasOllamaWebSearchApiKey,
   missingOllamaWebSearchKeyMessage,
@@ -551,7 +551,7 @@ export const ollamaProvider = {
     onDelta,
     onReasoningDelta,
   }) {
-    if (hasHostedWebSearch(tools)) {
+    if (hostedWebSearchActive(tools, toolChoice)) {
       if (!hasOllamaWebSearchApiKey(apiKey)) {
         throwInference("unavailable", missingOllamaWebSearchKeyMessage());
       }

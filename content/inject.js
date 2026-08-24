@@ -505,6 +505,9 @@
       /**
        * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
        * toolCalling stays false until tools graduate from experimental.request.
+       * Do not advertise webSearch here — hosted `{ type: "web_search" }` stays
+       * on experimental.request until a dedicated graduation (not as a side
+       * effect of graduating toolCalling).
        * options.reasoningEffort / options.temperature are advertised once Bridge
        * validates and maps them.
        */

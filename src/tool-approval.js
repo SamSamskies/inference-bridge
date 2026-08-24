@@ -3,8 +3,11 @@
  * Used by permissions + the approval popup (no Chrome APIs).
  */
 
+import { hostedWebSearchActive } from "./providers/hosted-tools.js";
+
 /** @typedef {import("./providers/types.js").Tool} Tool */
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
+/** @typedef {import("./providers/types.js").ToolChoice} ToolChoice */
 
 /**
  * Stable identity for one tool (name / hosted type only — not parameters).
@@ -54,6 +57,29 @@ export function isToolFingerprintCovered(requestFp, grantedFp) {
   const granted = new Set(grantedFp.split("|").filter(Boolean));
   for (const id of requestFp.split("|").filter(Boolean)) {
     if (!granted.has(id)) return false;
+  }
+  return true;
+}
+
+/**
+ * True when a stored tools grant/episode covers this request.
+ * A `toolChoice: "none"` approval must not later skip a request that can
+ * invoke tools (including hosted web_search under default `"auto"`).
+ * @param {string} requestFp
+ * @param {string} grantedFp
+ * @param {unknown} [requestToolChoice]
+ * @param {boolean} [grantToolChoiceNone]
+ * @returns {boolean}
+ */
+export function isToolGrantCovered(
+  requestFp,
+  grantedFp,
+  requestToolChoice,
+  grantToolChoiceNone
+) {
+  if (!isToolFingerprintCovered(requestFp, grantedFp)) return false;
+  if (grantToolChoiceNone === true && requestToolChoice !== "none") {
+    return false;
   }
   return true;
 }
@@ -271,7 +297,7 @@ export function hostedToolLabel(hostedId, provider) {
  */
 export function hostedToolDescription(hostedId, provider) {
   if (hostedId === "web_search" && provider?.id === "ollama") {
-    return "Runs in Inference Bridge against ollama.com. An Ollama account and usage may apply.";
+    return "Runs in Inference Bridge against ollama.com (search and fetch). An Ollama account and usage may apply.";
   }
   return "";
 }
@@ -279,8 +305,6 @@ export function hostedToolDescription(hostedId, provider) {
 /**
  * True when the request includes function tools the provider cannot relay.
  * Approval should disable Allow and ask the user to pick another provider.
- * Unsupported hosted tools stay soft-warn only (chat can still proceed),
- * except Ollama `{ type: "web_search" }` without an account API key.
  *
  * @param {{
  *   supportsFunctionTools?: boolean,
@@ -306,13 +330,39 @@ export function blocksAllowForUnsupportedFunctionTools(provider, tools) {
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {boolean}
  */
-export function blocksAllowForMissingOllamaWebSearchKey(provider, tools) {
+export function blocksAllowForMissingOllamaWebSearchKey(
+  provider,
+  tools,
+  toolChoice
+) {
   if (!provider || provider.id !== "ollama") return false;
   if (provider.hasApiKey !== false) return false;
-  if (!Array.isArray(tools) || tools.length === 0) return false;
-  return summarizeToolsForPreview(tools).hosted.includes("web_search");
+  return hostedWebSearchActive(tools, toolChoice);
+}
+
+/**
+ * True when hosted web_search is requested but the selected provider cannot
+ * honor it (`hostedTools` does not include `web_search`). Same idea as
+ * unsupported function tools: disable Allow; adapters still fail closed.
+ *
+ * @param {{
+ *   hostedTools?: readonly string[],
+ * } | null | undefined} provider
+ * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
+ * @returns {boolean}
+ */
+export function blocksAllowForUnsupportedHostedWebSearch(
+  provider,
+  tools,
+  toolChoice
+) {
+  if (!hostedWebSearchActive(tools, toolChoice)) return false;
+  const hosted = Array.isArray(provider?.hostedTools) ? provider.hostedTools : [];
+  return !hosted.includes("web_search");
 }
 
 /**
@@ -320,22 +370,25 @@ export function blocksAllowForMissingOllamaWebSearchKey(provider, tools) {
  * @param {{
  *   id?: string,
  *   supportsFunctionTools?: boolean,
+ *   hostedTools?: readonly string[],
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {boolean}
  */
-export function blocksAllowForRequestTools(provider, tools) {
+export function blocksAllowForRequestTools(provider, tools, toolChoice) {
   return (
     blocksAllowForUnsupportedFunctionTools(provider, tools) ||
-    blocksAllowForMissingOllamaWebSearchKey(provider, tools)
+    blocksAllowForUnsupportedHostedWebSearch(provider, tools, toolChoice) ||
+    blocksAllowForMissingOllamaWebSearchKey(provider, tools, toolChoice)
   );
 }
 
 /**
  * Capability warnings for the selected provider vs requested tools.
- * Function tools on an unsupported provider also block Allow (see
- * `blocksAllowForRequestTools`). Unsupported hosted tools warn only.
+ * Function tools or unsupported hosted web_search also block Allow (see
+ * `blocksAllowForRequestTools`). Unknown hosted types still warn only.
  * Ollama web_search without a key blocks Allow and this warning tells the user
  * to save a key in Options. When a key is saved, Ollama search is explained
  * under the Tools list instead (not as a red warning).
@@ -348,9 +401,10 @@ export function blocksAllowForRequestTools(provider, tools) {
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {string[]}
  */
-export function capabilityWarnings(provider, tools) {
+export function capabilityWarnings(provider, tools, toolChoice) {
   if (!Array.isArray(tools) || tools.length === 0) return [];
   const summary = summarizeToolsForPreview(tools);
   /** @type {string[]} */
@@ -372,12 +426,15 @@ export function capabilityWarnings(provider, tools) {
   const isOpenAICompat =
     typeof provider?.id === "string" && provider.id.startsWith("compat:");
   for (const hosted of summary.hosted) {
+    if (hosted === "web_search" && !hostedWebSearchActive(tools, toolChoice)) {
+      continue;
+    }
     if (!hostedSupported.has(hosted)) {
       if (hosted === "web_search") {
         warnings.push(
           isOpenAICompat
-            ? "Hosted web search is not mapped for OpenAI-compatible servers. Inference Bridge will not run a hosted search."
-            : `Web search is not supported by ${label}. The provider will not run a hosted search.`
+            ? "Hosted web search is not mapped for OpenAI-compatible servers. Choose another provider to allow this request."
+            : `Web search is not supported by ${label}. Choose another provider to allow this request.`
         );
       } else {
         warnings.push(

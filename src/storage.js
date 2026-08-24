@@ -11,6 +11,7 @@ import { normalizeCompatBaseUrl } from "./host-permissions.js";
  *   providerId?: string,
  *   model?: string,
  *   toolFingerprint?: string,
+ *   toolChoiceNone?: boolean,
  * }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
@@ -490,11 +491,12 @@ export async function isOriginBlocked(origin) {
  *   providerId: string,
  *   model: string,
  *   toolFingerprint?: string,
+ *   toolChoiceNone?: boolean,
  * }} options
  */
 export async function grantOriginAlways(
   origin,
-  { providerId, model, toolFingerprint }
+  { providerId, model, toolFingerprint, toolChoiceNone }
 ) {
   if (!isPersistableOriginKey(origin)) return;
   const { allowedOrigins, blockedOrigins } = await getSettings();
@@ -513,6 +515,11 @@ export async function grantOriginAlways(
   // cannot stay unlocked after a non-tools re-grant.
   if (fp) {
     grant.toolFingerprint = fp;
+    // Only persist when true so a later auto/required Always-allow (or a
+    // tools-less re-grant) drops the none-only scope.
+    if (toolChoiceNone === true) {
+      grant.toolChoiceNone = true;
+    }
   }
   allowedOrigins[origin] = grant;
   await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
