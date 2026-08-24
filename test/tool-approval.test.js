@@ -424,6 +424,23 @@ describe("blocksAllowForUnsupportedHostedWebSearch", () => {
       )
     ).toBe(false);
   });
+
+  it("does not block when toolChoice is none", () => {
+    expect(
+      blocksAllowForUnsupportedHostedWebSearch(
+        { id: "on-device", hostedTools: [] },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForRequestTools(
+        { id: "compat:lm", supportsFunctionTools: true, hostedTools: [] },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toBe(false);
+  });
 });
 
 describe("blocksAllowForMissingOllamaWebSearchKey", () => {
@@ -467,6 +484,19 @@ describe("blocksAllowForMissingOllamaWebSearchKey", () => {
         { id: "ollama", supportsFunctionTools: true },
         [{ type: "web_search" }]
       )
+    ).toBe(false);
+  });
+
+  it("does not block when toolChoice is none", () => {
+    expect(
+      blocksAllowForMissingOllamaWebSearchKey(
+        ollamaNoKey,
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForRequestTools(ollamaNoKey, [{ type: "web_search" }], "none")
     ).toBe(false);
   });
 
@@ -552,6 +582,34 @@ describe("capabilityWarnings", () => {
     expect(warnings[0]).toMatch(/ollama\.com/i);
     expect(warnings[0]).toMatch(/save an Ollama account API key in Options/i);
     expect(warnings[0]).toMatch(/enable Allow/i);
+  });
+
+  it("does not warn about web_search when toolChoice is none", () => {
+    expect(
+      capabilityWarnings(
+        {
+          id: "on-device",
+          label: "On-device",
+          supportsFunctionTools: false,
+          hostedTools: [],
+        },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toEqual([]);
+    expect(
+      capabilityWarnings(
+        {
+          id: "ollama",
+          label: "Ollama",
+          supportsFunctionTools: true,
+          hostedTools: ["web_search"],
+          hasApiKey: false,
+        },
+        [{ type: "web_search" }],
+        "none"
+      )
+    ).toEqual([]);
   });
 
   it("returns no warnings when capabilities match", () => {

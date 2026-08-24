@@ -3,8 +3,11 @@
  * Used by permissions + the approval popup (no Chrome APIs).
  */
 
+import { hostedWebSearchActive } from "./providers/hosted-tools.js";
+
 /** @typedef {import("./providers/types.js").Tool} Tool */
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
+/** @typedef {import("./providers/types.js").ToolChoice} ToolChoice */
 
 /**
  * Stable identity for one tool (name / hosted type only — not parameters).
@@ -304,13 +307,17 @@ export function blocksAllowForUnsupportedFunctionTools(provider, tools) {
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {boolean}
  */
-export function blocksAllowForMissingOllamaWebSearchKey(provider, tools) {
+export function blocksAllowForMissingOllamaWebSearchKey(
+  provider,
+  tools,
+  toolChoice
+) {
   if (!provider || provider.id !== "ollama") return false;
   if (provider.hasApiKey !== false) return false;
-  if (!Array.isArray(tools) || tools.length === 0) return false;
-  return summarizeToolsForPreview(tools).hosted.includes("web_search");
+  return hostedWebSearchActive(tools, toolChoice);
 }
 
 /**
@@ -322,13 +329,15 @@ export function blocksAllowForMissingOllamaWebSearchKey(provider, tools) {
  *   hostedTools?: readonly string[],
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {boolean}
  */
-export function blocksAllowForUnsupportedHostedWebSearch(provider, tools) {
-  if (!Array.isArray(tools) || tools.length === 0) return false;
-  if (!summarizeToolsForPreview(tools).hosted.includes("web_search")) {
-    return false;
-  }
+export function blocksAllowForUnsupportedHostedWebSearch(
+  provider,
+  tools,
+  toolChoice
+) {
+  if (!hostedWebSearchActive(tools, toolChoice)) return false;
   const hosted = Array.isArray(provider?.hostedTools) ? provider.hostedTools : [];
   return !hosted.includes("web_search");
 }
@@ -342,13 +351,14 @@ export function blocksAllowForUnsupportedHostedWebSearch(provider, tools) {
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {boolean}
  */
-export function blocksAllowForRequestTools(provider, tools) {
+export function blocksAllowForRequestTools(provider, tools, toolChoice) {
   return (
     blocksAllowForUnsupportedFunctionTools(provider, tools) ||
-    blocksAllowForUnsupportedHostedWebSearch(provider, tools) ||
-    blocksAllowForMissingOllamaWebSearchKey(provider, tools)
+    blocksAllowForUnsupportedHostedWebSearch(provider, tools, toolChoice) ||
+    blocksAllowForMissingOllamaWebSearchKey(provider, tools, toolChoice)
   );
 }
 
@@ -368,9 +378,10 @@ export function blocksAllowForRequestTools(provider, tools) {
  *   hasApiKey?: boolean,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
+ * @param {ToolChoice | unknown} [toolChoice]
  * @returns {string[]}
  */
-export function capabilityWarnings(provider, tools) {
+export function capabilityWarnings(provider, tools, toolChoice) {
   if (!Array.isArray(tools) || tools.length === 0) return [];
   const summary = summarizeToolsForPreview(tools);
   /** @type {string[]} */
@@ -392,6 +403,9 @@ export function capabilityWarnings(provider, tools) {
   const isOpenAICompat =
     typeof provider?.id === "string" && provider.id.startsWith("compat:");
   for (const hosted of summary.hosted) {
+    if (hosted === "web_search" && !hostedWebSearchActive(tools, toolChoice)) {
+      continue;
+    }
     if (!hostedSupported.has(hosted)) {
       if (hosted === "web_search") {
         warnings.push(

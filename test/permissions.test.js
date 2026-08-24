@@ -815,6 +815,75 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt2-openai-search")).toBeNull();
   });
 
+  it("skips Always-allow hosted web_search when toolChoice is none", async () => {
+    await grantOriginAlways("https://on-device-search-none.example", {
+      providerId: "on-device",
+      model: "on-device",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2-on-device-search-none",
+        origin: "https://on-device-search-none.example",
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+        toolChoice: "none",
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "on-device",
+      model: "on-device",
+      once: false,
+    });
+    expect(getPendingApproval("rt2-on-device-search-none")).toBeNull();
+  });
+
+  it("skips Always-allow Ollama web_search when toolChoice is none even without an account key", async () => {
+    await grantOriginAlways("https://ollama-search-none.example", {
+      providerId: "ollama",
+      model: "gemma4",
+      toolFingerprint: "hosted:web_search",
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt2-ollama-search-none",
+        origin: "https://ollama-search-none.example",
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+        toolChoice: "none",
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "ollama",
+      model: "gemma4",
+      once: false,
+    });
+    expect(getPendingApproval("rt2-ollama-search-none")).toBeNull();
+  });
+
+  it("includes toolChoice on the pending approval request", async () => {
+    const pending = ensurePermission({
+      requestId: "rt2-toolchoice-pending",
+      origin: "https://toolchoice-pending.example",
+      messages: [{ role: "user", content: "search?" }],
+      tools: webSearchTools,
+      toolChoice: "none",
+    });
+    await waitForPending("rt2-toolchoice-pending");
+    expect(getPendingApproval("rt2-toolchoice-pending")).toMatchObject({
+      tools: webSearchTools,
+      toolChoice: "none",
+    });
+    resolveApproval("rt2-toolchoice-pending", {
+      decision: "deny",
+      providerId: "on-device",
+      model: "on-device",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("re-prompts Always-allow Ollama web_search when the saved key is whitespace-only", async () => {
     chromeMock.store.set("apiKeys", { ollama: "   " });
     await grantOriginAlways("https://ollama-search-ws.example", {

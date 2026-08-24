@@ -29,6 +29,7 @@ import {
 
 /** @typedef {import("./providers/types.js").Tool} Tool */
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
+/** @typedef {import("./providers/types.js").ToolChoice} ToolChoice */
 
 /**
  * @typedef {{
@@ -38,6 +39,7 @@ import {
  *   providerId: string,
  *   model: string,
  *   tools?: Tool[],
+ *   toolChoice?: ToolChoice,
  * }} ApprovalRequest
  */
 
@@ -328,8 +330,9 @@ async function hasCompatHostAccess(provider) {
  * } | null | undefined} provider
  * @param {Tool[] | undefined} tools
  * @param {Record<string, string>} apiKeys
+ * @param {ToolChoice | undefined} [toolChoice]
  */
-async function canSkipApprovalPrompt(provider, tools, apiKeys) {
+async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
   if (!(await hasCompatHostAccess(provider))) return false;
   const raw = provider?.id ? apiKeys[provider.id] : undefined;
   return !blocksAllowForRequestTools(
@@ -339,7 +342,8 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys) {
       hostedTools: provider?.hostedTools,
       hasApiKey: hasStoredApiKey(raw),
     },
-    tools
+    tools,
+    toolChoice
   );
 }
 
@@ -352,6 +356,7 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys) {
  *   preferredProviderId?: string,
  *   preferredModel?: string,
  *   tools?: Tool[],
+ *   toolChoice?: ToolChoice,
  * }} args
  * @returns {Promise<{
  *   allowed: boolean,
@@ -433,7 +438,14 @@ export async function ensurePermission(args) {
     const grantFallbackModel = grantProvider?.defaultModel || "";
     const grantModel = existing.model || grantFallbackModel;
 
-    if (await canSkipApprovalPrompt(grantProvider, tools, settings.apiKeys)) {
+    if (
+      await canSkipApprovalPrompt(
+        grantProvider,
+        tools,
+        settings.apiKeys,
+        args.toolChoice
+      )
+    ) {
       if (!toolFingerprint) {
         // Tool follow-ups may omit `tools`. If an Allow-once episode still
         // matches, fall through so episode logic (below) keeps that
@@ -494,7 +506,14 @@ export async function ensurePermission(args) {
     // Same gates as Always-allow: revoked optional access, unsupported hosted
     // web_search, or a missing Ollama web_search key must re-prompt rather
     // than auto-approving and failing later in streaming.
-    if (await canSkipApprovalPrompt(episodeProvider, tools, settings.apiKeys)) {
+    if (
+      await canSkipApprovalPrompt(
+        episodeProvider,
+        tools,
+        settings.apiKeys,
+        args.toolChoice
+      )
+    ) {
       rememberToolEpisode(args.origin, {
         providerId: episode.providerId,
         model: episode.model,
@@ -519,6 +538,7 @@ export async function ensurePermission(args) {
     providerId: promptProviderId,
     model: promptModel,
     ...(tools ? { tools } : {}),
+    ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
   });
 
   const chosenProviderId = normalizeProviderId(
