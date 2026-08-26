@@ -4,6 +4,11 @@
  */
 
 import {
+  assembleAssistantContent,
+  collectOpenRouterImageParts,
+  mapContentForOpenAICompat,
+} from "../image-parts.js";
+import {
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
@@ -109,7 +114,7 @@ export function filterFunctionTools(tools) {
 export function mapMessagesForOpenAICompat(messages) {
   return messages.map((m) => {
     /** @type {Record<string, unknown>} */
-    const out = { role: m.role, content: m.content };
+    const out = { role: m.role, content: mapContentForOpenAICompat(m.content) };
     if (
       m.role === "assistant" &&
       Array.isArray(m.toolCalls) &&
@@ -184,12 +189,14 @@ export function extractOpenAICompatReasoningDelta(delta) {
  *   label: string,
  *   mapStatus?: (status: number, detail: string, label: string) => { code: string, message: string },
  *   extraHeaders?: Record<string, string>,
+ *   extraBody?: Record<string, unknown>,
+ *   includeAssistantImages?: boolean,
  * }} args
  * @returns {Promise<{
  *   model: string,
  *   message: {
  *     role: "assistant",
- *     content: string,
+ *     content: string | import("./types.js").ContentPart[],
  *     reasoning?: string,
  *     toolCalls?: ToolCall[],
  *   },
@@ -210,6 +217,8 @@ export async function streamOpenAICompatChat({
   label,
   mapStatus = defaultMapStatus,
   extraHeaders = {},
+  extraBody = {},
+  includeAssistantImages = false,
 }) {
   let response;
   try {
@@ -243,6 +252,7 @@ export async function streamOpenAICompatChat({
     if (temperature !== undefined) {
       body.temperature = temperature;
     }
+    Object.assign(body, extraBody);
 
     response = await fetch(url, {
       method: "POST",
@@ -314,6 +324,18 @@ export async function streamOpenAICompatChat({
   let usage;
   /** @type {Map<number, { id: string, name: string, arguments: string }>} */
   const toolCallsByIndex = new Map();
+  /** @type {Map<string, import("./types.js").ImagePart>} */
+  const assistantImagesByKey = new Map();
+
+  /**
+   * @param {unknown} images
+   */
+  function rememberAssistantImages(images) {
+    if (!includeAssistantImages) return;
+    for (const part of collectOpenRouterImageParts(images)) {
+      assistantImagesByKey.set(`${part.mediaType}:${part.data}`, part);
+    }
+  }
 
   /**
    * @param {string} line
@@ -359,6 +381,8 @@ export async function streamOpenAICompatChat({
 
     const choice = parsed.choices?.[0];
     const deltaObj = choice?.delta;
+    rememberAssistantImages(deltaObj?.images);
+    rememberAssistantImages(choice?.message?.images);
     const reasoningDelta = extractOpenAICompatReasoningDelta(deltaObj);
     if (reasoningDelta) {
       reasoning += reasoningDelta;
@@ -441,8 +465,14 @@ export async function streamOpenAICompatChat({
     }
   }
 
-  /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
-  const message = { role: "assistant", content };
+  const imageParts = [...assistantImagesByKey.values()];
+  /** @type {{ role: "assistant", content: string | import("./types.js").ContentPart[], reasoning?: string, toolCalls?: ToolCall[] }} */
+  const message = {
+    role: "assistant",
+    content: includeAssistantImages
+      ? assembleAssistantContent(content, imageParts)
+      : content,
+  };
   if (reasoning) {
     message.reasoning = reasoning;
   }

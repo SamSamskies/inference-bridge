@@ -100,14 +100,23 @@ export function isImageGrantCovered(grant, request) {
  *   imageInput?: boolean,
  *   imageOutput?: boolean,
  *   modelHasVision?: boolean,
+ *   modelCanGenerateImages?: boolean,
  * }} request
  * @returns {boolean}
  */
 export function blocksAllowForImages(provider, request) {
-  if (request.imageOutput) return true;
+  if (request.imageOutput) {
+    if (provider?.id !== "openrouter") return true;
+    if (request.modelCanGenerateImages !== true) return true;
+  }
   if (request.imageInput) {
-    if (provider?.id !== "ollama") return true;
-    if (request.modelHasVision !== true) return true;
+    if (provider?.id === "ollama") {
+      return request.modelHasVision !== true;
+    }
+    if (provider?.id === "openrouter") {
+      return request.modelHasVision !== true;
+    }
+    return true;
   }
   return false;
 }
@@ -118,6 +127,7 @@ export function blocksAllowForImages(provider, request) {
  *   imageInput?: boolean,
  *   imageOutput?: boolean,
  *   modelHasVision?: boolean,
+ *   modelCanGenerateImages?: boolean,
  * }} request
  * @returns {string[]}
  */
@@ -130,18 +140,32 @@ export function imageCapabilityWarnings(provider, request) {
   /** @type {string[]} */
   const warnings = [];
   if (request.imageOutput) {
-    warnings.push(
-      "Image generation is not available for this provider yet. Choose a different request or wait for a provider that can return images."
-    );
+    if (provider?.id !== "openrouter") {
+      warnings.push(
+        "Image generation is not available for this provider yet. Choose OpenRouter with an image-output model (for example google/gemini-2.5-flash-image)."
+      );
+    } else if (request.modelCanGenerateImages === false) {
+      warnings.push(
+        "The selected OpenRouter model does not generate images. Choose a model whose output modalities include image (for example google/gemini-2.5-flash-image)."
+      );
+    }
   }
   if (request.imageInput) {
-    if (provider?.id !== "ollama") {
+    if (provider?.id === "ollama") {
+      if (request.modelHasVision === false) {
+        warnings.push(
+          "The selected Ollama model does not support image input. Choose a vision model (for example llava or gemma3)."
+        );
+      }
+    } else if (provider?.id === "openrouter") {
+      if (request.modelHasVision === false) {
+        warnings.push(
+          "The selected OpenRouter model does not accept image input. Choose a vision-capable model."
+        );
+      }
+    } else {
       warnings.push(
-        `${label} cannot read image parts in this experimental build. Choose Ollama with a vision model.`
-      );
-    } else if (request.modelHasVision === false) {
-      warnings.push(
-        "The selected Ollama model does not support image input. Choose a vision model (for example llava or gemma3)."
+        `${label} cannot read image parts in this experimental build. Choose Ollama or OpenRouter with a vision model.`
       );
     }
   }
@@ -151,30 +175,33 @@ export function imageCapabilityWarnings(provider, request) {
 /**
  * Fail closed in adapters when the provider cannot honor image parts / output.
  * Ollama image input is allowed here; the adapter still checks vision.
+ * Pass `capabilities.imageOutput` / `imageInput` when a provider (OpenRouter)
+ * has already confirmed the selected model can honor that surface.
  *
  * @param {{ id?: string, label?: string } | null | undefined} provider
  * @param {ChatMessage[] | undefined | null} messages
  * @param {unknown} [output]
+ * @param {{ imageInput?: boolean, imageOutput?: boolean }} [capabilities]
  * @returns {void}
  */
-export function assertImagesSupported(provider, messages, output) {
+export function assertImagesSupported(provider, messages, output, capabilities = {}) {
   const imageInput = messagesHaveImageParts(messages);
   const imageOutput = requestWantsImageOutput(output);
   if (!imageInput && !imageOutput) return;
-  if (imageOutput) {
+  if (imageOutput && capabilities.imageOutput !== true) {
     throwInference(
       "unavailable",
-      "Image output (output.images) is not available for this provider."
+      "Image output (output.images) is not available for this provider or model."
     );
   }
-  if (imageInput && provider?.id !== "ollama") {
+  if (imageInput && provider?.id !== "ollama" && capabilities.imageInput !== true) {
     const label =
       provider && typeof provider.label === "string" && provider.label
         ? provider.label
         : "This provider";
     throwInference(
       "unavailable",
-      `Image input is not supported by ${label}. Choose Ollama with a vision model.`
+      `Image input is not supported by ${label}. Choose Ollama or OpenRouter with a vision model.`
     );
   }
 }
@@ -207,6 +234,100 @@ export function mapContentForOllama(content) {
     }
   }
   return images.length > 0 ? { content: text, images } : { content: text };
+}
+
+/**
+ * Map IPA content to OpenAI Chat Completions multimodal parts.
+ * @param {unknown} content
+ * @returns {unknown}
+ */
+export function mapContentForOpenAICompat(content) {
+  if (typeof content === "string" || content == null) return content;
+  if (!Array.isArray(content)) return String(content);
+  /** @type {Array<Record<string, unknown>>} */
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = /** @type {{ type?: unknown, text?: unknown, mediaType?: unknown, data?: unknown }} */ (
+      part
+    );
+    if (p.type === "text" && typeof p.text === "string") {
+      parts.push({ type: "text", text: p.text });
+    } else if (p.type === "image" && typeof p.data === "string" && p.data) {
+      const mediaType = isImageMediaType(p.mediaType) ? p.mediaType : "image/png";
+      const data = rawImageBase64(p.data);
+      if (!data) continue;
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:${mediaType};base64,${data}` },
+      });
+    }
+  }
+  return parts.length > 0 ? parts : "";
+}
+
+/**
+ * @param {unknown} url
+ * @returns {{ type: "image", mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: string } | null}
+ */
+export function imagePartFromDataUrl(url) {
+  if (typeof url !== "string" || !url.startsWith("data:")) return null;
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(url);
+  if (!match || !isImageMediaType(match[1])) return null;
+  const data = match[2].replace(/\s/g, "");
+  if (!data) return null;
+  return {
+    type: "image",
+    mediaType: /** @type {import("./providers/types.js").ImagePart["mediaType"]} */ (
+      match[1]
+    ),
+    data,
+  };
+}
+
+/**
+ * OpenRouter assistant images: `{ type, image_url: { url } }` (or camelCase).
+ * @param {unknown} images
+ * @returns {import("./providers/types.js").ImagePart[]}
+ */
+export function collectOpenRouterImageParts(images) {
+  if (!Array.isArray(images)) return [];
+  /** @type {import("./providers/types.js").ImagePart[]} */
+  const parts = [];
+  const seen = new Set();
+  for (const image of images) {
+    if (!image || typeof image !== "object") continue;
+    const rec = /** @type {Record<string, unknown>} */ (image);
+    const imageUrl = rec.image_url || rec.imageUrl;
+    const url =
+      imageUrl && typeof imageUrl === "object"
+        ? /** @type {Record<string, unknown>} */ (imageUrl).url
+        : typeof rec.url === "string"
+          ? rec.url
+          : undefined;
+    const part = imagePartFromDataUrl(url);
+    if (!part) continue;
+    const key = `${part.mediaType}:${part.data}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(part);
+  }
+  return parts;
+}
+
+/**
+ * Spec: text-only done is a string; images on done make content a part array.
+ * @param {string} text
+ * @param {import("./providers/types.js").ImagePart[]} images
+ * @returns {string | import("./providers/types.js").ContentPart[]}
+ */
+export function assembleAssistantContent(text, images) {
+  if (!Array.isArray(images) || images.length === 0) return text;
+  /** @type {import("./providers/types.js").ContentPart[]} */
+  const parts = [];
+  if (text) parts.push({ type: "text", text });
+  parts.push(...images);
+  return parts;
 }
 
 /**

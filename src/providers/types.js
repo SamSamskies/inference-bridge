@@ -7,6 +7,8 @@
  * @typedef {{
  *   id: string,
  *   label?: string,
+ *   inputModalities?: string[],
+ *   outputModalities?: string[],
  * }} ModelInfo
  */
 
@@ -94,7 +96,7 @@
  *     model: string,
  *     message: {
  *       role: "assistant",
- *       content: string,
+ *       content: string | ContentPart[],
  *       reasoning?: string,
  *       toolCalls?: ToolCall[],
  *     },

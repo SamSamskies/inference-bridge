@@ -284,11 +284,11 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 
 `window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
 
-This branch’s first slice is **Ollama vision Q&A**:
+This branch slices **Ollama vision Q&A** and **OpenRouter image output**:
 
 - Image parts map to Ollama `/api/chat` `images` (raw base64). Mixed text + image in one turn is supported.
 - The selected Ollama model must report `vision` via `/api/show`. Allow is disabled otherwise; the adapter fails closed with `unavailable`.
-- `output.images: true` is fail-closed on every provider, including Ollama. Current Ollama (0.33+) has no stable image-generation API (`/v1/images/generations` 404s; `/api/generate` returns “image generation models are not currently supported”).
+- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Other providers, and OpenRouter models without image output, fail closed.
 - Chat Always-allow does not cover image input or image output. Approval lists them separately.
 
 ```js
@@ -315,6 +315,29 @@ for await (const chunk of window.inference.experimental.request({
 })) {
   if (chunk.type === "delta") console.log("[delta]", chunk.content);
   if (chunk.type === "done") console.log("[done]", chunk.message.content);
+}
+```
+
+Generate an image (OpenRouter, image-capable model selected):
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [{ role: "user", content: "a red panda sticker, simple shapes" }],
+  output: { images: true },
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") {
+    const content = chunk.message.content;
+    console.log("[done]", content);
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part.type === "image") {
+          console.log("[image]", part.mediaType, part.data.slice(0, 32) + "…");
+        }
+      }
+    }
+  }
 }
 ```
 

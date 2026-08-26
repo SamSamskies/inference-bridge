@@ -24,6 +24,7 @@ import {
   requestWantsImageOutput,
 } from "./image-parts.js";
 import { ollamaModelHasVision } from "./providers/ollama.js";
+import { openrouterModelModalities } from "./providers/openrouter.js";
 import {
   blocksAllowForRequestTools,
   fingerprintTools,
@@ -373,8 +374,8 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
 
 /**
  * Always-allow may skip only when the grant already covers image input/output
- * and the bound provider/model can honor them (this slice: Ollama vision in,
- * no image out).
+ * and the bound provider/model can honor them (Ollama vision in;
+ * OpenRouter image in/out when the catalog says so).
  * @param {{ id?: string } | null | undefined} provider
  * @param {string} model
  * @param {{ imageInput?: boolean, imageOutput?: boolean } | null | undefined} grant
@@ -387,10 +388,22 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
   if (!isImageGrantCovered(grant, { imageInput, imageOutput })) return false;
   /** @type {boolean | undefined} */
   let modelHasVision;
-  if (imageInput && provider?.id === "ollama") {
+  /** @type {boolean | undefined} */
+  let modelCanGenerateImages;
+  if (provider?.id === "ollama" && imageInput) {
     modelHasVision = await ollamaModelHasVision(model);
   }
-  return !blocksAllowForImages(provider, { imageInput, imageOutput, modelHasVision });
+  if (provider?.id === "openrouter" && (imageInput || imageOutput)) {
+    const caps = await openrouterModelModalities(model);
+    modelHasVision = caps.inputImage;
+    modelCanGenerateImages = caps.outputImage;
+  }
+  return !blocksAllowForImages(provider, {
+    imageInput,
+    imageOutput,
+    modelHasVision,
+    modelCanGenerateImages,
+  });
 }
 
 /**

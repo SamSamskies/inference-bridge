@@ -85,7 +85,7 @@ let providers = [];
 let modelsReady = false;
 
 /** Models currently backing the model control (for validation). */
-/** @type {Array<{ id: string, label?: string }>} */
+/** @type {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>} */
 let currentModels = [];
 
 /** Bumped on each model load so a slower earlier fetch cannot repaint. */
@@ -100,6 +100,8 @@ let requestImageInput = false;
 let requestImageOutput = false;
 /** @type {boolean | undefined} */
 let selectedModelHasVision;
+/** @type {boolean | undefined} */
+let selectedModelCanGenerateImages;
 let visionCheckId = 0;
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
@@ -176,6 +178,7 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
       imageInput: requestImageInput,
       imageOutput: requestImageOutput,
       modelHasVision: selectedModelHasVision,
+      modelCanGenerateImages: selectedModelCanGenerateImages,
     }),
   ];
   if (warnings.length === 0) {
@@ -214,7 +217,7 @@ function renderImages() {
     const desc = document.createElement("p");
     desc.className = "tool-desc";
     desc.textContent =
-      "This request asks the model to generate images. Ollama cannot do that in this Bridge build.";
+      "This request asks the model to generate images. If allowed, those pixels are returned to this page.";
     li.append(name, desc);
     imagesList.append(li);
   }
@@ -225,6 +228,7 @@ function imagesBlockAllow(provider) {
     imageInput: requestImageInput,
     imageOutput: requestImageOutput,
     modelHasVision: selectedModelHasVision,
+    modelCanGenerateImages: selectedModelCanGenerateImages,
   });
 }
 
@@ -246,22 +250,43 @@ async function askOllamaVision(model) {
 async function refreshVisionCapability() {
   const id = ++visionCheckId;
   const providerId = providerSelect.value;
+  selectedModelHasVision = undefined;
+  selectedModelCanGenerateImages = undefined;
+
+  if (providerId === "openrouter" && (requestImageInput || requestImageOutput)) {
+    const model = readModelValue(providerId);
+    const info = currentModels.find((m) => m.id === model);
+    if (info) {
+      selectedModelHasVision = Array.isArray(info.inputModalities)
+        ? info.inputModalities.includes("image")
+        : false;
+      selectedModelCanGenerateImages = Array.isArray(info.outputModalities)
+        ? info.outputModalities.includes("image")
+        : false;
+    } else if (modelsReady) {
+      selectedModelHasVision = false;
+      selectedModelCanGenerateImages = false;
+    }
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+
   if (!requestImageInput || providerId !== "ollama") {
-    selectedModelHasVision = requestImageInput ? false : undefined;
+    if (requestImageInput) selectedModelHasVision = false;
+    if (requestImageOutput) selectedModelCanGenerateImages = false;
     updateCapabilityWarning(providerId);
     updateAllowEnabled();
     return;
   }
   const model = readModelValue(providerId);
   if (!model) {
-    selectedModelHasVision = undefined;
     updateCapabilityWarning(providerId);
     updateAllowEnabled();
     return;
   }
   // Unknown until /api/show returns — do not paint "unsupported" while checking
   // or when the worker reply is missing (same as a false negative on gemma4:cloud).
-  selectedModelHasVision = undefined;
   updateCapabilityWarning(providerId);
   updateAllowEnabled();
   let response = await askOllamaVision(model);
@@ -417,11 +442,11 @@ function updateAllowEnabled() {
 
 /**
  * @param {unknown} models
- * @returns {Array<{ id: string, label?: string }>}
+ * @returns {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>}
  */
 function normalizeModels(models) {
   if (!Array.isArray(models)) return [];
-  /** @type {Array<{ id: string, label?: string }>} */
+  /** @type {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>} */
   const out = [];
   for (const entry of models) {
     if (typeof entry === "string" && entry) {
@@ -433,6 +458,20 @@ function normalizeModels(models) {
         id: entry.id,
         ...(typeof entry.label === "string" && entry.label
           ? { label: entry.label }
+          : {}),
+        ...(Array.isArray(entry.inputModalities)
+          ? {
+              inputModalities: entry.inputModalities.filter(
+                (v) => typeof v === "string"
+              ),
+            }
+          : {}),
+        ...(Array.isArray(entry.outputModalities)
+          ? {
+              outputModalities: entry.outputModalities.filter(
+                (v) => typeof v === "string"
+              ),
+            }
           : {}),
       });
     }

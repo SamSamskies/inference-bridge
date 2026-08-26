@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   listOpenRouterModels,
   openrouterProvider,
+  resetOpenRouterModalitiesCache,
 } from "../src/providers/openrouter.js";
 
 /**
@@ -28,6 +29,7 @@ function sseResponse(text, status = 200) {
 }
 
 afterEach(() => {
+  resetOpenRouterModalitiesCache();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -443,5 +445,123 @@ describe("openrouterProvider.streamChat", () => {
       onDelta: () => {},
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(1.5);
+  });
+
+  it("records input/output modalities from the catalog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "google/gemini-2.5-flash-image",
+              name: "Gemini 2.5 Flash Image",
+              architecture: {
+                input_modalities: ["text", "image"],
+                output_modalities: ["text", "image"],
+              },
+            },
+            { id: "anthropic/claude-sonnet-4.6" },
+          ],
+        })
+      )
+    );
+    const models = await listOpenRouterModels();
+    expect(models.find((m) => m.id === "google/gemini-2.5-flash-image")).toEqual({
+      id: "google/gemini-2.5-flash-image",
+      label: "Gemini 2.5 Flash Image",
+      inputModalities: ["text", "image"],
+      outputModalities: ["text", "image"],
+    });
+    expect(
+      models.find((m) => m.id === "anthropic/claude-sonnet-4.6")
+    ).toEqual({ id: "anthropic/claude-sonnet-4.6" });
+  });
+
+  it("sends modalities and returns ImageParts when output.images is set", async () => {
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("/models")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "google/gemini-2.5-flash-image",
+              architecture: {
+                input_modalities: ["text", "image"],
+                output_modalities: ["text", "image"],
+              },
+            },
+          ],
+        });
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"here"}}]}',
+          `data: {"choices":[{"delta":{"images":[{"type":"image_url","image_url":{"url":"${png}"}}]}}]}`,
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "google/gemini-2.5-flash-image",
+      messages: [{ role: "user", content: "a red square" }],
+      output: { images: true },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const chatBody = JSON.parse(
+      fetchMock.mock.calls.find((c) => String(c[0]).includes("/chat/completions"))[1]
+        .body
+    );
+    expect(chatBody.modalities).toEqual(["image", "text"]);
+    expect(result.message.content).toEqual([
+      { type: "text", text: "here" },
+      {
+        type: "image",
+        mediaType: "image/png",
+        data: png.slice("data:image/png;base64,".length),
+      },
+    ]);
+  });
+
+  it("fail-closes output.images when the catalog model cannot generate images", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("/models")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "anthropic/claude-sonnet-4.6",
+                architecture: {
+                  input_modalities: ["text"],
+                  output_modalities: ["text"],
+                },
+              },
+            ],
+          });
+        }
+        throw new Error("chat should not run");
+      })
+    );
+    await expect(
+      openrouterProvider.streamChat({
+        apiKey: "sk-or-test",
+        model: "anthropic/claude-sonnet-4.6",
+        messages: [{ role: "user", content: "a red square" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+    });
   });
 });
