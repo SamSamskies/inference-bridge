@@ -23,6 +23,7 @@ import {
   listProviders,
   resolveProviderModels,
 } from "../src/providers/registry.js";
+import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import {
   getOnDeviceAvailability,
@@ -326,6 +327,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // async sendResponse
   }
 
+  if (message?.type === "ollama-vision") {
+    const model = typeof message.model === "string" ? message.model : "";
+    void ollamaModelHasVision(model)
+      .then((vision) => {
+        sendResponse({ ok: true, vision });
+      })
+      .catch(() => {
+        sendResponse({ ok: true, vision: false });
+      });
+    return true;
+  }
+
   return false;
 });
 
@@ -437,6 +450,9 @@ async function handleStart(port, msg, onStreamId) {
       ...(experimental && validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
+      ...(experimental && validated.value.output
+        ? { output: validated.value.output }
+        : {}),
     });
 
     // Aborted while the permission prompt was open (tab closed / explicit abort).
@@ -542,6 +558,9 @@ async function handleStart(port, msg, onStreamId) {
         ? { toolChoice: validated.value.toolChoice }
         : {}),
       ...(validated.value.options ? { options: validated.value.options } : {}),
+      ...(experimental && validated.value.output
+        ? { output: validated.value.output }
+        : {}),
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;

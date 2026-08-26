@@ -3,6 +3,7 @@
  * Chat Completions by default; Responses API when hosted web_search is present.
  */
 
+import { assertImagesSupported } from "../image-parts.js";
 import {
   hasHostedWebSearch,
   omitHostedWebSearchIfNone,
@@ -51,10 +52,12 @@ export const openaiProvider = {
     tools,
     toolChoice,
     options,
+    output,
     signal,
     onDelta,
     onReasoningDelta,
   }) {
+    assertImagesSupported(this, messages, output);
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
     if (hasHostedWebSearch(toolsForRequest)) {
       return streamOpenAIResponsesChat({

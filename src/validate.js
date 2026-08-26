@@ -1,7 +1,10 @@
+import { IMAGE_MEDIA_TYPES, isImageMediaType } from "./image-parts.js";
+
 const ROLES = new Set(["system", "user", "assistant"]);
 const EXPERIMENTAL_ROLES = new Set(["system", "user", "assistant", "tool"]);
 const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
 const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
+const IMAGE_MEDIA_TYPE_LIST = IMAGE_MEDIA_TYPES.join('", "');
 
 /**
  * @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort
@@ -28,9 +31,17 @@ const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
  *   },
  * } | { type: "web_search" }} Tool
  *
+ * @typedef {{ type: "text", text: string }} TextPart
+ * @typedef {{
+ *   type: "image",
+ *   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+ *   data: string,
+ * }} ImagePart
+ * @typedef {TextPart | ImagePart} ContentPart
+ *
  * @typedef {{
  *   role: string,
- *   content: string | null,
+ *   content: string | ContentPart[] | null,
  *   reasoning?: string,
  *   toolCalls?: ToolCall[],
  *   toolCallId?: string,
@@ -62,6 +73,122 @@ function rejectLegacySnakeCaseToolFields(m, i) {
 
 /**
  * Stable IPA path rejects experimental tool fields instead of stripping them.
+ * @param {Record<string, unknown>} req
+ * @param {Array<Record<string, unknown>>} messages
+ * @returns {{ ok: false, message: string } | null}
+ */
+function rejectStableImageFields(req, messages) {
+  if (req.output !== undefined) {
+    return {
+      ok: false,
+      message:
+        "output is only available via window.inference.experimental.request.",
+    };
+  }
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+    if (Array.isArray(m.content)) {
+      return {
+        ok: false,
+        message: `messages[${i}].content parts are only available via window.inference.experimental.request.`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {unknown} content
+ * @param {number} i
+ * @param {{ allowNull?: boolean, allowParts?: boolean }} opts
+ * @returns {{ ok: true, value: string | ContentPart[] | null } | { ok: false, message: string }}
+ */
+function validateMessageContent(content, i, { allowNull = false, allowParts = false }) {
+  if (allowNull && content === null) {
+    return { ok: true, value: null };
+  }
+  if (typeof content === "string") {
+    return { ok: true, value: content };
+  }
+  if (!allowParts) {
+    return { ok: false, message: `messages[${i}].content must be a string.` };
+  }
+  if (!Array.isArray(content) || content.length === 0) {
+    return {
+      ok: false,
+      message: `messages[${i}].content must be a string or a non-empty array of text/image parts.`,
+    };
+  }
+  /** @type {ContentPart[]} */
+  const parts = [];
+  for (let j = 0; j < content.length; j++) {
+    const part = content[j];
+    const label = `messages[${i}].content[${j}]`;
+    if (part == null || typeof part !== "object" || Array.isArray(part)) {
+      return { ok: false, message: `${label} must be an object.` };
+    }
+    const p = /** @type {Record<string, unknown>} */ (part);
+    if (p.type === "text") {
+      if (typeof p.text !== "string") {
+        return { ok: false, message: `${label}.text must be a string.` };
+      }
+      parts.push({ type: "text", text: p.text });
+      continue;
+    }
+    if (p.type === "image") {
+      if (!isImageMediaType(p.mediaType)) {
+        return {
+          ok: false,
+          message: `${label}.mediaType must be "${IMAGE_MEDIA_TYPE_LIST}".`,
+        };
+      }
+      if (typeof p.data !== "string" || !p.data.trim()) {
+        return {
+          ok: false,
+          message: `${label}.data must be a non-empty base64 string.`,
+        };
+      }
+      parts.push({
+        type: "image",
+        mediaType: /** @type {ImagePart["mediaType"]} */ (p.mediaType),
+        data: p.data.trim(),
+      });
+      continue;
+    }
+    return {
+      ok: false,
+      message: `${label}.type must be "text" or "image".`,
+    };
+  }
+  return { ok: true, value: parts };
+}
+
+/**
+ * @param {unknown} output
+ * @returns {{ ok: true, value?: { images?: boolean } } | { ok: false, message: string }}
+ */
+function validateOutput(output) {
+  if (output == null || typeof output !== "object" || Array.isArray(output)) {
+    return { ok: false, message: "output must be an object when present." };
+  }
+  const o = /** @type {Record<string, unknown>} */ (output);
+  /** @type {{ images?: boolean }} */
+  const value = {};
+  if ("images" in o && o.images !== undefined) {
+    if (typeof o.images !== "boolean") {
+      return {
+        ok: false,
+        message: "output.images must be a boolean when present.",
+      };
+    }
+    value.images = o.images;
+  }
+  if (Object.keys(value).length === 0) return { ok: true };
+  return { ok: true, value };
+}
+
+/**
  * @param {Record<string, unknown>} req
  * @param {Array<Record<string, unknown>>} messages
  * @returns {{ ok: false, message: string } | null}
@@ -179,6 +306,12 @@ export function validateInferenceRequest(request) {
     /** @type {Array<Record<string, unknown>>} */ (req.messages)
   );
   if (toolReject) return toolReject;
+
+  const imageReject = rejectStableImageFields(
+    req,
+    /** @type {Array<Record<string, unknown>>} */ (req.messages)
+  );
+  if (imageReject) return imageReject;
 
   const messages = [];
   for (let i = 0; i < req.messages.length; i++) {
@@ -482,23 +615,23 @@ export function validateExperimentalInferenceRequest(request) {
 
     if (m.role === "assistant") {
       // Chat Completions often omits content when only toolCalls are present.
-      /** @type {string | null} */
+      /** @type {string | ContentPart[] | null} */
       let content;
       if (!("content" in m)) {
         if (!("toolCalls" in m)) {
           return {
             ok: false,
-            message: `messages[${i}].content must be a string or null.`,
+            message: `messages[${i}].content must be a string, content parts, or null.`,
           };
         }
         content = null;
-      } else if (!(typeof m.content === "string" || m.content === null)) {
-        return {
-          ok: false,
-          message: `messages[${i}].content must be a string or null.`,
-        };
       } else {
-        content = m.content;
+        const parsed = validateMessageContent(m.content, i, {
+          allowNull: true,
+          allowParts: true,
+        });
+        if (!parsed.ok) return parsed;
+        content = parsed.value;
       }
       /** @type {ExperimentalMessage} */
       const normalized = { role: "assistant", content };
@@ -523,17 +656,18 @@ export function validateExperimentalInferenceRequest(request) {
     }
 
     // system | user
-    if (typeof m.content !== "string") {
-      return { ok: false, message: `messages[${i}].content must be a string.` };
-    }
     if ("toolCalls" in m) {
       return {
         ok: false,
         message: `messages[${i}] with role "${m.role}" must not include toolCalls.`,
       };
     }
+    const parsed = validateMessageContent(m.content, i, {
+      allowParts: m.role === "user",
+    });
+    if (!parsed.ok) return parsed;
     /** @type {ExperimentalMessage} */
-    const normalized = { role: m.role, content: m.content };
+    const normalized = { role: m.role, content: parsed.value };
     if ("reasoning" in m) {
       if (typeof m.reasoning !== "string") {
         return {
@@ -554,6 +688,7 @@ export function validateExperimentalInferenceRequest(request) {
    *   tools?: Tool[],
    *   toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
    *   options?: InferenceOptions,
+   *   output?: { images?: boolean },
    * }} */
   const value = { method: "chat", messages };
 
@@ -577,6 +712,12 @@ export function validateExperimentalInferenceRequest(request) {
     const options = validateOptions(req.options);
     if (!options.ok) return options;
     if (options.value) value.options = options.value;
+  }
+
+  if (req.output !== undefined) {
+    const output = validateOutput(req.output);
+    if (!output.ok) return output;
+    if (output.value) value.output = output.value;
   }
 
   if ("signal" in req && req.signal != null) {

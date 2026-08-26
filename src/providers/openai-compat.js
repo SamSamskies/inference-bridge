@@ -3,6 +3,7 @@
  * (LM Studio, llama.cpp, vLLM, LocalAI, proxies, etc.).
  */
 
+import { assertImagesSupported } from "../image-parts.js";
 import { assertHostedWebSearchSupported } from "./hosted-tools.js";
 import {
   filterFunctionTools,
@@ -113,10 +114,12 @@ export function createOpenAICompatProvider(endpoint) {
       tools,
       toolChoice,
       options,
+      output,
       signal,
       onDelta,
       onReasoningDelta,
     }) {
+      assertImagesSupported(this, messages, output);
       if (!model) {
         throwInference(
           "unavailable",

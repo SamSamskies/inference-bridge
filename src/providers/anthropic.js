@@ -3,6 +3,7 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
+import { assertImagesSupported } from "../image-parts.js";
 import {
   ANTHROPIC_WEB_SEARCH_TOOL,
   omitHostedWebSearchIfNone,
@@ -306,10 +307,12 @@ export const anthropicProvider = {
     tools,
     toolChoice,
     options,
+    output,
     signal,
     onDelta,
     onReasoningDelta,
   }) {
+    assertImagesSupported(this, messages, output);
     const mapped = mapMessagesForAnthropic(messages);
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
     const mappedTools =

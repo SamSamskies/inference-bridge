@@ -12,6 +12,8 @@ import { normalizeCompatBaseUrl } from "./host-permissions.js";
  *   model?: string,
  *   toolFingerprint?: string,
  *   toolChoiceNone?: boolean,
+ *   imageInput?: boolean,
+ *   imageOutput?: boolean,
  * }} OriginGrant
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
@@ -492,11 +494,13 @@ export async function isOriginBlocked(origin) {
  *   model: string,
  *   toolFingerprint?: string,
  *   toolChoiceNone?: boolean,
+ *   imageInput?: boolean,
+ *   imageOutput?: boolean,
  * }} options
  */
 export async function grantOriginAlways(
   origin,
-  { providerId, model, toolFingerprint, toolChoiceNone }
+  { providerId, model, toolFingerprint, toolChoiceNone, imageInput, imageOutput }
 ) {
   if (!isPersistableOriginKey(origin)) return;
   const { allowedOrigins, blockedOrigins } = await getSettings();
@@ -521,6 +525,8 @@ export async function grantOriginAlways(
       grant.toolChoiceNone = true;
     }
   }
+  if (imageInput === true) grant.imageInput = true;
+  if (imageOutput === true) grant.imageOutput = true;
   allowedOrigins[origin] = grant;
   await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
 }

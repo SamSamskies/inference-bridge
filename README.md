@@ -280,6 +280,44 @@ Experimental APIs are **Inference Bridge–specific**. They are not part of the 
 
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
+### Images (experimental)
+
+`window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
+
+This branch’s first slice is **Ollama vision Q&A**:
+
+- Image parts map to Ollama `/api/chat` `images` (raw base64). Mixed text + image in one turn is supported.
+- The selected Ollama model must report `vision` via `/api/show`. Allow is disabled otherwise; the adapter fails closed with `unavailable`.
+- `output.images: true` is fail-closed on every provider, including Ollama. Current Ollama (0.33+) has no stable image-generation API (`/v1/images/generations` 404s; `/api/generate` returns “image generation models are not currently supported”).
+- Chat Always-allow does not cover image input or image output. Approval lists them separately.
+
+```js
+const blob = await (await fetch("https://httpbin.org/image/png")).blob();
+const dataUrl = await new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(blob);
+});
+const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What is in this photo?" },
+        { type: "image", mediaType: blob.type || "image/png", data },
+      ],
+    },
+  ],
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") console.log("[done]", chunk.message.content);
+}
+```
+
 ### Function tools
 
 Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:

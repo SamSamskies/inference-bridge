@@ -31,6 +31,57 @@
     return error;
   }
 
+  /**
+   * @param {Blob} blob
+   * @returns {Promise<string>}
+   */
+  async function blobToBase64(blob) {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  /**
+   * Encode image Blobs to base64 before the extension round-trip.
+   * @param {any} request
+   */
+  async function encodeRequestImages(request) {
+    if (!request || typeof request !== "object" || !Array.isArray(request.messages)) {
+      return request;
+    }
+    const messages = [];
+    for (const message of request.messages) {
+      if (!message || !Array.isArray(message.content)) {
+        messages.push(message);
+        continue;
+      }
+      const content = [];
+      for (const part of message.content) {
+        if (
+          part &&
+          part.type === "image" &&
+          typeof Blob !== "undefined" &&
+          part.data instanceof Blob
+        ) {
+          content.push({
+            type: "image",
+            mediaType: part.mediaType || part.data.type,
+            data: await blobToBase64(part.data),
+          });
+        } else {
+          content.push(part);
+        }
+      }
+      messages.push({ ...message, content });
+    }
+    return { ...request, messages };
+  }
+
   function onWindowInit(event) {
     if (event.source !== window) return;
     const data = event.data;
@@ -202,9 +253,12 @@
             );
           }
 
-          const serializable =
+          let serializable =
             request && typeof request === "object" ? { ...request } : {};
           delete serializable.signal;
+          if (experimental) {
+            serializable = await encodeRequestImages(serializable);
+          }
 
           // Register AbortSignal before the round-trip so abort during start
           // marks the iterator closed; abortRemote runs once streamId exists.

@@ -9,6 +9,12 @@ import {
   isApprovalProviderReady,
 } from "../src/provider-ready.js";
 import {
+  blocksAllowForImages,
+  imageCapabilityWarnings,
+  messagesHaveImageParts,
+  requestWantsImageOutput,
+} from "../src/image-parts.js";
+import {
   blocksAllowForRequestTools,
   capabilityWarnings,
   hostedToolDescription,
@@ -54,6 +60,8 @@ const modelHint = document.getElementById("modelHint");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
+const imagesPanel = document.getElementById("imagesPanel");
+const imagesList = document.getElementById("imagesList");
 const previewEl = document.getElementById("preview");
 const errorEl = document.getElementById("error");
 const rememberInput = document.getElementById("remember");
@@ -88,6 +96,11 @@ let modelsLoadId = 0;
 let requestTools;
 /** @type {import("../src/providers/types.js").ToolChoice | undefined} */
 let requestToolChoice;
+let requestImageInput = false;
+let requestImageOutput = false;
+/** @type {boolean | undefined} */
+let selectedModelHasVision;
+let visionCheckId = 0;
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
 allowBtn.disabled = true;
@@ -157,7 +170,14 @@ function updateProviderHint(providerId = providerSelect.value) {
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
   const provider = providers.find((p) => p.id === providerId);
-  const warnings = capabilityWarnings(provider, requestTools, requestToolChoice);
+  const warnings = [
+    ...capabilityWarnings(provider, requestTools, requestToolChoice),
+    ...imageCapabilityWarnings(provider, {
+      imageInput: requestImageInput,
+      imageOutput: requestImageOutput,
+      modelHasVision: selectedModelHasVision,
+    }),
+  ];
   if (warnings.length === 0) {
     capabilityWarningEl.hidden = true;
     capabilityWarningEl.textContent = "";
@@ -165,6 +185,96 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
   }
   capabilityWarningEl.hidden = false;
   capabilityWarningEl.textContent = warnings.join(" ");
+}
+
+function renderImages() {
+  imagesList.replaceChildren();
+  if (!requestImageInput && !requestImageOutput) {
+    imagesPanel.hidden = true;
+    return;
+  }
+  imagesPanel.hidden = false;
+  if (requestImageInput) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = "Image input";
+    const desc = document.createElement("p");
+    desc.className = "tool-desc";
+    desc.textContent =
+      "This request includes photos or screenshots. If allowed, those bytes go to the selected provider.";
+    li.append(name, desc);
+    imagesList.append(li);
+  }
+  if (requestImageOutput) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = "Image output";
+    const desc = document.createElement("p");
+    desc.className = "tool-desc";
+    desc.textContent =
+      "This request asks the model to generate images. Ollama cannot do that in this Bridge build.";
+    li.append(name, desc);
+    imagesList.append(li);
+  }
+}
+
+function imagesBlockAllow(provider) {
+  return blocksAllowForImages(provider, {
+    imageInput: requestImageInput,
+    imageOutput: requestImageOutput,
+    modelHasVision: selectedModelHasVision,
+  });
+}
+
+/**
+ * @param {string} model
+ * @returns {Promise<{ ok?: boolean, vision?: boolean } | undefined>}
+ */
+async function askOllamaVision(model) {
+  try {
+    return await chrome.runtime.sendMessage({
+      type: "ollama-vision",
+      model,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function refreshVisionCapability() {
+  const id = ++visionCheckId;
+  const providerId = providerSelect.value;
+  if (!requestImageInput || providerId !== "ollama") {
+    selectedModelHasVision = requestImageInput ? false : undefined;
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  const model = readModelValue(providerId);
+  if (!model) {
+    selectedModelHasVision = undefined;
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  // Unknown until /api/show returns — do not paint "unsupported" while checking
+  // or when the worker reply is missing (same as a false negative on gemma4:cloud).
+  selectedModelHasVision = undefined;
+  updateCapabilityWarning(providerId);
+  updateAllowEnabled();
+  let response = await askOllamaVision(model);
+  if (id !== visionCheckId) return;
+  if (!response || response.ok !== true) {
+    response = await askOllamaVision(model);
+    if (id !== visionCheckId) return;
+  }
+  if (response && response.ok === true) {
+    selectedModelHasVision = response.vision === true;
+  }
+  updateCapabilityWarning(providerId);
+  updateAllowEnabled();
 }
 
 /**
@@ -298,7 +408,11 @@ function updateAllowEnabled() {
     requestToolChoice
   );
   allowBtn.disabled =
-    !providerReady || !modelsReady || !valid || toolsBlocked;
+    !providerReady ||
+    !modelsReady ||
+    !valid ||
+    toolsBlocked ||
+    imagesBlockAllow(provider);
 }
 
 /**
@@ -559,6 +673,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
     modelsReady = true;
   }
   updateAllowEnabled();
+  void refreshVisionCapability();
 }
 
 /**
@@ -574,10 +689,54 @@ function createPreviewMessage(message) {
 
   const body = document.createElement("div");
   body.className = "preview-content";
-  body.textContent = message.content;
+  const preview = previewFromContent(message.content);
+  body.textContent = preview.text;
+  if (preview.images.length > 0) {
+    const thumbs = document.createElement("div");
+    thumbs.className = "preview-thumbs";
+    for (const image of preview.images) {
+      const img = document.createElement("img");
+      img.className = "preview-thumb";
+      img.alt = "";
+      img.src = `data:${image.mediaType};base64,${image.data}`;
+      thumbs.append(img);
+    }
+    body.append(thumbs);
+  }
 
   el.append(role, body);
   return el;
+}
+
+/**
+ * @param {unknown} content
+ * @returns {{ text: string, images: Array<{ mediaType: string, data: string }> }}
+ */
+function previewFromContent(content) {
+  if (typeof content === "string") return { text: content, images: [] };
+  if (!Array.isArray(content)) {
+    return { text: content == null ? "" : String(content), images: [] };
+  }
+  let text = "";
+  /** @type {Array<{ mediaType: string, data: string }>} */
+  const images = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "text" && typeof part.text === "string") {
+      text += part.text;
+    } else if (
+      part.type === "image" &&
+      typeof part.data === "string" &&
+      part.data
+    ) {
+      images.push({
+        mediaType:
+          typeof part.mediaType === "string" ? part.mediaType : "image/png",
+        data: part.data,
+      });
+    }
+  }
+  return { text, images };
 }
 
 /**
@@ -660,7 +819,8 @@ async function decide(action) {
         ollamaAvailable: ollamaStatus.available,
         onDeviceAvailable: onDeviceStatus.available,
       }) ||
-      blocksAllowForRequestTools(provider, requestTools, requestToolChoice)
+      blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
+      imagesBlockAllow(provider)
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -762,7 +922,10 @@ async function load() {
   requestTools = Array.isArray(request.tools) ? request.tools : undefined;
   requestToolChoice =
     request.toolChoice !== undefined ? request.toolChoice : undefined;
+  requestImageInput = messagesHaveImageParts(request.messages);
+  requestImageOutput = requestWantsImageOutput(request.output);
   renderTools(requestTools);
+  renderImages();
   updateCapabilityWarning(providerId);
   renderPreview(request.messages || []);
   updateRememberHint();
@@ -803,16 +966,19 @@ providerSelect.addEventListener("change", () => {
 
 modelSelect.addEventListener("change", () => {
   updateAllowEnabled();
+  void refreshVisionCapability();
 });
 modelInput.addEventListener("input", () => {
   updateClearModelButton();
   updateAllowEnabled();
+  void refreshVisionCapability();
 });
 clearModelButton.addEventListener("click", () => {
   modelInput.value = "";
   updateClearModelButton();
   updateAllowEnabled();
   modelInput.focus();
+  void refreshVisionCapability();
 });
 
 rememberInput.addEventListener("change", updateRememberHint);

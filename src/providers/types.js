@@ -50,9 +50,17 @@
  */
 
 /**
+ * @typedef {{ type: "text", text: string }} TextPart
+ * @typedef {{
+ *   type: "image",
+ *   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+ *   data: string,
+ * }} ImagePart
+ * @typedef {TextPart | ImagePart} ContentPart
+ *
  * @typedef {{
  *   role: string,
- *   content: string | null,
+ *   content: string | ContentPart[] | null,
  *   reasoning?: string,
  *   toolCalls?: ToolCall[],
  *   toolCallId?: string,
@@ -78,6 +86,7 @@
  *     tools?: Tool[],
  *     toolChoice?: ToolChoice,
  *     options?: InferenceOptions,
+ *     output?: { images?: boolean },
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
  *     onReasoningDelta?: (content: string) => void,

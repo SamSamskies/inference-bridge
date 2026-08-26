@@ -10,6 +10,11 @@ import {
   missingOllamaWebSearchKeyMessage,
   runOllamaHostedSearchLoop,
 } from "./ollama-web-search.js";
+import {
+  assertImagesSupported,
+  mapContentForOllama,
+  messagesHaveImageParts,
+} from "../image-parts.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 import { mapTemperatureForOllama } from "./temperature.js";
@@ -126,6 +131,44 @@ export async function listOllamaModels({ signal } = {}) {
   return names;
 }
 
+/** @type {Map<string, boolean>} */
+const visionByModel = new Map();
+
+/**
+ * True when `/api/show` lists `vision` in capabilities. Fail closed on errors.
+ * Successful lookups are cached; network failures are not.
+ * @param {string} model
+ * @param {{ signal?: AbortSignal }} [args]
+ * @returns {Promise<boolean>}
+ */
+export async function ollamaModelHasVision(model, { signal } = {}) {
+  if (!model) return false;
+  const cached = visionByModel.get(model);
+  if (cached !== undefined) return cached;
+  await ensureOllamaOriginBypass();
+  let response;
+  try {
+    response = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, name: model }),
+      signal,
+    });
+  } catch {
+    return false;
+  }
+  if (!response.ok) return false;
+  try {
+    const body = await response.json();
+    const caps = body?.capabilities;
+    const vision = Array.isArray(caps) && caps.includes("vision");
+    visionByModel.set(model, vision);
+    return vision;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Map IPA / experimental messages to Ollama chat messages.
  * Round-trips reasoning as `thinking`, assistant `toolCalls` (object args on
@@ -147,12 +190,16 @@ export function mapMessagesForOllama(messages) {
   }
 
   return messages.map((m) => {
+    const mapped = mapContentForOllama(m.content);
     /** @type {Record<string, unknown>} */
     const out = {
       role: m.role,
       // Ollama requires string content; IPA may use null when only toolCalls.
-      content: m.content == null ? "" : m.content,
+      content: mapped.content,
     };
+    if (mapped.images) {
+      out.images = mapped.images;
+    }
     if (typeof m.reasoning === "string" && m.reasoning) {
       out.thinking = m.reasoning;
     }
@@ -307,6 +354,7 @@ export function finalizeOllamaToolCalls(toolCallsByIndex) {
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
  *   options?: import("./types.js").InferenceOptions,
+ *   output?: { images?: boolean },
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
@@ -328,6 +376,7 @@ export async function streamOllamaChatTurn({
   tools,
   toolChoice,
   options,
+  output,
   signal,
   onDelta,
   onReasoningDelta,
@@ -340,6 +389,16 @@ export async function streamOllamaChatTurn({
     }
 
     await ensureOllamaOriginBypass();
+    assertImagesSupported({ id: "ollama", label: "Ollama" }, messages, output);
+    if (messagesHaveImageParts(messages)) {
+      const vision = await ollamaModelHasVision(model, { signal });
+      if (!vision) {
+        throwInference(
+          "unavailable",
+          `Ollama model "${model}" does not support image input. Choose a vision model.`
+        );
+      }
+    }
 
     let response;
     try {
@@ -547,6 +606,7 @@ export const ollamaProvider = {
     tools,
     toolChoice,
     options,
+    output,
     signal,
     onDelta,
     onReasoningDelta,
@@ -569,6 +629,7 @@ export const ollamaProvider = {
             tools: turnTools,
             toolChoice,
             options,
+            output,
             signal,
             onDelta: (delta) => {
               content += delta;
@@ -605,6 +666,7 @@ export const ollamaProvider = {
       tools: filterFunctionTools(tools),
       toolChoice,
       options,
+      output,
       signal,
       onDelta,
       onReasoningDelta,

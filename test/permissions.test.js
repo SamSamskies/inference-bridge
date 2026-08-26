@@ -613,6 +613,64 @@ describe("ensurePermission", () => {
   });
 });
 
+describe("ensurePermission with images", () => {
+  const visionMessages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "what is this?" },
+        { type: "image", mediaType: "image/png", data: "aaa" },
+      ],
+    },
+  ];
+
+  it("re-prompts Always-allow chat grants when image parts are present", async () => {
+    await grantOriginAlways("https://img.example", {
+      providerId: "ollama",
+      model: "llava",
+    });
+
+    const pending = ensurePermission({
+      requestId: "ri1",
+      origin: "https://img.example",
+      messages: visionMessages,
+    });
+    await waitForPending("ri1");
+    expect(getPendingApproval("ri1")).toMatchObject({
+      origin: "https://img.example",
+    });
+    resolveApproval("ri1", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "llava",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts imageInput grants when output.images is set", async () => {
+    await grantOriginAlways("https://img-out.example", {
+      providerId: "ollama",
+      model: "llava",
+      imageInput: true,
+    });
+
+    const pending = ensurePermission({
+      requestId: "ri2",
+      origin: "https://img-out.example",
+      messages: visionMessages,
+      output: { images: true },
+    });
+    await waitForPending("ri2");
+    expect(getPendingApproval("ri2")).not.toBeNull();
+    resolveApproval("ri2", {
+      decision: "deny",
+      providerId: "ollama",
+      model: "llava",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+});
+
 describe("ensurePermission with tools", () => {
   it("re-prompts Always-allow origins when tools are present", async () => {
     await grantOriginAlways("https://tools.example", {

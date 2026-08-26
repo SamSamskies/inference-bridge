@@ -18,6 +18,13 @@ import {
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
+  blocksAllowForImages,
+  isImageGrantCovered,
+  messagesHaveImageParts,
+  requestWantsImageOutput,
+} from "./image-parts.js";
+import { ollamaModelHasVision } from "./providers/ollama.js";
+import {
   blocksAllowForRequestTools,
   fingerprintTools,
   fingerprintTrailingToolCalls,
@@ -40,6 +47,7 @@ import {
  *   model: string,
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
+ *   output?: { images?: boolean },
  * }} ApprovalRequest
  */
 
@@ -364,6 +372,28 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
 }
 
 /**
+ * Always-allow may skip only when the grant already covers image input/output
+ * and the bound provider/model can honor them (this slice: Ollama vision in,
+ * no image out).
+ * @param {{ id?: string } | null | undefined} provider
+ * @param {string} model
+ * @param {{ imageInput?: boolean, imageOutput?: boolean } | null | undefined} grant
+ * @param {ChatMessage[]} messages
+ * @param {unknown} [output]
+ */
+async function imagesAllowAutoApprove(provider, model, grant, messages, output) {
+  const imageInput = messagesHaveImageParts(messages);
+  const imageOutput = requestWantsImageOutput(output);
+  if (!isImageGrantCovered(grant, { imageInput, imageOutput })) return false;
+  /** @type {boolean | undefined} */
+  let modelHasVision;
+  if (imageInput && provider?.id === "ollama") {
+    modelHasVision = await ollamaModelHasVision(model);
+  }
+  return !blocksAllowForImages(provider, { imageInput, imageOutput, modelHasVision });
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -373,6 +403,7 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
  *   preferredModel?: string,
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
+ *   output?: { images?: boolean },
  * }} args
  * @returns {Promise<{
  *   allowed: boolean,
@@ -455,12 +486,19 @@ export async function ensurePermission(args) {
     const grantModel = existing.model || grantFallbackModel;
 
     if (
-      await canSkipApprovalPrompt(
+      (await canSkipApprovalPrompt(
         grantProvider,
         tools,
         settings.apiKeys,
         args.toolChoice
-      )
+      )) &&
+      (await imagesAllowAutoApprove(
+        grantProvider,
+        grantModel,
+        existing,
+        args.messages,
+        args.output
+      ))
     ) {
       if (!toolFingerprint) {
         // Tool follow-ups may omit `tools`. If an Allow-once episode still
@@ -566,6 +604,7 @@ export async function ensurePermission(args) {
     model: promptModel,
     ...(tools ? { tools } : {}),
     ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
+    ...(args.output ? { output: args.output } : {}),
   });
 
   const chosenProviderId = normalizeProviderId(
@@ -626,6 +665,8 @@ export async function ensurePermission(args) {
           ...(toolFingerprint && args.toolChoice === "none"
             ? { toolChoiceNone: true }
             : {}),
+          ...(messagesHaveImageParts(args.messages) ? { imageInput: true } : {}),
+          ...(requestWantsImageOutput(args.output) ? { imageOutput: true } : {}),
         });
         // Always-allow may narrow the persistent grant; drop prior episodes so
         // broader in-memory fingerprints (e.g. parallel same-length openers)

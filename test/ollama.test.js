@@ -201,6 +201,69 @@ describe("ollamaProvider.streamChat", () => {
     });
   });
 
+  const visionUser = {
+    role: "user",
+    content: [
+      { type: "text", text: "what is this?" },
+      { type: "image", mediaType: "image/png", data: "aaa" },
+    ],
+  };
+
+  it("sends images to /api/chat when /api/show reports vision", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("/api/show")) {
+        return jsonResponse({ capabilities: ["completion", "vision"] });
+      }
+      return ndjsonResponse(
+        JSON.stringify({
+          model: "llava",
+          message: { role: "assistant", content: "a cat" },
+          done: true,
+        }) + "\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await ollamaProvider.streamChat({
+      model: "llava",
+      messages: [visionUser],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(result.message.content).toBe("a cat");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/show");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).messages).toEqual([
+      { role: "user", content: "what is this?", images: ["aaa"] },
+    ]);
+  });
+
+  it("fails closed when the selected model has no vision capability", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ capabilities: ["completion"] }))
+    );
+    await expect(
+      ollamaProvider.streamChat({
+        model: "llama3.2:latest",
+        messages: [visionUser],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("fails closed for output.images", async () => {
+    await expect(
+      ollamaProvider.streamChat({
+        model: "llava",
+        messages: [{ role: "user", content: "a red square" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
+
   it("streams thinking as reasoning_delta and content as delta", async () => {
     const body = [
       JSON.stringify({
@@ -900,6 +963,26 @@ describe("mapMessagesForOllama / tool helpers", () => {
     expect(parseArgumentsForOllama('{"city":"NYC"}')).toEqual({ city: "NYC" });
     expect(parseArgumentsForOllama("{")).toEqual({});
     expect(parseArgumentsForOllama({ city: "NYC" })).toEqual({ city: "NYC" });
+  });
+
+  it("maps image parts onto Ollama images and concatenates text", () => {
+    expect(
+      mapMessagesForOllama([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "aaa" },
+          ],
+        },
+      ])
+    ).toEqual([
+      {
+        role: "user",
+        content: "what is this?",
+        images: ["aaa"],
+      },
+    ]);
   });
 
   it("round-trips assistant toolCalls and maps toolCallId to tool_name", () => {

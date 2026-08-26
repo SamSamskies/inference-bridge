@@ -3,6 +3,7 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
+import { assertImagesSupported } from "../image-parts.js";
 import {
   mapToolsForOpenRouter,
   omitHostedWebSearchIfNone,
@@ -118,10 +119,12 @@ export const openrouterProvider = {
     tools,
     toolChoice,
     options,
+    output,
     signal,
     onDelta,
     onReasoningDelta,
   }) {
+    assertImagesSupported(this, messages, output);
     if (!model) {
       throwInference(
         "unavailable",
