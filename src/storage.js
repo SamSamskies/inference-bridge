@@ -28,6 +28,7 @@ const DEFAULTS = Object.freeze({
     openai: "gpt-5.6-luna",
     anthropic: "claude-sonnet-5",
     openrouter: "openrouter/auto",
+    vercel: "openai/gpt-5.6-luna",
   }),
   /** @type {readonly CompatEndpoint[]} */
   compatEndpoints: Object.freeze([]),
@@ -54,12 +55,12 @@ export function isCompatProviderId(providerId) {
 }
 
 /**
- * OpenRouter catalog ids are always `org/model`. OpenAI's curated list has no
- * slash. Anthropic ids are `claude-…` without a provider slash. Reject
- * cross-contaminated prefs (e.g. gpt-5.6-luna stored under openrouter after an
- * older single-defaultModel save). Ollama accepts local tags (`gemma4`,
- * `llama3.2:latest`, `user/model`) but not OpenAI curated ids. Named
- * OpenAI-compatible endpoints accept any non-empty model string.
+ * OpenRouter and Vercel AI Gateway catalog ids are always `org/model`. OpenAI's
+ * curated list has no slash. Anthropic ids are `claude-…` without a provider
+ * slash. Reject cross-contaminated prefs (e.g. gpt-5.6-luna stored under
+ * openrouter after an older single-defaultModel save). Ollama accepts local
+ * tags (`gemma4`, `llama3.2:latest`, `user/model`) but not OpenAI curated ids.
+ * Named OpenAI-compatible endpoints accept any non-empty model string.
  * @param {string} providerId
  * @param {string} model
  * @returns {boolean}
@@ -68,7 +69,9 @@ export function isPlausibleModelForProvider(providerId, model) {
   const trimmed = typeof model === "string" ? model.trim() : "";
   if (!trimmed) return false;
   if (isCompatProviderId(providerId)) return true;
-  if (providerId === "openrouter") return trimmed.includes("/");
+  if (providerId === "openrouter" || providerId === "vercel") {
+    return trimmed.includes("/");
+  }
   if (providerId === "openai") return !trimmed.includes("/");
   if (providerId === "anthropic") {
     return trimmed.startsWith("claude-") && !trimmed.includes("/");

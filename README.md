@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, browser **On-device** Prompt API when available, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, **Vercel AI Gateway**, local **Ollama**, browser **On-device** Prompt API when available, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -12,10 +12,10 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`; `options.reasoningEffort` and `options.temperature`)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
-- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
+- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), Vercel AI Gateway (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
-- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
+- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, OpenRouter, and Vercel AI Gateway (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -39,6 +39,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
    - **OpenAI** — paste your API key and choose a default model
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
+   - **Vercel AI Gateway** — paste your Vercel AI Gateway API key; models load from the public catalog (searchable); hosted web search via Perplexity
    - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
@@ -51,11 +52,12 @@ For local development or unreleased builds, use the load-unpacked steps below.
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
+| Vercel AI Gateway | API key in Options | Live catalog from `GET https://ai-gateway.vercel.sh/v1/models`; searchable autosuggest. Hosted `{ type: "web_search" }` maps to `{ type: "vercel:perplexity_search" }` (no static query). |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
-To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/anthropic.js`](src/providers/anthropic.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); Anthropic uses a dedicated Messages API adapter). Models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js). Register the provider in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the named-endpoint UI instead.
+To add another **built-in** provider: implement the same shape as [`src/providers/openai.js`](src/providers/openai.js) / [`src/providers/anthropic.js`](src/providers/anthropic.js) / [`src/providers/ollama.js`](src/providers/ollama.js) / [`src/providers/openrouter.js`](src/providers/openrouter.js) / [`src/providers/vercel.js`](src/providers/vercel.js) (shared OpenAI-compatible streaming lives in [`src/providers/openai-compat-stream.js`](src/providers/openai-compat-stream.js); Anthropic uses a dedicated Messages API adapter). Models use the `ModelInfo` contract in [`src/providers/types.js`](src/providers/types.js). Register the provider in [`src/providers/registry.js`](src/providers/registry.js), and extend the options UI if it needs extra credentials. For most local/self-hosted OpenAI-compatible servers, use the named-endpoint UI instead.
 
 ## Try it
 
@@ -99,6 +101,14 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 2. In Options, paste the key under **OpenRouter API key**, set **Default provider** to OpenRouter (defaults to `openrouter/auto`; type to search for others), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 
+### Vercel AI Gateway
+
+1. Create an API key in the [Vercel dashboard](https://vercel.com/docs/ai-gateway)
+2. In Options, paste the key under **Vercel AI Gateway API key**, set **Default provider** to Vercel AI Gateway (defaults to `openai/gpt-5.6-luna`; type to search for others), and click **Save**
+3. Run the snippet above on an HTTPS or localhost page
+
+Hosted `{ type: "web_search" }` is executed by the Gateway (Perplexity) on any routed model. Existing named OpenAI-compatible endpoints pointed at `https://ai-gateway.vercel.sh/v1` still work for chat, but fail closed on hosted search until you switch to this built-in provider.
+
 ### Ollama (local chat; optional cloud key for web search)
 
 1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
@@ -130,7 +140,7 @@ Prompt API does not expose a way to delete the downloaded model. To free disk sp
 
 ### OpenAI-compatible servers
 
-Use this for LM Studio, llama.cpp server, vLLM, LocalAI, or any self-hosted proxy that exposes OpenAI-style `/v1/models` and `/v1/chat/completions`. Hosted OpenAI-compatible gateways work the same way (for example [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) at `https://ai-gateway.vercel.sh/v1`, or [PayPerQ / PPQ](https://ppq.ai/api-docs) at `https://api.ppq.ai/v1`) — paste the gateway API key when you add the server.
+Use this for LM Studio, llama.cpp server, vLLM, LocalAI, or any self-hosted proxy that exposes OpenAI-style `/v1/models` and `/v1/chat/completions`. Other hosted OpenAI-compatible gateways work the same way (for example [PayPerQ / PPQ](https://ppq.ai/api-docs) at `https://api.ppq.ai/v1`) — paste the gateway API key when you add the server. For **Vercel AI Gateway**, use the built-in provider instead (hosted `{ type: "web_search" }` is not mapped on named OpenAI-compatible endpoints, even if the URL is `https://ai-gateway.vercel.sh/v1`).
 
 1. Start your server and note its host URL (e.g. `http://127.0.0.1:1234` or `http://192.168.1.67:1234`)
 2. In Options, under **OpenAI-compatible servers**, enter a **Name**, **Base URL**, and optional API key — `/v1` is appended automatically if you omit it (unusual paths like `/openai/v1` are kept as entered)
@@ -195,6 +205,7 @@ If you are building your own IPA extension with local providers, follow the Orig
     validate.js
     run-tools.js                 # page-side experimental.runTools (tests; inject.js mirrors)
     storage.js
+    vercel-ai-gateway.js          # leftover Gateway-compat host detection + Options nudge
     permissions.js
     ollama-origin-bypass.js      # strip chrome-extension Origin for local Ollama
     loopback-origin-bypass.js    # same for other loopback OpenAI-compatible hosts
@@ -207,11 +218,12 @@ If you are building your own IPA extension with local providers, follow the Orig
       registry.js                # built-ins + dynamic compat endpoints
       openai-compat-stream.js    # shared OpenAI-compatible SSE streaming
       openai-responses.js        # OpenAI Responses API path (hosted web_search)
-      hosted-tools.js            # Bridge web_search identity + OpenRouter/Anthropic/OpenAI mapping
+      hosted-tools.js            # Bridge web_search identity + OpenRouter/Vercel/Anthropic/OpenAI mapping
       openai-compat.js           # factory for user-named OpenAI-compatible servers
       openai.js                  # OpenAI streaming adapter
       anthropic.js               # Anthropic Messages API streaming adapter
       openrouter.js              # OpenRouter /api/v1 models + chat adapter
+      vercel.js                  # Vercel AI Gateway /v1 models + chat adapter
       ollama.js                  # Ollama /api/tags + /api/chat adapter
       ollama-web-search.js       # Bridge-executed ollama.com web_search / web_fetch
       on-device.js               # browser Prompt API (LanguageModel) adapter
@@ -297,7 +309,7 @@ Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, OpenRouter, and Vercel AI Gateway the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -308,13 +320,14 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 | OpenAI | Responses API (`/v1/responses`) only when `web_search` is present; function-tool-only stays on Chat Completions |
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
+| Vercel AI Gateway | Chat Completions `{ type: "vercel:perplexity_search" }` with no static `config.query` (Gateway Perplexity search on any routed model) |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
 | OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
 | On-device | Unsupported — Allow disabled / `unavailable` |
 
 Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge may search and fetch via ollama.com). Unsupported providers disable Allow and tell the user to pick another provider. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
 
-Use OpenAI, Anthropic, OpenRouter, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
+Use OpenAI, Anthropic, OpenRouter, Vercel AI Gateway, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
 
 ```js
 for await (const chunk of window.inference.experimental.request({

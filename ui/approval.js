@@ -19,6 +19,13 @@ import {
   ON_DEVICE_MODEL_ID,
   ON_DEVICE_PROVIDER_ID,
 } from "../src/prompt-api-core.js";
+import { getSettings, saveSettings } from "../src/storage.js";
+import {
+  VERCEL_AI_GATEWAY_COMPAT_SWITCH_HINT,
+  isVercelAiGatewayCompatProvider,
+  providerDropdownLabel,
+  vercelAiGatewayFromCompatPatch,
+} from "../src/vercel-ai-gateway.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -44,6 +51,9 @@ try {
 const originEl = document.getElementById("origin");
 const providerSelect = document.getElementById("provider");
 const providerHint = document.getElementById("providerHint");
+const vercelCompatNudge = document.getElementById("vercelCompatNudge");
+const vercelCompatNudgeHint = document.getElementById("vercelCompatNudgeHint");
+const useBuiltInVercelButton = document.getElementById("useBuiltInVercel");
 const modelField = document.getElementById("modelField");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
@@ -70,6 +80,7 @@ const denyBtn = document.getElementById("deny");
  *   hasApiKey?: boolean,
  *   supportsFunctionTools?: boolean,
  *   hostedTools?: string[],
+ *   baseUrl?: string,
  * }>} */
 let providers = [];
 
@@ -153,6 +164,20 @@ function updateProviderHint(providerId = providerSelect.value) {
   }
   providerHint.hidden = false;
   providerHint.textContent = hint;
+}
+
+function updateVercelCompatNudge(providerId = providerSelect.value) {
+  const provider = providers.find((p) => p.id === providerId);
+  const show =
+    isVercelAiGatewayCompatProvider(provider) &&
+    providers.some((p) => p.id === "vercel");
+  if (!vercelCompatNudge || !vercelCompatNudgeHint) return;
+  if (!show) {
+    vercelCompatNudge.hidden = true;
+    return;
+  }
+  vercelCompatNudge.hidden = false;
+  vercelCompatNudgeHint.textContent = VERCEL_AI_GATEWAY_COMPAT_SWITCH_HINT;
 }
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
@@ -444,7 +469,7 @@ function fillProviders(selectedId) {
     const option = document.createElement("option");
     option.value = provider.id;
     // Keep unready providers selectable so the hint can explain why Allow is off.
-    option.textContent = provider.label;
+    option.textContent = providerDropdownLabel(provider);
     if (provider.id === effectiveId) option.selected = true;
     providerSelect.append(option);
   }
@@ -463,6 +488,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   updateAllowEnabled();
   updateProviderHint(providerId);
   updateCapabilityWarning(providerId);
+  updateVercelCompatNudge(providerId);
   renderTools(requestTools, providerId);
   setModelHint("Loading models…");
   populateModelControl(providerId, [], preferredModel, {
@@ -786,14 +812,54 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     if (!ok) return;
     updateProviderHint();
     updateCapabilityWarning();
+    updateVercelCompatNudge();
     renderTools(requestTools);
     updateAllowEnabled();
   });
 });
 
+async function useBuiltInVercelFromApproval() {
+  const selected = providers.find((p) => p.id === providerSelect.value);
+  if (!isVercelAiGatewayCompatProvider(selected) || !useBuiltInVercelButton) {
+    return;
+  }
+  useBuiltInVercelButton.disabled = true;
+  try {
+    const settings = await getSettings();
+    const currentModel = readModelValue(selected.id);
+    const defaultModels = { ...settings.defaultModels };
+    if (currentModel) defaultModels[selected.id] = currentModel;
+    const patch = vercelAiGatewayFromCompatPatch({
+      endpointId: selected.id,
+      apiKeys: settings.apiKeys,
+      defaultModels,
+    });
+    await saveSettings(patch);
+    if (!(await refreshProviders())) return;
+    const nextModel =
+      patch.defaultModels.vercel ||
+      settings.defaultModels.vercel ||
+      providers.find((p) => p.id === "vercel")?.defaultModel;
+    fillProviders("vercel");
+    updateVercelCompatNudge("vercel");
+    await loadModelsForProvider("vercel", nextModel);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : "Failed to switch provider");
+  } finally {
+    useBuiltInVercelButton.disabled = false;
+  }
+}
+
+if (useBuiltInVercelButton) {
+  useBuiltInVercelButton.addEventListener("click", () => {
+    void useBuiltInVercelFromApproval();
+  });
+}
+
 providerSelect.addEventListener("change", () => {
   const provider = providers.find((p) => p.id === providerSelect.value);
   updateCapabilityWarning(providerSelect.value);
+  updateVercelCompatNudge(providerSelect.value);
   renderTools(requestTools, providerSelect.value);
   void loadModelsForProvider(
     providerSelect.value,

@@ -235,6 +235,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         defaultModel: p.defaultModel,
         supportsFunctionTools: Boolean(p.supportsFunctionTools),
         hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
+        ...(typeof p.baseUrl === "string" && p.baseUrl
+          ? { baseUrl: p.baseUrl }
+          : {}),
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
         models: p.models
@@ -504,6 +507,12 @@ async function handleStart(port, msg, onStreamId) {
         throwInference(
           "unavailable",
           "No OpenRouter model selected. Choose a model in the extension Options or approval dialog."
+        );
+      }
+      if (provider.id === "vercel") {
+        throwInference(
+          "unavailable",
+          "No Vercel AI Gateway model selected. Choose a model in the extension Options or approval dialog."
         );
       }
       if (provider.id === "on-device") {

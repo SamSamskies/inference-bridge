@@ -46,6 +46,11 @@ describe("usesModelAutosuggest", () => {
     expect(usesModelAutosuggest("openrouter", [{ id: "a" }])).toBe(true);
   });
 
+  it("is always enabled for Vercel AI Gateway", () => {
+    expect(usesModelAutosuggest("vercel")).toBe(true);
+    expect(usesModelAutosuggest("vercel", [{ id: "a" }])).toBe(true);
+  });
+
   it("uses a select for compat:* when the catalog is small", () => {
     expect(usesModelAutosuggest("compat:abc", [{ id: "local" }])).toBe(false);
     const atThreshold = Array.from(

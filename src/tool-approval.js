@@ -4,6 +4,10 @@
  */
 
 import { hostedWebSearchActive } from "./providers/hosted-tools.js";
+import {
+  isVercelAiGatewayBaseUrl,
+  VERCEL_AI_GATEWAY_COMPAT_WEB_SEARCH_MESSAGE,
+} from "./vercel-ai-gateway.js";
 
 /** @typedef {import("./providers/types.js").Tool} Tool */
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
@@ -399,6 +403,7 @@ export function blocksAllowForRequestTools(provider, tools, toolChoice) {
  *   hostedTools?: readonly string[],
  *   label?: string,
  *   hasApiKey?: boolean,
+ *   baseUrl?: string,
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
  * @param {ToolChoice | unknown} [toolChoice]
@@ -433,7 +438,9 @@ export function capabilityWarnings(provider, tools, toolChoice) {
       if (hosted === "web_search") {
         warnings.push(
           isOpenAICompat
-            ? "Hosted web search is not mapped for OpenAI-compatible servers. Choose another provider to allow this request."
+            ? isVercelAiGatewayBaseUrl(provider?.baseUrl)
+              ? VERCEL_AI_GATEWAY_COMPAT_WEB_SEARCH_MESSAGE
+              : "Hosted web search is not mapped for OpenAI-compatible servers. Choose another provider to allow this request."
             : `Web search is not supported by ${label}. Choose another provider to allow this request.`
         );
       } else {

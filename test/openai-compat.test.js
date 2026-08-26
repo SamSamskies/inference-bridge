@@ -191,6 +191,32 @@ describe("createOpenAICompatProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("fails closed on leftover Vercel AI Gateway URLs instead of mapping search", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenAICompatProvider({
+      id: "compat:gw",
+      name: "Vercel",
+      baseUrl: "https://ai-gateway.vercel.sh/v1",
+    });
+    expect(provider.hostedTools).toEqual([]);
+    await expect(
+      provider.streamChat({
+        model: "openai/gpt-5.6-luna",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "web_search" }],
+        toolChoice: "auto",
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "unavailable",
+      message: expect.stringMatching(/Vercel AI Gateway/i),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed instead of stripping web_search from a mixed tools array", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

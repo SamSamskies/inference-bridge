@@ -10,6 +10,13 @@ import {
   isPlausibleModelForProvider,
 } from "../src/storage.js";
 import {
+  VERCEL_DEFAULT_MODEL,
+  isVercelAiGatewayBaseUrl,
+  providerDropdownLabel,
+  shouldNudgeVercelAiGatewayCompat,
+  vercelAiGatewayFromCompatPatch,
+} from "../src/vercel-ai-gateway.js";
+import {
   normalizeCompatBaseUrl,
   requestHostPermissionForBaseUrl,
 } from "../src/host-permissions.js";
@@ -487,11 +494,13 @@ function updateApiKeyField(providerId) {
     apiKeyInput.placeholder =
       provider.id === "openrouter"
         ? "sk-or-..."
-        : provider.id === "anthropic"
-          ? "sk-ant-..."
-          : provider.optionalApiKey
-            ? "Leave blank if not required"
-            : "sk-...";
+        : provider.id === "vercel"
+          ? "vck_..."
+          : provider.id === "anthropic"
+            ? "sk-ant-..."
+            : provider.optionalApiKey
+              ? "Leave blank if not required"
+              : "sk-...";
     if (apiKeyHint) {
       apiKeyHint.hidden = true;
       apiKeyHint.textContent = "";
@@ -623,7 +632,7 @@ function populateProviderSelect(select, selectedId) {
     } else if (ollamaDown) {
       option.textContent = `${provider.label} (unavailable)`;
     } else {
-      option.textContent = provider.label;
+      option.textContent = providerDropdownLabel(provider);
     }
     if ((known || !selectedId) && provider.id === effectiveId) {
       option.selected = true;
@@ -1355,7 +1364,7 @@ function populateOriginProviderSelect(select, selectedId) {
     } else if (ollamaDown) {
       option.textContent = `${provider.label} (unavailable)`;
     } else {
-      option.textContent = provider.label;
+      option.textContent = providerDropdownLabel(provider);
     }
     if (known && provider.id === selectedId) option.selected = true;
     select.append(option);
@@ -1410,6 +1419,55 @@ function resetCompatForm() {
   compatCancelButton.hidden = true;
 }
 
+/**
+ * Switch a leftover Gateway compat endpoint to the built-in provider.
+ * @param {{ id: string, name: string, baseUrl: string }} endpoint
+ */
+async function useBuiltInVercelFromCompat(endpoint) {
+  const settings = await getSettings();
+  const apiKeys = { ...settings.apiKeys, ...apiKeyDrafts };
+  const defaultModels = { ...settings.defaultModels, ...modelDrafts };
+  const patch = vercelAiGatewayFromCompatPatch({
+    endpointId: endpoint.id,
+    apiKeys,
+    defaultModels,
+  });
+  if (patch.apiKeys.vercel) apiKeyDrafts.vercel = patch.apiKeys.vercel;
+  if (patch.defaultModels.vercel) modelDrafts.vercel = patch.defaultModels.vercel;
+  const model = modelDrafts.vercel || VERCEL_DEFAULT_MODEL;
+  await persistDefaultSettings("vercel", model);
+
+  const remove = window.confirm(
+    `Remove the leftover OpenAI-compatible server “${endpoint.name}”? You can keep it; hosted search stays unavailable there.`
+  );
+  if (remove) {
+    const next = compatEndpoints.filter((e) => e.id !== endpoint.id);
+    await saveCompatEndpoints(next);
+    delete apiKeyDrafts[endpoint.id];
+    await saveSettings({ apiKeys: { [endpoint.id]: "" } });
+    modelCache.delete(endpoint.id);
+    if (compatEditingId === endpoint.id) resetCompatForm();
+  }
+
+  const nextSettings = await getSettings();
+  compatEndpoints = nextSettings.compatEndpoints;
+  await loadProviders();
+  savedDefaultProviderId = nextSettings.defaultProviderId;
+  const nextProvider = populateProviderSelect(
+    providerSelect,
+    nextSettings.defaultProviderId
+  );
+  modelBoundProviderId = nextProvider;
+  updateProviderChrome(nextProvider);
+  await refreshDefaultModels(nextProvider, preferredDefaultModel(nextProvider));
+  await renderOrigins();
+  renderCompatEndpoints();
+  setStatus("Switched to the built-in Vercel AI Gateway provider.", "ok");
+  if (remove) {
+    setCompatStatus(`Removed ${endpoint.name}.`, "ok");
+  }
+}
+
 function renderCompatEndpoints() {
   compatEndpointsEl.replaceChildren();
   const hasEndpoints = compatEndpoints.length > 0;
@@ -1426,6 +1484,27 @@ function renderCompatEndpoints() {
     const url = document.createElement("code");
     url.textContent = endpoint.baseUrl;
     meta.append(title, url);
+
+    const showNudge =
+      isVercelAiGatewayBaseUrl(endpoint.baseUrl) &&
+      shouldNudgeVercelAiGatewayCompat({
+        apiKeys: apiKeyDrafts,
+        defaultProviderId: savedDefaultProviderId,
+        selectedProviderId: providerSelect.value,
+      });
+    if (showNudge) {
+      const hint = document.createElement("p");
+      hint.className = "hint compat-nudge";
+      hint.textContent =
+        "This looks like Vercel AI Gateway. Switch to the built-in provider to enable hosted web search.";
+      const useBtn = document.createElement("button");
+      useBtn.type = "button";
+      useBtn.textContent = "Use built-in provider";
+      useBtn.addEventListener("click", () => {
+        void useBuiltInVercelFromCompat(endpoint);
+      });
+      meta.append(hint, useBtn);
+    }
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -1665,6 +1744,8 @@ saveButton.addEventListener("click", async () => {
       setStatus(
         providerId === "openrouter"
           ? "OpenRouter models must look like org/model (include a /)."
+          : providerId === "vercel"
+            ? "Vercel AI Gateway models must look like org/model (include a /)."
           : providerId === "openai"
             ? "OpenAI model ids should not include a /."
             : "Choose a valid default model before saving.",

@@ -47,7 +47,7 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Ollama, on-device browser AI, or your own OpenAI-compatible server — keys stay in the extension. |
+| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Vercel AI Gateway, Ollama, on-device browser AI, or your own OpenAI-compatible server — keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -58,14 +58,14 @@ unzip -l dist/inference-bridge-*.zip
 ```
 Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
 
-Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-device browser AI when available, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
+Bring your own OpenAI, Anthropic, OpenRouter, or Vercel AI Gateway key, run local Ollama, use on-device browser AI when available, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Experimental function tools via window.inference.experimental (page-executed; keys stay in the extension)
-• Experimental hosted web search on OpenAI, Anthropic, OpenRouter, and Ollama (Ollama search runs through ollama.com with an optional account key)
+• Experimental hosted web search on OpenAI, Anthropic, OpenRouter, Vercel AI Gateway, and Ollama (Ollama search runs through ollama.com with an optional account key)
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
-• OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
+• OpenAI, Anthropic, OpenRouter, Vercel AI Gateway, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
 • Optional host access is requested only for each custom server origin you save
 • Local Ollama and other loopback servers work without special ORIGINS setup
 • Injects only on https and localhost pages
@@ -85,6 +85,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **https://api.openai.com/**\* — Send chat completions when the user selects OpenAI.
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
+- **https://ai-gateway.vercel.sh/**\* — List models and send chat completions when the user selects Vercel AI Gateway (install-time host access; hosted web search uses Gateway-executed Perplexity search).
 - **https://ollama.com/**\* — Run hosted web search / fetch via Ollama cloud when the user selects Ollama and requests `{ type: "web_search" }` (optional Ollama account API key).
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
 - **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
@@ -112,9 +113,9 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the README manual checklist on a clean profile:
 
 1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
-2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
+2. Confirm OpenAI, Anthropic, OpenRouter, Vercel AI Gateway, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
-4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
+4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / Vercel AI Gateway / ollama.com (web search) / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
 
 ## Submit (manual)
 

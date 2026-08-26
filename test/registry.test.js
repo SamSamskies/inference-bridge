@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 describe("provider registry", () => {
-  it("registers openai, anthropic, openrouter, ollama, and on-device", () => {
+  it("registers openai, anthropic, openrouter, vercel, ollama, and on-device", () => {
     const ids = listProviders().map((p) => p.id).sort();
     expect(ids).toEqual([
       "anthropic",
@@ -25,6 +25,7 @@ describe("provider registry", () => {
       "on-device",
       "openai",
       "openrouter",
+      "vercel",
     ]);
     expect(getDefaultProvider().id).toBe("openai");
     expect(getProvider("missing")).toBeUndefined();
@@ -60,6 +61,7 @@ describe("provider registry", () => {
         "on-device",
         "openai",
         "openrouter",
+        "vercel",
       ]);
     } finally {
       globalThis.chrome.storage.local.get = originalGet;
@@ -86,6 +88,17 @@ describe("provider registry", () => {
     expect(openrouter.defaultModel).toBe("openrouter/auto");
   });
 
+  it("exposes Vercel AI Gateway with listModels, requiresApiKey, and hosted web_search", () => {
+    const vercel = getProvider("vercel");
+    expect(vercel).toBeDefined();
+    expect(vercel.requiresApiKey).toBe(true);
+    expect(vercel.label).toBe("Vercel AI Gateway");
+    expect(typeof vercel.listModels).toBe("function");
+    expect(vercel.defaultModel).toBe("openai/gpt-5.6-luna");
+    expect(vercel.supportsFunctionTools).toBe(true);
+    expect(vercel.hostedTools).toEqual(["web_search"]);
+  });
+
   it("marks OpenAI, OpenRouter, Ollama, Anthropic, and compat endpoints as supporting function tools", async () => {
     expect(getProvider("openai")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openrouter")?.supportsFunctionTools).toBe(true);
@@ -94,6 +107,7 @@ describe("provider registry", () => {
     expect(getProvider("on-device")?.supportsFunctionTools).toBe(false);
     expect(getProvider("openai")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("openrouter")?.hostedTools).toEqual(["web_search"]);
+    expect(getProvider("vercel")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("ollama")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("ollama")?.optionalApiKey).toBe(true);
     expect(getProvider("anthropic")?.hostedTools).toEqual(["web_search"]);

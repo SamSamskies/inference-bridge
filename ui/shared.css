@@ -254,6 +254,14 @@ button:disabled {
   flex: 1;
 }
 
+.compat-nudge {
+  margin: 0;
+}
+
+.list li:has(.compat-nudge) {
+  align-items: flex-start;
+}
+
 .origin-model {
   display: flex;
   flex-direction: column;

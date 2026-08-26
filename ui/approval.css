@@ -124,6 +124,15 @@ body.approval-body {
   color: var(--danger);
 }
 
+.approval .hint-row {
+  margin-top: -4px;
+}
+
+.approval .hint-row .ghost {
+  font-size: 0.8rem;
+  padding: 5px 10px;
+}
+
 .tools-panel {
   gap: 8px;
 }

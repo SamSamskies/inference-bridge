@@ -1,6 +1,6 @@
 /**
  * Shared OpenAI-compatible chat Completions SSE streaming helper.
- * Used by OpenAI and OpenRouter adapters.
+ * Used by OpenAI, OpenRouter, and Vercel AI Gateway adapters.
  */
 
 import {

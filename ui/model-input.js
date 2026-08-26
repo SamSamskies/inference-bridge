@@ -25,7 +25,7 @@ export const COMPAT_MODEL_AUTOSUGGEST_THRESHOLD = 20;
  * @returns {boolean}
  */
 export function usesModelAutosuggest(providerId, models) {
-  if (providerId === "openrouter") return true;
+  if (providerId === "openrouter" || providerId === "vercel") return true;
   // Named OpenAI-compatible servers: <select> for small catalogs; autosuggest
   // for large ones; free-text when listing failed/empty so users can still
   // type a model id.

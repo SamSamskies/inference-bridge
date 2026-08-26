@@ -50,6 +50,7 @@ describe("getSettings", () => {
         openai: "gpt-5.6-luna",
         anthropic: "claude-sonnet-5",
         openrouter: "openrouter/auto",
+        vercel: "openai/gpt-5.6-luna",
       },
       compatEndpoints: [],
       allowedOrigins: {},
@@ -226,6 +227,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
       openai: "gpt-4.1-nano",
       anthropic: "claude-sonnet-5",
       openrouter: "openrouter/free",
+      vercel: "openai/gpt-5.6-luna",
     });
   });
 
@@ -287,6 +289,14 @@ describe("isPlausibleModelForProvider", () => {
       false
     );
     expect(isPlausibleModelForProvider("anthropic", "")).toBe(false);
+  });
+
+  it("accepts org/model ids for Vercel AI Gateway", () => {
+    expect(isPlausibleModelForProvider("vercel", "openai/gpt-5.6-luna")).toBe(
+      true
+    );
+    expect(isPlausibleModelForProvider("vercel", "gpt-5.6-luna")).toBe(false);
+    expect(isPlausibleModelForProvider("vercel", "")).toBe(false);
   });
 
   it("accepts only the on-device sentinel model id", () => {

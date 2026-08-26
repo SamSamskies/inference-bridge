@@ -1,9 +1,14 @@
 /**
  * Bridge-normalized hosted `{ type: "web_search" }` helpers.
  * Function-tool filtering stays in openai-compat-stream.js; this file is the
- * hosted-tool identity + OpenRouter mapping. Ollama’s Bridge-executed
+ * hosted-tool identity + OpenRouter / Vercel mapping. Ollama’s Bridge-executed
  * ollama.com loop lives in ollama-web-search.js.
  */
+
+import {
+  isVercelAiGatewayBaseUrl,
+  VERCEL_AI_GATEWAY_COMPAT_WEB_SEARCH_MESSAGE,
+} from "../vercel-ai-gateway.js";
 
 /** @typedef {import("./types.js").Tool} Tool */
 
@@ -12,6 +17,15 @@ export const HOSTED_WEB_SEARCH = "web_search";
 /** OpenRouter Chat Completions server tool. */
 export const OPENROUTER_WEB_SEARCH_TOOL = Object.freeze({
   type: "openrouter:web_search",
+});
+
+/**
+ * Vercel AI Gateway Chat Completions server tool (Perplexity).
+ * No `config.query` — Gateway treats `config` as developer defaults that
+ * override the model. Omit `config` so the model decides whether and what to search.
+ */
+export const VERCEL_WEB_SEARCH_TOOL = Object.freeze({
+  type: "vercel:perplexity_search",
 });
 
 /**
@@ -91,6 +105,7 @@ function throwInference(code, message) {
  * @param {{
  *   id?: string,
  *   label?: string,
+ *   baseUrl?: string,
  * } | null | undefined} provider
  * @returns {string}
  */
@@ -98,6 +113,9 @@ export function hostedWebSearchUnavailableMessage(provider) {
   const isOpenAICompat =
     typeof provider?.id === "string" && provider.id.startsWith("compat:");
   if (isOpenAICompat) {
+    if (isVercelAiGatewayBaseUrl(provider?.baseUrl)) {
+      return VERCEL_AI_GATEWAY_COMPAT_WEB_SEARCH_MESSAGE;
+    }
     return "Hosted web search is not available for OpenAI-compatible servers. Choose another provider.";
   }
   const label =
@@ -114,6 +132,7 @@ export function hostedWebSearchUnavailableMessage(provider) {
  * @param {{
  *   id?: string,
  *   label?: string,
+ *   baseUrl?: string,
  *   hostedTools?: readonly string[],
  * } | null | undefined} provider
  * @param {Tool[] | undefined | null} tools
@@ -142,6 +161,28 @@ export function mapToolsForOpenRouter(tools) {
     if (!t || typeof t !== "object") continue;
     if (t.type === "web_search") {
       out.push({ ...OPENROUTER_WEB_SEARCH_TOOL });
+    } else if (t.type === "function") {
+      out.push(t);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Map Bridge tools onto Vercel AI Gateway Chat Completions `tools`.
+ * Function tools stay OpenAI-shaped; `{ type: "web_search" }` becomes
+ * `{ type: "vercel:perplexity_search" }` with no `config`.
+ * @param {Tool[] | undefined} tools
+ * @returns {Array<Tool | { type: "vercel:perplexity_search" }> | undefined}
+ */
+export function mapToolsForVercel(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return undefined;
+  /** @type {Array<Tool | { type: "vercel:perplexity_search" }>} */
+  const out = [];
+  for (const t of tools) {
+    if (!t || typeof t !== "object") continue;
+    if (t.type === "web_search") {
+      out.push({ ...VERCEL_WEB_SEARCH_TOOL });
     } else if (t.type === "function") {
       out.push(t);
     }

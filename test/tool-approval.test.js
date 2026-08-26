@@ -575,6 +575,22 @@ describe("capabilityWarnings", () => {
     expect(warnings[0]).not.toMatch(/PPQ/);
   });
 
+  it("names the built-in provider when a leftover Gateway compat endpoint is selected", () => {
+    const warnings = capabilityWarnings(
+      {
+        id: "compat:gw",
+        label: "Vercel",
+        supportsFunctionTools: true,
+        hostedTools: [],
+        baseUrl: "https://ai-gateway.vercel.sh/v1",
+      },
+      [{ type: "web_search" }]
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/Vercel AI Gateway/i);
+    expect(warnings[0]).toMatch(/dropdown/i);
+  });
+
   it("does not warn in red when Ollama web search is ready", () => {
     expect(
       capabilityWarnings(
