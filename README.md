@@ -291,16 +291,15 @@ This branch slices **Ollama vision Q&A** and **OpenRouter image output**:
 - OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Other providers, and OpenRouter models without image output, fail closed.
 - Chat Always-allow does not cover image input or image output. Approval lists them separately.
 
-```js
-const blob = await (await fetch("https://httpbin.org/image/png")).blob();
-const dataUrl = await new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result));
-  reader.onerror = () => reject(reader.error);
-  reader.readAsDataURL(blob);
-});
-const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
 
+- `{ type: "image", url }` — Bridge `fetch`es the URL (CORS, same as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif.
+- `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
+- `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
+
+Local Ollama does not fetch remote URLs. A CORS/network failure is `invalid_request`.
+
+```js
 for await (const chunk of window.inference.experimental.request({
   method: "chat",
   messages: [
@@ -308,7 +307,7 @@ for await (const chunk of window.inference.experimental.request({
       role: "user",
       content: [
         { type: "text", text: "What is in this photo?" },
-        { type: "image", mediaType: blob.type || "image/png", data },
+        { type: "image", url: "https://httpbin.org/image/png" },
       ],
     },
   ],
@@ -413,14 +412,16 @@ You can include function tools in the same `tools` array; those still execute on
 | `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
 | `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as stable IPA `options`; unknown keys ignored. |
+| `output` | no | `{ images?: boolean }` | Image generation. Experimental; not on stable `request`. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
 
 **`messages` shapes**
 
 | Role | Fields |
 | --- | --- |
-| `system` / `user` | `content: string` |
-| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
+| `system` | `content: string` |
+| `user` | `content: string` or `ContentPart[]` (text / image) |
+| `assistant` | `content: string \| ContentPart[] \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
 | `tool` | `toolCallId: string`; `content: string` (usually JSON text) |
 
 **`tools` / `ToolCall`**
@@ -694,6 +695,7 @@ npm run package
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 - [ ] `getFeatures()` still has no `webSearch: true`; stable `request` still rejects `tools`
+- [ ] Experimental `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 
 ### Current limitations
 

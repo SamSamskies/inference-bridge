@@ -32,6 +32,7 @@ const IMAGE_MEDIA_TYPE_LIST = IMAGE_MEDIA_TYPES.join('", "');
  * } | { type: "web_search" }} Tool
  *
  * @typedef {{ type: "text", text: string }} TextPart
+ * Wire image part. Page-facing `url` / Blob `data` are resolved before this.
  * @typedef {{
  *   type: "image",
  *   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
@@ -137,6 +138,12 @@ function validateMessageContent(content, i, { allowNull = false, allowParts = fa
       continue;
     }
     if (p.type === "image") {
+      if (typeof p.url === "string" && p.url.trim() && (typeof p.data !== "string" || !p.data.trim())) {
+        return {
+          ok: false,
+          message: `${label}.url is resolved in the page; the extension expects mediaType and base64 data.`,
+        };
+      }
       if (!isImageMediaType(p.mediaType)) {
         return {
           ok: false,

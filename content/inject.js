@@ -31,6 +31,44 @@
     return error;
   }
 
+  const IMAGE_MEDIA_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ]);
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizeImageMediaType(value) {
+    if (typeof value !== "string") return "";
+    let mime = value.split(";")[0].trim().toLowerCase();
+    if (mime === "image/jpg") mime = "image/jpeg";
+    return IMAGE_MEDIA_TYPES.has(mime) ? mime : "";
+  }
+
+  /**
+   * @param {string} url
+   * @returns {string}
+   */
+  function mediaTypeFromImageUrl(url) {
+    const trimmed = url.trim();
+    const dataMatch = /^data:(image\/[a-zA-Z0-9.+-]+)/i.exec(trimmed);
+    if (dataMatch) return normalizeImageMediaType(dataMatch[1]);
+    try {
+      const path = new URL(trimmed, "https://inference.invalid").pathname.toLowerCase();
+      if (path.endsWith(".png")) return "image/png";
+      if (path.endsWith(".webp")) return "image/webp";
+      if (path.endsWith(".gif")) return "image/gif";
+      if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+    } catch {
+      // ignore unparsable urls; fetch will fail instead
+    }
+    return "";
+  }
+
   /**
    * @param {Blob} blob
    * @returns {Promise<string>}
@@ -47,10 +85,83 @@
   }
 
   /**
-   * Encode image Blobs to base64 before the extension round-trip.
-   * @param {any} request
+   * Page-facing image parts: spec-shaped `{ mediaType, data }` (base64),
+   * `{ data: Blob }`, or `{ url }`. Fetch happens in the page (CORS) so the
+   * extension still sends bytes to providers — local Ollama stays offline.
+   *
+   * @param {any} part
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<any>}
    */
-  async function encodeRequestImages(request) {
+  async function resolveImagePart(part, signal) {
+    const url = typeof part.url === "string" ? part.url.trim() : "";
+    const blobData =
+      typeof Blob !== "undefined" && part.data instanceof Blob ? part.data : null;
+    const stringData = typeof part.data === "string" && part.data.trim() ? part.data : "";
+
+    if (url && (blobData || stringData)) {
+      throw makeError(
+        "invalid_request",
+        "Image parts must include url or data, not both."
+      );
+    }
+
+    if (url) {
+      let response;
+      try {
+        response = await fetch(url, signal ? { signal } : undefined);
+      } catch (err) {
+        if (
+          (signal && signal.aborted) ||
+          (err && typeof err === "object" && /** @type {{ name?: string }} */ (err).name === "AbortError")
+        ) {
+          throw makeError("aborted", "Request aborted");
+        }
+        throw makeError(
+          "invalid_request",
+          "Could not fetch image url (network or CORS). The page must be allowed to read it."
+        );
+      }
+      if (!response.ok) {
+        throw makeError(
+          "invalid_request",
+          `Image url returned HTTP ${response.status}.`
+        );
+      }
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) {
+        throw makeError("invalid_request", "Image url returned an empty body.");
+      }
+      const mediaType =
+        normalizeImageMediaType(part.mediaType) ||
+        normalizeImageMediaType(blob.type) ||
+        mediaTypeFromImageUrl(url);
+      if (!mediaType) {
+        throw makeError(
+          "invalid_request",
+          'Image url must resolve to "image/jpeg", "image/png", "image/webp", or "image/gif". Set mediaType if the server omits Content-Type.'
+        );
+      }
+      return { type: "image", mediaType, data: await blobToBase64(blob) };
+    }
+
+    if (blobData) {
+      return {
+        type: "image",
+        mediaType: part.mediaType || blobData.type,
+        data: await blobToBase64(blobData),
+      };
+    }
+
+    return part;
+  }
+
+  /**
+   * Encode image Blobs / fetch image urls to base64 before the extension round-trip.
+   * @param {any} request
+   * @param {AbortSignal} [signal]
+   */
+  async function encodeRequestImages(request, signal) {
     if (!request || typeof request !== "object" || !Array.isArray(request.messages)) {
       return request;
     }
@@ -60,23 +171,13 @@
         messages.push(message);
         continue;
       }
-      const content = [];
-      for (const part of message.content) {
-        if (
-          part &&
-          part.type === "image" &&
-          typeof Blob !== "undefined" &&
-          part.data instanceof Blob
-        ) {
-          content.push({
-            type: "image",
-            mediaType: part.mediaType || part.data.type,
-            data: await blobToBase64(part.data),
-          });
-        } else {
-          content.push(part);
-        }
-      }
+      const content = await Promise.all(
+        message.content.map((part) =>
+          part && part.type === "image"
+            ? resolveImagePart(part, signal)
+            : Promise.resolve(part)
+        )
+      );
       messages.push({ ...message, content });
     }
     return { ...request, messages };
@@ -253,11 +354,15 @@
             );
           }
 
+          if (signal?.aborted) {
+            throw makeError("aborted", "Request aborted");
+          }
+
           let serializable =
             request && typeof request === "object" ? { ...request } : {};
           delete serializable.signal;
           if (experimental) {
-            serializable = await encodeRequestImages(serializable);
+            serializable = await encodeRequestImages(serializable, signal);
           }
 
           // Register AbortSignal before the round-trip so abort during start

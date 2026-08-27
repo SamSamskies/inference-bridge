@@ -390,6 +390,18 @@ describe("validateExperimentalInferenceRequest", () => {
       ],
     });
     expect(system.ok).toBe(false);
+
+    const urlOnly = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image", url: "https://httpbin.org/image/png" }],
+        },
+      ],
+    });
+    expect(urlOnly.ok).toBe(false);
+    expect(urlOnly.message).toMatch(/url/);
   });
 
   it("accepts plain chat without tools", () => {
