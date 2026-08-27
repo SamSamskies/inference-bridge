@@ -187,6 +187,65 @@ describe("experimental image url / Blob encoding", () => {
     });
   });
 
+  it("normalizes image/jpg Blob types to image/jpeg", async () => {
+    const { inference, port1 } = loadInference({
+      fetch: async () => {
+        throw new Error("should not fetch");
+      },
+    });
+
+    const start = await captureStart(inference, port1, {
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              data: new Blob([PNG_BYTES], { type: "image/jpg" }),
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(imagePart(start.request.messages[0].content)).toEqual({
+      type: "image",
+      mediaType: "image/jpeg",
+      data: PNG_B64,
+    });
+  });
+
+  it("rejects Blob data without a usable image mediaType", async () => {
+    const { inference } = loadInference({
+      fetch: async () => {
+        throw new Error("should not fetch");
+      },
+    });
+
+    const iterator = inference.experimental
+      .request({
+        method: "chat",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                data: new Blob([PNG_BYTES], { type: "application/octet-stream" }),
+              },
+            ],
+          },
+        ],
+      })
+      [Symbol.asyncIterator]();
+
+    await expect(iterator.next()).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringMatching(/image\/jpeg/),
+    });
+  });
+
   it("rejects url combined with data", async () => {
     const { inference } = loadInference({
       fetch: async () => new Response(PNG_BYTES),

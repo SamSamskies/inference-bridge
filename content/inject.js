@@ -146,11 +146,16 @@
     }
 
     if (blobData) {
-      return {
-        type: "image",
-        mediaType: part.mediaType || blobData.type,
-        data: await blobToBase64(blobData),
-      };
+      const mediaType =
+        normalizeImageMediaType(part.mediaType) ||
+        normalizeImageMediaType(blobData.type);
+      if (!mediaType) {
+        throw makeError(
+          "invalid_request",
+          'Image Blob must resolve to "image/jpeg", "image/png", "image/webp", or "image/gif". Set mediaType if the Blob type is missing or non-image.'
+        );
+      }
+      return { type: "image", mediaType, data: await blobToBase64(blobData) };
     }
 
     return part;
