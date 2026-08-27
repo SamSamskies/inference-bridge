@@ -123,10 +123,30 @@ export function providerMapsImageInput(provider) {
  * }} request
  * @returns {boolean}
  */
+/**
+ * Mainline OpenAI chat models that can call the Responses `image_generation` tool.
+ * Image-only ids (`gpt-image-1`, …) are not valid Responses mainline models.
+ * @param {unknown} model
+ * @returns {boolean}
+ */
+export function openaiModelSupportsImageOutput(model) {
+  if (typeof model !== "string") return false;
+  const id = model.trim().toLowerCase();
+  if (!id) return false;
+  return (
+    id.startsWith("gpt-4o") ||
+    id.startsWith("gpt-4.1") ||
+    id.startsWith("gpt-5") ||
+    id.startsWith("o3")
+  );
+}
+
 export function blocksAllowForImages(provider, request) {
   if (request.imageOutput) {
-    if (provider?.id !== "openrouter") return true;
-    if (request.modelCanGenerateImages !== true) return true;
+    if (provider?.id === "openrouter" || provider?.id === "openai") {
+      return request.modelCanGenerateImages !== true;
+    }
+    return true;
   }
   if (request.imageInput) {
     if (provider?.id === "ollama") {
@@ -160,13 +180,21 @@ export function imageCapabilityWarnings(provider, request) {
   /** @type {string[]} */
   const warnings = [];
   if (request.imageOutput) {
-    if (provider?.id !== "openrouter") {
+    if (provider?.id === "openrouter") {
+      if (request.modelCanGenerateImages === false) {
+        warnings.push(
+          "The selected OpenRouter model does not generate images. Choose a model whose output modalities include image (for example google/gemini-2.5-flash-image)."
+        );
+      }
+    } else if (provider?.id === "openai") {
+      if (request.modelCanGenerateImages === false) {
+        warnings.push(
+          "The selected OpenAI model does not support image generation. Choose a GPT-4o, GPT-4.1, or GPT-5 family model."
+        );
+      }
+    } else {
       warnings.push(
-        "Image generation is not available for this provider yet. Choose OpenRouter with an image-output model (for example google/gemini-2.5-flash-image)."
-      );
-    } else if (request.modelCanGenerateImages === false) {
-      warnings.push(
-        "The selected OpenRouter model does not generate images. Choose a model whose output modalities include image (for example google/gemini-2.5-flash-image)."
+        "Image generation is not available for this provider yet. Choose OpenAI (GPT-4o / GPT-4.1 / GPT-5) or OpenRouter with an image-output model."
       );
     }
   }
@@ -437,6 +465,36 @@ export function collectOpenRouterImageParts(images) {
  * @param {import("./providers/types.js").ImagePart[]} images
  * @returns {string | import("./providers/types.js").ContentPart[]}
  */
+/**
+ * @param {unknown} data
+ * @returns {"image/jpeg" | "image/png" | "image/webp" | "image/gif"}
+ */
+export function sniffImageMediaType(data) {
+  if (typeof data !== "string") return "image/png";
+  if (data.startsWith("/9j/")) return "image/jpeg";
+  if (data.startsWith("R0lGOD")) return "image/gif";
+  if (data.startsWith("UklGR") || data.startsWith("UklG")) return "image/webp";
+  return "image/png";
+}
+
+/**
+ * OpenAI Responses `image_generation_call.result` is raw base64 (sometimes a data URL).
+ * @param {unknown} result
+ * @returns {import("./providers/types.js").ImagePart | null}
+ */
+export function imagePartFromOpenAIBase64(result) {
+  if (typeof result !== "string" || !result) return null;
+  const trimmed = result.trim();
+  if (trimmed.startsWith("data:")) return imagePartFromDataUrl(trimmed);
+  const data = trimmed.replace(/\s/g, "");
+  if (!data) return null;
+  return {
+    type: "image",
+    mediaType: sniffImageMediaType(data),
+    data,
+  };
+}
+
 export function assembleAssistantContent(text, images) {
   if (!Array.isArray(images) || images.length === 0) return text;
   /** @type {import("./providers/types.js").ContentPart[]} */

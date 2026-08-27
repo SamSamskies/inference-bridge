@@ -1,9 +1,14 @@
 /**
  * OpenAI streaming adapter.
- * Chat Completions by default; Responses API when hosted web_search is present.
+ * Chat Completions by default; Responses API when hosted web_search is present
+ * or `output.images` is set (internal `image_generation` tool, not page-facing).
  */
 
-import { assertImagesSupported } from "../image-parts.js";
+import {
+  assertImagesSupported,
+  openaiModelSupportsImageOutput,
+  requestWantsImageOutput,
+} from "../image-parts.js";
 import {
   hasHostedWebSearch,
   omitHostedWebSearchIfNone,
@@ -57,9 +62,13 @@ export const openaiProvider = {
     onDelta,
     onReasoningDelta,
   }) {
-    assertImagesSupported(this, messages, output);
+    const wantImages = requestWantsImageOutput(output);
+    const canGenerateImages = openaiModelSupportsImageOutput(model);
+    assertImagesSupported(this, messages, output, {
+      imageOutput: wantImages && canGenerateImages,
+    });
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
-    if (hasHostedWebSearch(toolsForRequest)) {
+    if (hasHostedWebSearch(toolsForRequest) || wantImages) {
       return streamOpenAIResponsesChat({
         apiKey,
         model,
@@ -67,6 +76,7 @@ export const openaiProvider = {
         tools: toolsForRequest,
         toolChoice,
         ...(options ? { options } : {}),
+        includeAssistantImages: wantImages,
         signal,
         onDelta,
         onReasoningDelta,

@@ -21,6 +21,7 @@ import {
   blocksAllowForImages,
   isImageGrantCovered,
   messagesHaveImageParts,
+  openaiModelSupportsImageOutput,
   requestWantsImageOutput,
 } from "./image-parts.js";
 import { ollamaModelHasVision } from "./providers/ollama.js";
@@ -397,6 +398,9 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
     const caps = await openrouterModelModalities(model);
     modelHasVision = caps.inputImage;
     modelCanGenerateImages = caps.outputImage;
+  }
+  if (provider?.id === "openai" && imageOutput) {
+    modelCanGenerateImages = openaiModelSupportsImageOutput(model);
   }
   return !blocksAllowForImages(provider, {
     imageInput,

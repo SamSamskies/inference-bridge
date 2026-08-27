@@ -12,6 +12,7 @@ import {
   blocksAllowForImages,
   imageCapabilityNotes,
   imageCapabilityWarnings,
+  openaiModelSupportsImageOutput,
   messagesHaveImageParts,
   requestWantsImageOutput,
 } from "../src/image-parts.js";
@@ -277,8 +278,19 @@ async function refreshVisionCapability() {
     return;
   }
 
+  if (providerId === "openai") {
+    if (requestImageOutput) {
+      selectedModelCanGenerateImages = openaiModelSupportsImageOutput(
+        readModelValue(providerId)
+      );
+    }
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+
   if (providerId !== "ollama" && providerId !== "openrouter") {
-    // OpenAI / Anthropic / OpenAI-compatible map vision input; no catalog probe.
+    // Anthropic / OpenAI-compatible / on-device: vision in, no image out.
     if (requestImageOutput) selectedModelCanGenerateImages = false;
     updateCapabilityWarning(providerId);
     updateAllowEnabled();

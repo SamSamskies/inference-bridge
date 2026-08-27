@@ -165,6 +165,43 @@ describe("streamOpenAIResponsesChat", () => {
     });
   });
 
+  it("collects image_generation_call results onto done content when includeAssistantImages is set", async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          "",
+          "event: response.image_generation_call.partial_image",
+          'data: {"type":"response.image_generation_call.partial_image","partial_image_b64":"ignore-me"}',
+          "",
+          "event: response.completed",
+          `data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"${png}"}]}}`,
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAIResponsesChat({
+      apiKey: "sk-test",
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: "draw" }],
+      includeAssistantImages: true,
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([{ type: "image_generation" }]);
+    expect(result.message.content).toEqual([
+      { type: "text", text: "ok" },
+      { type: "image", mediaType: "image/png", data: png },
+    ]);
+  });
+
   it("accumulates function_call items and ignores hosted web_search_call", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(

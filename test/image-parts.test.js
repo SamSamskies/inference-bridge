@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   assembleAssistantContent,
+  imagePartFromOpenAIBase64,
+  openaiModelSupportsImageOutput,
   assertImagesSupported,
   blocksAllowForImages,
   collectOpenRouterImageParts,
@@ -77,6 +79,15 @@ describe("image helpers", () => {
       blocksAllowForImages({ id: "openai" }, { imageInput: true })
     ).toBe(false);
     expect(
+      blocksAllowForImages(
+        { id: "openai" },
+        { imageOutput: true, modelCanGenerateImages: true }
+      )
+    ).toBe(false);
+    expect(
+      blocksAllowForImages({ id: "openai" }, { imageOutput: true })
+    ).toBe(true);
+    expect(
       blocksAllowForImages({ id: "anthropic" }, { imageInput: true })
     ).toBe(false);
     expect(
@@ -148,6 +159,14 @@ describe("image helpers", () => {
     expect(
       imageCapabilityNotes({ id: "openai", label: "OpenAI" }, { imageInput: true })
     ).toEqual([]);
+    expect(openaiModelSupportsImageOutput("gpt-4o")).toBe(true);
+    expect(openaiModelSupportsImageOutput("gpt-5.6-luna")).toBe(true);
+    expect(openaiModelSupportsImageOutput("gpt-3.5-turbo")).toBe(false);
+    expect(imagePartFromOpenAIBase64("iVBORw0K")).toEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "iVBORw0K",
+    });
     expect(
       imageCapabilityNotes(
         { id: "on-device", label: "On-device" },

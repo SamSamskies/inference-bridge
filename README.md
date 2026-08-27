@@ -284,12 +284,13 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 
 `window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
 
-Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenRouter-only in this build:
+Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
 
 - Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
 - OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
 - OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
-- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Other providers, and OpenRouter models without image output, fail closed.
+- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
+- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
 - Chat Always-allow does not cover image input or image output. Approval lists them separately.
 
 Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
@@ -318,7 +319,7 @@ for await (const chunk of window.inference.experimental.request({
 }
 ```
 
-Generate an image (OpenRouter, image-capable model selected):
+Generate an image (OpenAI GPT-4o / GPT-5 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
 
 ```js
 for await (const chunk of window.inference.experimental.request({
@@ -330,12 +331,14 @@ for await (const chunk of window.inference.experimental.request({
   if (chunk.type === "done") {
     const content = chunk.message.content;
     console.log("[done]", content);
-    if (Array.isArray(content)) {
-      for (const part of content) {
-        if (part.type === "image") {
-          console.log("[image]", part.mediaType, part.data.slice(0, 32) + "…");
-        }
-      }
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part.type !== "image") continue;
+      const img = document.createElement("img");
+      img.alt = "generated image";
+      img.src = `data:${part.mediaType};base64,${part.data}`;
+      img.style.maxWidth = "320px";
+      document.body.append(img);
     }
   }
 }
