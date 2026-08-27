@@ -9,12 +9,14 @@ import {
 import { sendPromptApiOffscreenMessage } from "./prompt-api-offscreen.js";
 
 /**
+ * @param {{ wantsImage?: boolean }} [options]
  * @returns {Promise<import("./prompt-api-core.js").OnDeviceAvailability>}
  */
-export async function getOnDeviceAvailability() {
+export async function getOnDeviceAvailability(options = {}) {
   try {
     const response = await sendPromptApiOffscreenMessage({
       type: "prompt-api-availability",
+      wantsImage: options.wantsImage === true,
     });
     if (response?.ok && typeof response.availability === "string") {
       return response.availability;

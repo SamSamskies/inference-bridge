@@ -25,6 +25,7 @@ import {
 } from "../src/providers/registry.js";
 import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
+import { messagesHaveImageParts } from "../src/image-parts.js";
 import {
   getOnDeviceAvailability,
   installOnDeviceModel,
@@ -536,9 +537,13 @@ async function handleStart(port, msg, onStreamId) {
     provider.preflightMessages?.(validated.value.messages);
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
-    // readiness here so downloadable/missing fail before `accepted`.
+    // readiness here so downloadable/missing (and vision-only gaps) fail
+    // before `accepted`.
     if (provider.id === "on-device") {
-      assertOnDeviceAvailable(await getOnDeviceAvailability());
+      const wantsImage = messagesHaveImageParts(validated.value.messages);
+      assertOnDeviceAvailable(await getOnDeviceAvailability({ wantsImage }), {
+        wantsImage,
+      });
     }
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.

@@ -71,11 +71,26 @@ export function throwInference(code, message) {
 /**
  * Fail closed unless the on-device model is ready to create a session.
  * Shared by stream and by the service worker so `accepted` is not sent first.
+ * When `wantsImage` is set, uses vision error copy: text can be available
+ * while image input is still downloadable or unsupported.
  * @param {OnDeviceAvailability} availability
+ * @param {{ wantsImage?: boolean }} [options]
  * @returns {void}
  */
-export function assertOnDeviceAvailable(availability) {
+export function assertOnDeviceAvailable(availability, options = {}) {
   if (availability === "available") return;
+  if (options.wantsImage) {
+    if (availability === "downloadable" || availability === "downloading") {
+      throwInference(
+        "unavailable",
+        "On-device vision is not installed. Re-run Install in Options, then try again."
+      );
+    }
+    throwInference(
+      "unavailable",
+      "On-device vision is not available in this browser."
+    );
+  }
   if (availability === "downloadable" || availability === "downloading") {
     throwInference(
       "unavailable",
@@ -371,19 +386,7 @@ export async function streamLanguageModelChat(args) {
     /** @type {any} */ ({ LanguageModel: LM }),
     sessionOptions
   );
-  if (wantsImage && availability !== "available") {
-    if (availability === "downloadable" || availability === "downloading") {
-      throwInference(
-        "unavailable",
-        "On-device vision is not installed. Re-run Install in Options, then try again."
-      );
-    }
-    throwInference(
-      "unavailable",
-      "On-device vision is not available in this browser."
-    );
-  }
-  assertOnDeviceAvailable(availability);
+  assertOnDeviceAvailable(availability, { wantsImage });
 
   const { initialPrompts, prompt } = mapMessagesForPromptApi(messages);
 

@@ -150,6 +150,44 @@ describe("assertOnDeviceAvailable", () => {
       }
     }
   });
+
+  it("rejects vision gaps with vision-specific copy", () => {
+    for (const availability of ["downloadable", "downloading"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          ),
+          { wantsImage: true }
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message:
+            "On-device vision is not installed. Re-run Install in Options, then try again.",
+        });
+      }
+    }
+    for (const availability of ["missing", "unavailable"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          ),
+          { wantsImage: true }
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message: "On-device vision is not available in this browser.",
+        });
+      }
+    }
+  });
 });
 
 describe("probeLanguageModelAvailability", () => {
