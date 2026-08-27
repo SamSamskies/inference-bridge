@@ -293,11 +293,11 @@ This branch slices **Ollama vision Q&A** and **OpenRouter image output**:
 
 Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
 
-- `{ type: "image", url }` — Bridge `fetch`es the URL (CORS, same as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif.
+- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails.
 - `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
 - `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
 
-Local Ollama does not fetch remote URLs. A CORS/network failure is `invalid_request`.
+Local Ollama does not fetch remote URLs (the page does, then Bridge sends bytes).
 
 ```js
 for await (const chunk of window.inference.experimental.request({
