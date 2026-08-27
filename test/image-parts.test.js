@@ -4,10 +4,13 @@ import {
   assertImagesSupported,
   blocksAllowForImages,
   collectOpenRouterImageParts,
+  imageCapabilityNotes,
   imageCapabilityWarnings,
   isImageGrantCovered,
+  mapContentForAnthropic,
   mapContentForOllama,
   mapContentForOpenAICompat,
+  mapContentForOpenAIResponses,
   messagesHaveImageParts,
   requestWantsImageOutput,
 } from "../src/image-parts.js";
@@ -72,6 +75,15 @@ describe("image helpers", () => {
     ).toBe(true);
     expect(
       blocksAllowForImages({ id: "openai" }, { imageInput: true })
+    ).toBe(false);
+    expect(
+      blocksAllowForImages({ id: "anthropic" }, { imageInput: true })
+    ).toBe(false);
+    expect(
+      blocksAllowForImages({ id: "compat:local" }, { imageInput: true })
+    ).toBe(false);
+    expect(
+      blocksAllowForImages({ id: "on-device" }, { imageInput: true })
     ).toBe(true);
     expect(
       blocksAllowForImages({ id: "ollama" }, { imageOutput: true })
@@ -117,6 +129,24 @@ describe("image helpers", () => {
     ).toMatchObject([expect.stringMatching(/does not support image input/)]);
   });
 
+  it("treats OpenAI-compatible vision guidance as a note, not a blocking warning", () => {
+    expect(
+      imageCapabilityWarnings(
+        { id: "compat:lmstudio", label: "LM Studio" },
+        { imageInput: true }
+      )
+    ).toEqual([]);
+    expect(
+      imageCapabilityNotes(
+        { id: "compat:lmstudio", label: "LM Studio" },
+        { imageInput: true }
+      )
+    ).toMatchObject([expect.stringMatching(/image_url/)]);
+    expect(
+      imageCapabilityNotes({ id: "openai", label: "OpenAI" }, { imageInput: true })
+    ).toEqual([]);
+  });
+
   it("maps mixed content to Ollama string + images", () => {
     expect(
       mapContentForOllama([
@@ -135,14 +165,35 @@ describe("image helpers", () => {
     ).toEqual({ content: "", images: ["abc"] });
   });
 
-  it("fail-closes image output and non-Ollama image input", () => {
+  it("fail-closes image output and unsupported image input", () => {
     expect(() =>
       assertImagesSupported(
         { id: "openai", label: "OpenAI" },
         [{ role: "user", content: [pngPart] }],
         undefined
       )
-    ).toThrow(/Ollama/);
+    ).not.toThrow();
+    expect(() =>
+      assertImagesSupported(
+        { id: "anthropic", label: "Anthropic" },
+        [{ role: "user", content: [pngPart] }],
+        undefined
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertImagesSupported(
+        { id: "compat:lmstudio", label: "LM Studio" },
+        [{ role: "user", content: [pngPart] }],
+        undefined
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertImagesSupported(
+        { id: "on-device", label: "On-device" },
+        [{ role: "user", content: [pngPart] }],
+        undefined
+      )
+    ).toThrow(/On-device/);
     expect(() =>
       assertImagesSupported(
         { id: "ollama", label: "Ollama" },
@@ -192,6 +243,30 @@ describe("image helpers", () => {
         type: "image_url",
         image_url: { url: "data:image/png;base64,abc" },
       },
+    ]);
+  });
+
+  it("maps IPA parts to Anthropic image blocks and Responses input_image", () => {
+    expect(
+      mapContentForAnthropic([
+        { type: "text", text: "look" },
+        { type: "image", mediaType: "image/png", data: "abc" },
+      ])
+    ).toEqual([
+      { type: "text", text: "look" },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "abc" },
+      },
+    ]);
+    expect(
+      mapContentForOpenAIResponses([
+        { type: "text", text: "look" },
+        { type: "image", mediaType: "image/png", data: "abc" },
+      ])
+    ).toEqual([
+      { type: "input_text", text: "look" },
+      { type: "input_image", image_url: "data:image/png;base64,abc" },
     ]);
   });
 });

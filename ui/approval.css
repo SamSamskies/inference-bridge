@@ -124,6 +124,10 @@ body.approval-body {
   color: var(--danger);
 }
 
+.capability-warning.is-note {
+  color: var(--muted);
+}
+
 .tools-panel {
   gap: 8px;
 }

@@ -61,6 +61,28 @@ describe("mapToolsForOpenAIResponses / mapToolChoiceForOpenAIResponses", () => {
 });
 
 describe("mapMessagesForOpenAIResponses", () => {
+  it("maps image parts to input_image data URLs", () => {
+    expect(
+      mapMessagesForOpenAIResponses([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ])
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "what is this?" },
+          { type: "input_image", image_url: "data:image/png;base64,abc" },
+        ],
+      },
+    ]);
+  });
+
   it("maps function-call follow-ups to Responses items", () => {
     expect(
       mapMessagesForOpenAIResponses([

@@ -10,6 +10,7 @@ import {
 } from "../src/provider-ready.js";
 import {
   blocksAllowForImages,
+  imageCapabilityNotes,
   imageCapabilityWarnings,
   messagesHaveImageParts,
   requestWantsImageOutput,
@@ -172,22 +173,26 @@ function updateProviderHint(providerId = providerSelect.value) {
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
   const provider = providers.find((p) => p.id === providerId);
+  const request = {
+    imageInput: requestImageInput,
+    imageOutput: requestImageOutput,
+    modelHasVision: selectedModelHasVision,
+    modelCanGenerateImages: selectedModelCanGenerateImages,
+  };
   const warnings = [
     ...capabilityWarnings(provider, requestTools, requestToolChoice),
-    ...imageCapabilityWarnings(provider, {
-      imageInput: requestImageInput,
-      imageOutput: requestImageOutput,
-      modelHasVision: selectedModelHasVision,
-      modelCanGenerateImages: selectedModelCanGenerateImages,
-    }),
+    ...imageCapabilityWarnings(provider, request),
   ];
-  if (warnings.length === 0) {
+  const notes = imageCapabilityNotes(provider, request);
+  if (warnings.length === 0 && notes.length === 0) {
     capabilityWarningEl.hidden = true;
     capabilityWarningEl.textContent = "";
+    capabilityWarningEl.classList.remove("is-note");
     return;
   }
   capabilityWarningEl.hidden = false;
-  capabilityWarningEl.textContent = warnings.join(" ");
+  capabilityWarningEl.classList.toggle("is-note", warnings.length === 0);
+  capabilityWarningEl.textContent = [...warnings, ...notes].join(" ");
 }
 
 function renderImages() {
@@ -272,8 +277,14 @@ async function refreshVisionCapability() {
     return;
   }
 
-  if (!requestImageInput || providerId !== "ollama") {
-    if (requestImageInput) selectedModelHasVision = false;
+  if (providerId !== "ollama" && providerId !== "openrouter") {
+    // OpenAI / Anthropic / OpenAI-compatible map vision input; no catalog probe.
+    if (requestImageOutput) selectedModelCanGenerateImages = false;
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  if (!requestImageInput) {
     if (requestImageOutput) selectedModelCanGenerateImages = false;
     updateCapabilityWarning(providerId);
     updateAllowEnabled();

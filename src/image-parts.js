@@ -92,6 +92,18 @@ export function isImageGrantCovered(grant, request) {
 }
 
 /**
+ * Providers that map IPA image parts on chat without a catalog probe.
+ * OpenRouter is catalog-gated (`capabilities.imageInput`) instead.
+ * @param {{ id?: string } | null | undefined} provider
+ * @returns {boolean}
+ */
+export function providerMapsImageInput(provider) {
+  const id = provider?.id;
+  if (id === "ollama" || id === "openai" || id === "anthropic") return true;
+  return typeof id === "string" && id.startsWith("compat:");
+}
+
+/**
  * True when Allow must stay disabled because this Bridge build cannot honor
  * the image request on the selected provider/model.
  *
@@ -116,6 +128,7 @@ export function blocksAllowForImages(provider, request) {
     if (provider?.id === "openrouter") {
       return request.modelHasVision !== true;
     }
+    if (providerMapsImageInput(provider)) return false;
     return true;
   }
   return false;
@@ -163,13 +176,31 @@ export function imageCapabilityWarnings(provider, request) {
           "The selected OpenRouter model does not accept image input. Choose a vision-capable model."
         );
       }
-    } else {
+    } else if (!providerMapsImageInput(provider)) {
       warnings.push(
-        `${label} cannot read image parts in this experimental build. Choose Ollama or OpenRouter with a vision model.`
+        `${label} cannot read image parts in this experimental build. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
       );
     }
   }
   return warnings;
+}
+
+/**
+ * Informational (non-blocking) image notes. Shown with muted hint styling,
+ * not the danger color used when Allow is disabled.
+ *
+ * @param {{ id?: string } | null | undefined} provider
+ * @param {{ imageInput?: boolean }} request
+ * @returns {string[]}
+ */
+export function imageCapabilityNotes(provider, request) {
+  if (!request.imageInput) return [];
+  if (typeof provider?.id === "string" && provider.id.startsWith("compat:")) {
+    return [
+      "Image parts are forwarded as Chat Completions image_url. The selected model must support vision.",
+    ];
+  }
+  return [];
 }
 
 /**
@@ -194,14 +225,18 @@ export function assertImagesSupported(provider, messages, output, capabilities =
       "Image output (output.images) is not available for this provider or model."
     );
   }
-  if (imageInput && provider?.id !== "ollama" && capabilities.imageInput !== true) {
+  if (
+    imageInput &&
+    !providerMapsImageInput(provider) &&
+    capabilities.imageInput !== true
+  ) {
     const label =
       provider && typeof provider.label === "string" && provider.label
         ? provider.label
         : "This provider";
     throwInference(
       "unavailable",
-      `Image input is not supported by ${label}. Choose Ollama or OpenRouter with a vision model.`
+      `Image input is not supported by ${label}. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
     );
   }
 }
@@ -260,6 +295,75 @@ export function mapContentForOpenAICompat(content) {
       parts.push({
         type: "image_url",
         image_url: { url: `data:${mediaType};base64,${data}` },
+      });
+    }
+  }
+  return parts.length > 0 ? parts : "";
+}
+
+/**
+ * Map IPA content to Anthropic Messages blocks (base64 image sources).
+ * @param {unknown} content
+ * @returns {string | Array<Record<string, unknown>>}
+ */
+export function mapContentForAnthropic(content) {
+  if (typeof content === "string") return content;
+  if (content == null) return "";
+  if (!Array.isArray(content)) return String(content);
+  /** @type {Array<Record<string, unknown>>} */
+  const blocks = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = /** @type {{ type?: unknown, text?: unknown, mediaType?: unknown, data?: unknown }} */ (
+      part
+    );
+    if (p.type === "text" && typeof p.text === "string") {
+      blocks.push({ type: "text", text: p.text });
+    } else if (p.type === "image" && typeof p.data === "string" && p.data) {
+      const mediaType = isImageMediaType(p.mediaType) ? p.mediaType : "image/png";
+      const data = rawImageBase64(p.data);
+      if (!data) continue;
+      blocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mediaType,
+          data,
+        },
+      });
+    }
+  }
+  if (blocks.length === 0) return "";
+  if (blocks.every((b) => b.type === "text")) {
+    return blocks.map((b) => String(b.text)).join("");
+  }
+  return blocks;
+}
+
+/**
+ * Map IPA content to OpenAI Responses `input_text` / `input_image` parts.
+ * @param {unknown} content
+ * @returns {unknown}
+ */
+export function mapContentForOpenAIResponses(content) {
+  if (typeof content === "string" || content == null) return content;
+  if (!Array.isArray(content)) return String(content);
+  /** @type {Array<Record<string, unknown>>} */
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = /** @type {{ type?: unknown, text?: unknown, mediaType?: unknown, data?: unknown }} */ (
+      part
+    );
+    if (p.type === "text" && typeof p.text === "string") {
+      parts.push({ type: "input_text", text: p.text });
+    } else if (p.type === "image" && typeof p.data === "string" && p.data) {
+      const mediaType = isImageMediaType(p.mediaType) ? p.mediaType : "image/png";
+      const data = rawImageBase64(p.data);
+      if (!data) continue;
+      parts.push({
+        type: "input_image",
+        image_url: `data:${mediaType};base64,${data}`,
       });
     }
   }

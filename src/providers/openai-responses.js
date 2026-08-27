@@ -4,6 +4,7 @@
  * requests stay on Chat Completions (openai-compat-stream.js).
  */
 
+import { mapContentForOpenAIResponses } from "../image-parts.js";
 import { OPENAI_WEB_SEARCH_TOOL } from "./hosted-tools.js";
 import {
   mapReasoningEffortForOpenAICompat,
@@ -143,8 +144,9 @@ export function mapMessagesForOpenAIResponses(messages) {
       Array.isArray(m.toolCalls) &&
       m.toolCalls.length > 0
     ) {
-      if (typeof m.content === "string" && m.content) {
-        input.push({ role: "assistant", content: m.content });
+      if (m.content != null && m.content !== "") {
+        const mapped = mapContentForOpenAIResponses(m.content);
+        if (mapped) input.push({ role: "assistant", content: mapped });
       }
       for (const c of m.toolCalls) {
         input.push({
@@ -156,7 +158,7 @@ export function mapMessagesForOpenAIResponses(messages) {
       }
       continue;
     }
-    input.push({ role: m.role, content: m.content });
+    input.push({ role: m.role, content: mapContentForOpenAIResponses(m.content) });
   }
   return input;
 }

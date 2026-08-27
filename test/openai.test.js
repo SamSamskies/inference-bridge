@@ -345,4 +345,55 @@ describe("openaiProvider.streamChat", () => {
       JSON.parse(fetchMock.mock.calls[1][1].body)
     ).not.toHaveProperty("temperature");
   });
+
+  it("maps image parts onto Chat Completions image_url data URLs", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"a cat"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "what is this?" },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,abc" },
+      },
+    ]);
+  });
+
+  it("fail-closes output.images", async () => {
+    await expect(
+      openaiProvider.streamChat({
+        apiKey: "sk-test",
+        model: "gpt-4o",
+        messages: [{ role: "user", content: "draw a cat" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
 });

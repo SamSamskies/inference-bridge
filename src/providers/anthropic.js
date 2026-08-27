@@ -3,7 +3,10 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
-import { assertImagesSupported } from "../image-parts.js";
+import {
+  assertImagesSupported,
+  mapContentForAnthropic,
+} from "../image-parts.js";
 import {
   ANTHROPIC_WEB_SEARCH_TOOL,
   omitHostedWebSearchIfNone,
@@ -137,16 +140,19 @@ export function mapToolChoiceForAnthropic(toolChoice) {
  * @returns {string | Array<Record<string, unknown>>}
  */
 function mapAssistantContent(m) {
+  const mapped = mapContentForAnthropic(m.content);
   const hasToolCalls =
     Array.isArray(m.toolCalls) && m.toolCalls.length > 0;
   if (!hasToolCalls) {
-    return m.content == null ? "" : m.content;
+    return mapped;
   }
 
   /** @type {Array<Record<string, unknown>>} */
   const blocks = [];
-  if (typeof m.content === "string" && m.content) {
-    blocks.push({ type: "text", text: m.content });
+  if (typeof mapped === "string" && mapped) {
+    blocks.push({ type: "text", text: mapped });
+  } else if (Array.isArray(mapped)) {
+    blocks.push(...mapped);
   }
   for (const c of m.toolCalls || []) {
     blocks.push({
@@ -230,7 +236,7 @@ export function mapMessagesForAnthropic(messages) {
     } else {
       next = {
         role: m.role,
-        content: m.content == null ? "" : m.content,
+        content: mapContentForAnthropic(m.content),
       };
     }
 
