@@ -84,6 +84,9 @@ describe("image helpers", () => {
     ).toBe(false);
     expect(
       blocksAllowForImages({ id: "on-device" }, { imageInput: true })
+    ).toBe(false);
+    expect(
+      blocksAllowForImages({ id: "on-device" }, { imageOutput: true })
     ).toBe(true);
     expect(
       blocksAllowForImages({ id: "ollama" }, { imageOutput: true })
@@ -145,6 +148,12 @@ describe("image helpers", () => {
     expect(
       imageCapabilityNotes({ id: "openai", label: "OpenAI" }, { imageInput: true })
     ).toEqual([]);
+    expect(
+      imageCapabilityNotes(
+        { id: "on-device", label: "On-device" },
+        { imageInput: true }
+      )
+    ).toMatchObject([expect.stringMatching(/Prompt API/)]);
   });
 
   it("maps mixed content to Ollama string + images", () => {
@@ -193,7 +202,14 @@ describe("image helpers", () => {
         [{ role: "user", content: [pngPart] }],
         undefined
       )
-    ).toThrow(/On-device/);
+    ).not.toThrow();
+    expect(() =>
+      assertImagesSupported(
+        { id: "on-device", label: "On-device" },
+        [{ role: "user", content: "draw" }],
+        { images: true }
+      )
+    ).toThrow(/Image output/);
     expect(() =>
       assertImagesSupported(
         { id: "ollama", label: "Ollama" },

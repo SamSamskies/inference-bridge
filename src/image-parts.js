@@ -99,7 +99,14 @@ export function isImageGrantCovered(grant, request) {
  */
 export function providerMapsImageInput(provider) {
   const id = provider?.id;
-  if (id === "ollama" || id === "openai" || id === "anthropic") return true;
+  if (
+    id === "ollama" ||
+    id === "openai" ||
+    id === "anthropic" ||
+    id === "on-device"
+  ) {
+    return true;
+  }
   return typeof id === "string" && id.startsWith("compat:");
 }
 
@@ -198,6 +205,11 @@ export function imageCapabilityNotes(provider, request) {
   if (typeof provider?.id === "string" && provider.id.startsWith("compat:")) {
     return [
       "Image parts are forwarded as Chat Completions image_url. The selected model must support vision.",
+    ];
+  }
+  if (provider?.id === "on-device") {
+    return [
+      "On-device vision uses the browser Prompt API. Image generation is not available.",
     ];
   }
   return [];

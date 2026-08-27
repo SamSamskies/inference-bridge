@@ -284,11 +284,11 @@ Named OpenAI-compatible servers are a first-class Bridge provider option (see [S
 
 `window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
 
-Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, and named OpenAI-compatible servers. Image **output** is OpenRouter-only in this build:
+Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenRouter-only in this build:
 
-- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, and Ollama `/api/chat` `images` (raw base64). Mixed text + image in one turn is supported.
+- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
 - OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
-- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device Prompt API image input stays unavailable.
+- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
 - OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Other providers, and OpenRouter models without image output, fail closed.
 - Chat Always-allow does not cover image input or image output. Approval lists them separately.
 
