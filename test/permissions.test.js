@@ -1456,6 +1456,127 @@ describe("ensurePermission with tools", () => {
     expect(getPendingApproval("rt5b")).toBeNull();
   });
 
+  it("re-prompts allow_once episode follow-ups that add image parts", async () => {
+    const origin = "https://episode-image-in.example";
+    const turn1 = ensurePermission({
+      requestId: "rt5-img-a",
+      origin,
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt5-img-a");
+    resolveApproval("rt5-img-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const followUpWithImage = [
+      weatherFollowUpMessages[0],
+      {
+        ...weatherFollowUpMessages[1],
+        content: [
+          { type: "text", text: "see this" },
+          { type: "image", mediaType: "image/png", data: "aaa" },
+        ],
+      },
+      weatherFollowUpMessages[2],
+    ];
+    const turn2 = ensurePermission({
+      requestId: "rt5-img-b",
+      origin,
+      messages: followUpWithImage,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5-img-b");
+    expect(getPendingApproval("rt5-img-b")).not.toBeNull();
+    resolveApproval("rt5-img-b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts allow_once episode follow-ups that request output.images", async () => {
+    const origin = "https://episode-image-out.example";
+    const turn1 = ensurePermission({
+      requestId: "rt5-imgout-a",
+      origin,
+      messages: [{ role: "user", content: "Weather in Austin?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt5-imgout-a");
+    resolveApproval("rt5-imgout-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    const turn2 = ensurePermission({
+      requestId: "rt5-imgout-b",
+      origin,
+      messages: weatherFollowUpMessages,
+      tools: weatherTools,
+      output: { images: true },
+    });
+    await waitForPending("rt5-imgout-b");
+    expect(getPendingApproval("rt5-imgout-b")).not.toBeNull();
+    resolveApproval("rt5-imgout-b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("skips allow_once episode follow-ups when image input was already approved", async () => {
+    const origin = "https://episode-image-ok.example";
+    const opening = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Weather in Austin?" },
+          { type: "image", mediaType: "image/png", data: "aaa" },
+        ],
+      },
+    ];
+    const turn1 = ensurePermission({
+      requestId: "rt5-imgok-a",
+      origin,
+      messages: opening,
+      tools: weatherTools,
+    });
+    await waitForPending("rt5-imgok-a");
+    resolveApproval("rt5-imgok-a", {
+      decision: "allow_once",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn1).resolves.toMatchObject({ allowed: true, once: true });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt5-imgok-b",
+        origin,
+        messages: [
+          ...opening,
+          weatherFollowUpMessages[1],
+          weatherFollowUpMessages[2],
+        ],
+        tools: weatherTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      once: true,
+    });
+    expect(getPendingApproval("rt5-imgok-b")).toBeNull();
+  });
+
   it("keeps separate allow_once episodes per message history on one origin", async () => {
     const origin = "https://episode-parallel.example";
     const austinMessages = [{ role: "user", content: "Weather in Austin?" }];
