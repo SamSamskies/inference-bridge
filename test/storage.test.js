@@ -424,6 +424,34 @@ describe("grantOriginAlways toolChoiceNone", () => {
       model: "gpt-4o-mini",
     });
   });
+
+  it("persists imageInput / imageOutput only when granted", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "ollama",
+      model: "llava",
+      imageInput: true,
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toMatchObject({
+      imageInput: true,
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).not.toHaveProperty("imageOutput");
+
+    await grantOriginAlways("https://app.example", {
+      providerId: "ollama",
+      model: "llava",
+    });
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "ollama",
+      model: "llava",
+    });
+  });
 });
 
 describe("originLastUsed", () => {

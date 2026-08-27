@@ -61,6 +61,28 @@ describe("mapToolsForOpenAIResponses / mapToolChoiceForOpenAIResponses", () => {
 });
 
 describe("mapMessagesForOpenAIResponses", () => {
+  it("maps image parts to input_image data URLs", () => {
+    expect(
+      mapMessagesForOpenAIResponses([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ])
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "what is this?" },
+          { type: "input_image", image_url: "data:image/png;base64,abc" },
+        ],
+      },
+    ]);
+  });
+
   it("maps function-call follow-ups to Responses items", () => {
     expect(
       mapMessagesForOpenAIResponses([
@@ -141,6 +163,43 @@ describe("streamOpenAIResponsesChat", () => {
       message: { role: "assistant", content: "Hello" },
       usage: { inputTokens: 4, outputTokens: 2 },
     });
+  });
+
+  it("collects image_generation_call results onto done content when includeAssistantImages is set", async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          "",
+          "event: response.image_generation_call.partial_image",
+          'data: {"type":"response.image_generation_call.partial_image","partial_image_b64":"ignore-me"}',
+          "",
+          "event: response.completed",
+          `data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":"${png}"}]}}`,
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAIResponsesChat({
+      apiKey: "sk-test",
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: "draw" }],
+      includeAssistantImages: true,
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([{ type: "image_generation" }]);
+    expect(result.message.content).toEqual([
+      { type: "text", text: "ok" },
+      { type: "image", mediaType: "image/png", data: png },
+    ]);
   });
 
   it("accumulates function_call items and ignores hosted web_search_call", async () => {

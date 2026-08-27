@@ -397,4 +397,54 @@ describe("createOpenAICompatProvider", () => {
       },
     ]);
   });
+
+  it("forwards image parts as Chat Completions image_url", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        ["data: [DONE]", ""].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAICompatProvider(endpoint);
+    await provider.streamChat({
+      model: "local-vl",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "what is this?" },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,abc" },
+      },
+    ]);
+  });
+
+  it("fail-closes output.images", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenAICompatProvider(endpoint);
+    await expect(
+      provider.streamChat({
+        model: "local-vl",
+        messages: [{ role: "user", content: "draw" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

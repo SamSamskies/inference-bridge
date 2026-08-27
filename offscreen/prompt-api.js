@@ -3,6 +3,8 @@
  */
 
 import {
+  PROMPT_API_SESSION_OPTIONS,
+  PROMPT_API_VISION_SESSION_OPTIONS,
   installLanguageModel,
   probeLanguageModelAvailability,
   streamLanguageModelChat,
@@ -29,7 +31,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "prompt-api-availability") {
-    void probeLanguageModelAvailability()
+    const sessionOptions = message.wantsImage
+      ? PROMPT_API_VISION_SESSION_OPTIONS
+      : PROMPT_API_SESSION_OPTIONS;
+    void probeLanguageModelAvailability(globalThis, sessionOptions)
       .then((availability) => {
         sendResponse({ ok: true, availability });
       })

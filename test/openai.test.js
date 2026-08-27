@@ -345,4 +345,92 @@ describe("openaiProvider.streamChat", () => {
       JSON.parse(fetchMock.mock.calls[1][1].body)
     ).not.toHaveProperty("temperature");
   });
+
+  it("maps image parts onto Chat Completions image_url data URLs", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"a cat"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "what is this?" },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,abc" },
+      },
+    ]);
+  });
+
+  it("routes output.images onto Responses with an internal image_generation tool", async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"here"}',
+          "",
+          "event: response.completed",
+          `data: {"type":"response.completed","response":{"model":"gpt-4o","output":[{"type":"image_generation_call","result":"${png}"}]}}`,
+          "",
+        ].join("\n")
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openaiProvider.streamChat({
+      apiKey: "sk-test",
+      model: "gpt-4o",
+      messages: [{ role: "user", content: "draw a cat" }],
+      output: { images: true },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://api.openai.com/v1/responses"
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([{ type: "image_generation" }]);
+    expect(result.message.content).toEqual([
+      { type: "text", text: "here" },
+      { type: "image", mediaType: "image/png", data: png },
+    ]);
+  });
+
+  it("fail-closes output.images on models that cannot call image_generation", async () => {
+    await expect(
+      openaiProvider.streamChat({
+        apiKey: "sk-test",
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: "draw a cat" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
 });

@@ -23,7 +23,9 @@ import {
   listProviders,
   resolveProviderModels,
 } from "../src/providers/registry.js";
+import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
+import { messagesHaveImageParts } from "../src/image-parts.js";
 import {
   getOnDeviceAvailability,
   installOnDeviceModel,
@@ -326,6 +328,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // async sendResponse
   }
 
+  if (message?.type === "ollama-vision") {
+    const model = typeof message.model === "string" ? message.model : "";
+    void ollamaModelHasVision(model)
+      .then((vision) => {
+        sendResponse({ ok: true, vision });
+      })
+      .catch(() => {
+        sendResponse({ ok: true, vision: false });
+      });
+    return true;
+  }
+
   return false;
 });
 
@@ -437,6 +451,9 @@ async function handleStart(port, msg, onStreamId) {
       ...(experimental && validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
+      ...(experimental && validated.value.output
+        ? { output: validated.value.output }
+        : {}),
     });
 
     // Aborted while the permission prompt was open (tab closed / explicit abort).
@@ -520,9 +537,13 @@ async function handleStart(port, msg, onStreamId) {
     provider.preflightMessages?.(validated.value.messages);
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
-    // readiness here so downloadable/missing fail before `accepted`.
+    // readiness here so downloadable/missing (and vision-only gaps) fail
+    // before `accepted`.
     if (provider.id === "on-device") {
-      assertOnDeviceAvailable(await getOnDeviceAvailability());
+      const wantsImage = messagesHaveImageParts(validated.value.messages);
+      assertOnDeviceAvailable(await getOnDeviceAvailability({ wantsImage }), {
+        wantsImage,
+      });
     }
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
@@ -542,6 +563,9 @@ async function handleStart(port, msg, onStreamId) {
         ? { toolChoice: validated.value.toolChoice }
         : {}),
       ...(validated.value.options ? { options: validated.value.options } : {}),
+      ...(experimental && validated.value.output
+        ? { output: validated.value.output }
+        : {}),
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;

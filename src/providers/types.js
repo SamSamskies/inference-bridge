@@ -7,6 +7,8 @@
  * @typedef {{
  *   id: string,
  *   label?: string,
+ *   inputModalities?: string[],
+ *   outputModalities?: string[],
  * }} ModelInfo
  */
 
@@ -50,9 +52,19 @@
  */
 
 /**
+ * @typedef {{ type: "text", text: string }} TextPart
+ * Wire image part after the page injector. `experimental.request` also accepts
+ * `{ type: "image", url }` and `{ data: Blob }`; inject.js resolves those here.
+ * @typedef {{
+ *   type: "image",
+ *   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+ *   data: string,
+ * }} ImagePart
+ * @typedef {TextPart | ImagePart} ContentPart
+ *
  * @typedef {{
  *   role: string,
- *   content: string | null,
+ *   content: string | ContentPart[] | null,
  *   reasoning?: string,
  *   toolCalls?: ToolCall[],
  *   toolCallId?: string,
@@ -78,6 +90,7 @@
  *     tools?: Tool[],
  *     toolChoice?: ToolChoice,
  *     options?: InferenceOptions,
+ *     output?: { images?: boolean },
  *     signal: AbortSignal,
  *     onDelta: (content: string) => void,
  *     onReasoningDelta?: (content: string) => void,
@@ -85,7 +98,7 @@
  *     model: string,
  *     message: {
  *       role: "assistant",
- *       content: string,
+ *       content: string | ContentPart[],
  *       reasoning?: string,
  *       toolCalls?: ToolCall[],
  *     },

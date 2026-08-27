@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ON_DEVICE_MODEL_ID,
   PROMPT_API_SESSION_OPTIONS,
+  PROMPT_API_VISION_SESSION_OPTIONS,
   applyStreamChunk,
   assertOnDeviceAvailable,
+  mapContentForPromptApi,
   mapMessagesForPromptApi,
+  wrapPromptForPromptApi,
   probeLanguageModelAvailability,
   streamLanguageModelChat,
   installLanguageModel,
@@ -57,6 +60,59 @@ describe("mapMessagesForPromptApi", () => {
         { role: "user", content: "Hi" },
       ])
     ).toThrow(/system message only as the first/);
+  });
+
+  it("maps image parts to Prompt API image blobs", () => {
+    const mapped = mapContentForPromptApi([
+      { type: "text", text: "what is this?" },
+      { type: "image", mediaType: "image/png", data: "YQ==" },
+    ]);
+    expect(Array.isArray(mapped)).toBe(true);
+    expect(mapped[0]).toEqual({ type: "text", value: "what is this?" });
+    expect(mapped[1]).toMatchObject({ type: "image" });
+    expect(mapped[1].value).toBeInstanceOf(Blob);
+    expect(mapped[1].value.type).toBe("image/png");
+
+    expect(
+      mapMessagesForPromptApi([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "YQ==" },
+          ],
+        },
+      ]).prompt
+    ).toEqual(mapped);
+
+    expect(wrapPromptForPromptApi(mapped)).toEqual([
+      { role: "user", content: mapped },
+    ]);
+    expect(wrapPromptForPromptApi("hello")).toBe("hello");
+  });
+
+  it("rejects image parts whose base64 cannot be decoded", () => {
+    try {
+      mapContentForPromptApi([
+        { type: "text", text: "what is this?" },
+        { type: "image", mediaType: "image/png", data: "!!!" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message: "Image part data must be valid base64.",
+      });
+    }
+    expect(() =>
+      mapMessagesForPromptApi([
+        {
+          role: "user",
+          content: [{ type: "image", mediaType: "image/png", data: "!!!" }],
+        },
+      ])
+    ).toThrow(/valid base64/);
   });
 });
 
@@ -118,6 +174,44 @@ describe("assertOnDeviceAvailable", () => {
       }
     }
   });
+
+  it("rejects vision gaps with vision-specific copy", () => {
+    for (const availability of ["downloadable", "downloading"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          ),
+          { wantsImage: true }
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message:
+            "On-device vision is not installed. Re-run Install in Options, then try again.",
+        });
+      }
+    }
+    for (const availability of ["missing", "unavailable"]) {
+      try {
+        assertOnDeviceAvailable(
+          /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */ (
+            availability
+          ),
+          { wantsImage: true }
+        );
+        expect.unreachable("expected throw");
+      } catch (err) {
+        expect(/** @type {any} */ (err).code).toBe("unavailable");
+        expect(err).toMatchObject({
+          name: "InferenceError",
+          message: "On-device vision is not available in this browser.",
+        });
+      }
+    }
+  });
 });
 
 describe("probeLanguageModelAvailability", () => {
@@ -157,10 +251,27 @@ describe("installLanguageModel / streamLanguageModelChat", () => {
     expect(destroy).toHaveBeenCalled();
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        expectedInputs: PROMPT_API_SESSION_OPTIONS.expectedInputs,
-        expectedOutputs: PROMPT_API_SESSION_OPTIONS.expectedOutputs,
+        expectedInputs: PROMPT_API_VISION_SESSION_OPTIONS.expectedInputs,
+        expectedOutputs: PROMPT_API_VISION_SESSION_OPTIONS.expectedOutputs,
       })
     );
+  });
+
+  it("falls back to text session options when vision install is unsupported", async () => {
+    const destroy = vi.fn();
+    const create = vi.fn(async (options) => {
+      const hasImage = (options.expectedInputs || []).some(
+        (input) => input.type === "image"
+      );
+      if (hasImage) throw new Error("image input unsupported");
+      return { destroy };
+    });
+    await installLanguageModel({ LanguageModel: { create } });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1][0].expectedInputs).toEqual(
+      PROMPT_API_SESSION_OPTIONS.expectedInputs
+    );
+    expect(destroy).toHaveBeenCalled();
   });
 
   it("streams deltas and returns the sentinel model id", async () => {
@@ -206,6 +317,77 @@ describe("installLanguageModel / streamLanguageModelChat", () => {
         onDelta: () => {},
       })
     ).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("uses vision session options and image blobs when messages include image parts", async () => {
+    const destroy = vi.fn();
+    const availability = vi.fn(async () => "available");
+    /** @type {unknown} */
+    let streamedInput;
+    const create = vi.fn(async () => ({
+      destroy,
+      promptStreaming: async function* (input) {
+        streamedInput = input;
+        yield "a cat";
+      },
+    }));
+    const result = await streamLanguageModelChat({
+      LanguageModel: { availability, create },
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "YQ==" },
+          ],
+        },
+      ],
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(result.message.content).toBe("a cat");
+    expect(availability).toHaveBeenCalledWith({
+      ...PROMPT_API_VISION_SESSION_OPTIONS,
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedInputs: PROMPT_API_VISION_SESSION_OPTIONS.expectedInputs,
+      })
+    );
+    expect(streamedInput).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", value: "what is this?" },
+          expect.objectContaining({ type: "image", value: expect.any(Blob) }),
+        ],
+      },
+    ]);
+  });
+
+  it("fail-closes vision when the Prompt API cannot take image input", async () => {
+    await expect(
+      streamLanguageModelChat({
+        LanguageModel: {
+          availability: async () => "unavailable",
+          create: vi.fn(),
+        },
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "what is this?" },
+              { type: "image", mediaType: "image/png", data: "YQ==" },
+            ],
+          },
+        ],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      code: "unavailable",
+      message: /On-device vision is not available/,
+    });
   });
 });
 
@@ -287,6 +469,20 @@ describe("onDeviceProvider", () => {
       onDeviceProvider.preflightMessages?.([
         { role: "system", content: "Be brief." },
         { role: "user", content: "Hi" },
+      ])
+    ).not.toThrow();
+  });
+
+  it("accepts user image parts in preflight", () => {
+    expect(() =>
+      onDeviceProvider.preflightMessages?.([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "YQ==" },
+          ],
+        },
       ])
     ).not.toThrow();
   });

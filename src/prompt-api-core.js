@@ -3,6 +3,12 @@
  * Used by the offscreen host, Options Install UX, and the on-device provider.
  */
 
+import {
+  isImageMediaType,
+  messagesHaveImageParts,
+  rawImageBase64,
+} from "./image-parts.js";
+
 /** Stable provider id (not a company or model name). */
 export const ON_DEVICE_PROVIDER_ID = "on-device";
 
@@ -35,6 +41,18 @@ export const PROMPT_API_SESSION_OPTIONS = Object.freeze({
 });
 
 /**
+ * Session options for turns that include IPA image parts.
+ * Prompt API output is still text-only.
+ */
+export const PROMPT_API_VISION_SESSION_OPTIONS = Object.freeze({
+  expectedInputs: Object.freeze([
+    Object.freeze({ type: "text", languages: PROMPT_API_LANGUAGES }),
+    Object.freeze({ type: "image" }),
+  ]),
+  expectedOutputs: PROMPT_API_SESSION_OPTIONS.expectedOutputs,
+});
+
+/**
  * @param {string} code
  * @param {string} message
  * @returns {never}
@@ -53,11 +71,26 @@ export function throwInference(code, message) {
 /**
  * Fail closed unless the on-device model is ready to create a session.
  * Shared by stream and by the service worker so `accepted` is not sent first.
+ * When `wantsImage` is set, uses vision error copy: text can be available
+ * while image input is still downloadable or unsupported.
  * @param {OnDeviceAvailability} availability
+ * @param {{ wantsImage?: boolean }} [options]
  * @returns {void}
  */
-export function assertOnDeviceAvailable(availability) {
+export function assertOnDeviceAvailable(availability, options = {}) {
   if (availability === "available") return;
+  if (options.wantsImage) {
+    if (availability === "downloadable" || availability === "downloading") {
+      throwInference(
+        "unavailable",
+        "On-device vision is not installed. Re-run Install in Options, then try again."
+      );
+    }
+    throwInference(
+      "unavailable",
+      "On-device vision is not available in this browser."
+    );
+  }
   if (availability === "downloadable" || availability === "downloading") {
     throwInference(
       "unavailable",
@@ -75,13 +108,16 @@ export function assertOnDeviceAvailable(availability) {
  * @param {typeof globalThis & { LanguageModel?: any }} [scope]
  * @returns {Promise<OnDeviceAvailability>}
  */
-export async function probeLanguageModelAvailability(scope = globalThis) {
+export async function probeLanguageModelAvailability(
+  scope = globalThis,
+  sessionOptions = PROMPT_API_SESSION_OPTIONS
+) {
   const LM = scope.LanguageModel;
   if (!LM || typeof LM.availability !== "function") {
     return "missing";
   }
   try {
-    const raw = await LM.availability({ ...PROMPT_API_SESSION_OPTIONS });
+    const raw = await LM.availability({ ...sessionOptions });
     if (
       raw === "unavailable" ||
       raw === "downloadable" ||
@@ -100,17 +136,74 @@ export async function probeLanguageModelAvailability(scope = globalThis) {
 }
 
 /**
+ * @param {{ type?: unknown, mediaType?: unknown, data?: unknown }} part
+ * @returns {Blob}
+ */
+function blobFromImagePart(part) {
+  const mediaType = isImageMediaType(part.mediaType)
+    ? part.mediaType
+    : "image/png";
+  const data = rawImageBase64(
+    typeof part.data === "string" ? part.data : ""
+  );
+  if (!data) {
+    throwInference("invalid_request", "Image part data must be valid base64.");
+  }
+  try {
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mediaType });
+  } catch {
+    throwInference("invalid_request", "Image part data must be valid base64.");
+  }
+}
+
+/**
+ * Map IPA content to Prompt API `content` (string or `{ type, value }[]`).
+ * @param {unknown} content
+ * @returns {string | Array<{ type: string, value: unknown }>}
+ */
+export function mapContentForPromptApi(content) {
+  if (typeof content === "string") return content;
+  if (content == null) return "";
+  if (!Array.isArray(content)) return String(content);
+  /** @type {Array<{ type: string, value: unknown }>} */
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = /** @type {{ type?: unknown, text?: unknown, mediaType?: unknown, data?: unknown }} */ (
+      part
+    );
+    if (p.type === "text" && typeof p.text === "string") {
+      parts.push({ type: "text", value: p.text });
+    } else if (p.type === "image") {
+      parts.push({ type: "image", value: blobFromImagePart(p) });
+    }
+  }
+  if (parts.length === 0) return "";
+  if (parts.every((p) => p.type === "text")) {
+    return parts.map((p) => String(p.value)).join("");
+  }
+  return parts;
+}
+
+/**
  * Map IPA chat messages into Prompt API session + final user prompt.
  * @param {import("./providers/types.js").ChatMessage[]} messages
- * @returns {{ initialPrompts: Array<{ role: string, content: string }>, prompt: string }}
+ * @returns {{
+ *   initialPrompts: Array<{ role: string, content: string | Array<{ type: string, value: unknown }> }>,
+ *   prompt: string | Array<{ type: string, value: unknown }>,
+ * }}
  */
 export function mapMessagesForPromptApi(messages) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throwInference("invalid_request", "On-device provider requires at least one message.");
   }
 
-  /** @type {Array<{ role: string, content: string }>} */
+  /** @type {Array<{ role: string, content: string | Array<{ type: string, value: unknown }> }>} */
   const initialPrompts = [];
+  /** @type {string | Array<{ type: string, value: unknown }>} */
   let prompt = "";
 
   for (let i = 0; i < messages.length; i++) {
@@ -128,12 +221,14 @@ export function mapMessagesForPromptApi(messages) {
         "On-device provider does not support assistant tool calls."
       );
     }
+    const mapped = mapContentForPromptApi(message?.content);
     const content =
-      typeof message?.content === "string"
-        ? message.content
-        : message?.content == null
-          ? ""
-          : String(message.content);
+      role === "system" && Array.isArray(mapped)
+        ? mapped
+            .filter((p) => p.type === "text")
+            .map((p) => String(p.value))
+            .join("")
+        : mapped;
 
     const isLast = i === messages.length - 1;
     if (isLast) {
@@ -164,6 +259,20 @@ export function mapMessagesForPromptApi(messages) {
   }
 
   return { initialPrompts, prompt };
+}
+
+/**
+ * `promptStreaming()` accepts a string or `LanguageModelMessage[]`.
+ * A content-parts array is not a message — Chrome then looks for `.content`
+ * on each `{ type, value }` part and throws.
+ *
+ * @param {string | Array<{ type: string, value: unknown }>} prompt
+ * @returns {string | Array<{ role: "user", content: Array<{ type: string, value: unknown }> }>}
+ */
+export function wrapPromptForPromptApi(prompt) {
+  if (typeof prompt === "string") return prompt;
+  if (!Array.isArray(prompt) || prompt.length === 0) return "";
+  return [{ role: "user", content: prompt }];
 }
 
 /**
@@ -207,27 +316,41 @@ export async function installLanguageModel(args) {
     throwInference("aborted", "Request aborted");
   }
 
+  const createArgs = {
+    ...(signal ? { signal } : {}),
+    monitor(m) {
+      m.addEventListener("downloadprogress", (e) => {
+        const loaded = typeof e?.loaded === "number" ? e.loaded : 0;
+        onProgress?.(loaded);
+      });
+    },
+  };
+
   /** @type {any} */
   let session;
   try {
     session = await LM.create({
-      ...PROMPT_API_SESSION_OPTIONS,
-      ...(signal ? { signal } : {}),
-      monitor(m) {
-        m.addEventListener("downloadprogress", (e) => {
-          const loaded = typeof e?.loaded === "number" ? e.loaded : 0;
-          onProgress?.(loaded);
-        });
-      },
+      ...PROMPT_API_VISION_SESSION_OPTIONS,
+      ...createArgs,
     });
   } catch (err) {
     if (signal?.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
       throwInference("aborted", "Request aborted");
     }
-    throwInference(
-      "provider_error",
-      err instanceof Error ? err.message : "Failed to install on-device model"
-    );
+    try {
+      session = await LM.create({
+        ...PROMPT_API_SESSION_OPTIONS,
+        ...createArgs,
+      });
+    } catch (err2) {
+      if (signal?.aborted || (err2 && /** @type {Error} */ (err2).name === "AbortError")) {
+        throwInference("aborted", "Request aborted");
+      }
+      throwInference(
+        "provider_error",
+        err2 instanceof Error ? err2.message : "Failed to install on-device model"
+      );
+    }
   }
 
   try {
@@ -256,10 +379,15 @@ export async function streamLanguageModelChat(args) {
     throwInference("aborted", "Request aborted");
   }
 
+  const wantsImage = messagesHaveImageParts(messages);
+  const sessionOptions = wantsImage
+    ? PROMPT_API_VISION_SESSION_OPTIONS
+    : PROMPT_API_SESSION_OPTIONS;
   const availability = await probeLanguageModelAvailability(
-    /** @type {any} */ ({ LanguageModel: LM })
+    /** @type {any} */ ({ LanguageModel: LM }),
+    sessionOptions
   );
-  assertOnDeviceAvailable(availability);
+  assertOnDeviceAvailable(availability, { wantsImage });
 
   const { initialPrompts, prompt } = mapMessagesForPromptApi(messages);
 
@@ -267,7 +395,7 @@ export async function streamLanguageModelChat(args) {
   let session;
   try {
     session = await LM.create({
-      ...PROMPT_API_SESSION_OPTIONS,
+      ...sessionOptions,
       signal,
       ...(initialPrompts.length > 0 ? { initialPrompts } : {}),
     });
@@ -283,7 +411,9 @@ export async function streamLanguageModelChat(args) {
 
   let full = "";
   try {
-    const stream = session.promptStreaming(prompt, { signal });
+    const stream = session.promptStreaming(wrapPromptForPromptApi(prompt), {
+      signal,
+    });
     for await (const chunk of stream) {
       if (signal.aborted) {
         throwInference("aborted", "Request aborted");

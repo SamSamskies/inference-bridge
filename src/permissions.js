@@ -18,6 +18,15 @@ import {
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
 import {
+  blocksAllowForImages,
+  isImageGrantCovered,
+  messagesHaveImageParts,
+  openaiModelSupportsImageOutput,
+  requestWantsImageOutput,
+} from "./image-parts.js";
+import { ollamaModelHasVision } from "./providers/ollama.js";
+import { openrouterModelModalities } from "./providers/openrouter.js";
+import {
   blocksAllowForRequestTools,
   fingerprintTools,
   fingerprintTrailingToolCalls,
@@ -40,6 +49,7 @@ import {
  *   model: string,
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
+ *   output?: { images?: boolean },
  * }} ApprovalRequest
  */
 
@@ -49,11 +59,18 @@ import {
 export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * @type {Map<string, Array<{
+ * @typedef {{
  *   providerId: string,
  *   model: string,
  *   toolFingerprint: string,
  *   toolChoiceNone?: boolean,
+ *   imageInput?: boolean,
+ *   imageOutput?: boolean,
+ * }} ToolEpisodeBinding
+ */
+
+/**
+ * @type {Map<string, Array<ToolEpisodeBinding & {
  *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
  * }>>}
@@ -160,13 +177,26 @@ function grantRoutingChanged(prev, next) {
 }
 
 /**
+ * Image scope approved by a grant/episode and/or this request.
+ * @param {{ imageInput?: boolean, imageOutput?: boolean } | null | undefined} grant
+ * @param {ChatMessage[]} messages
+ * @param {unknown} [output]
+ */
+function imageApprovalFields(grant, messages, output) {
+  return {
+    ...(grant?.imageInput === true || messagesHaveImageParts(messages)
+      ? { imageInput: true }
+      : {}),
+    ...(grant?.imageOutput === true || requestWantsImageOutput(output)
+      ? { imageOutput: true }
+      : {}),
+  };
+}
+
+/**
  * @param {string} origin
  * @param {number} now
- * @returns {Array<{
- *   providerId: string,
- *   model: string,
- *   toolFingerprint: string,
- *   toolChoiceNone?: boolean,
+ * @returns {Array<ToolEpisodeBinding & {
  *   messagesPrefix: ChatMessage[],
  *   expiresAt: number,
  * }>}
@@ -185,13 +215,7 @@ function liveToolEpisodes(origin, now) {
 
 /**
  * @param {string} origin
- * @param {{
- *   providerId: string,
- *   model: string,
- *   toolFingerprint: string,
- *   toolChoiceNone?: boolean,
- *   messages: ChatMessage[],
- * }} episode
+ * @param {ToolEpisodeBinding & { messages: ChatMessage[] }} episode
  * @param {number} [now]
  */
 function rememberToolEpisode(origin, episode, now = Date.now()) {
@@ -209,6 +233,8 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
   if (episode.toolChoiceNone === true) {
     next.toolChoiceNone = true;
   }
+  if (episode.imageInput === true) next.imageInput = true;
+  if (episode.imageOutput === true) next.imageOutput = true;
 
   const list = liveToolEpisodes(origin, now);
   // Update only when this turn continues an existing episode. Exact-prefix
@@ -239,6 +265,11 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
     }
   }
   if (replaceAt >= 0) {
+    const prev = list[replaceAt];
+    // Keep previously approved image scope when a later turn omits it
+    // (same idea as preserving toolFingerprint on omitted-tools follow-ups).
+    if (prev.imageInput === true) next.imageInput = true;
+    if (prev.imageOutput === true) next.imageOutput = true;
     list[replaceAt] = next;
   } else {
     list.push(next);
@@ -255,7 +286,7 @@ function rememberToolEpisode(origin, episode, now = Date.now()) {
  *   toolChoice?: ToolChoice,
  * }} args
  * @param {number} [now]
- * @returns {{ providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean } | null}
+ * @returns {ToolEpisodeBinding | null}
  */
 function matchingToolEpisode(origin, args, now = Date.now()) {
   const list = liveToolEpisodes(origin, now);
@@ -272,7 +303,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   // If several share that length but disagree on provider/model (two tabs
   // Allow-once on the same opener), refuse to guess — re-prompt instead.
   let bestPrefixLen = -1;
-  /** @type {Array<{ providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean }>} */
+  /** @type {ToolEpisodeBinding[]} */
   const tied = [];
   for (const episode of list) {
     // Same-origin callers can fabricate assistant toolCalls + tool results.
@@ -297,6 +328,8 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
       model: episode.model,
       toolFingerprint: episode.toolFingerprint,
       ...(episode.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
+      ...(episode.imageInput === true ? { imageInput: true } : {}),
+      ...(episode.imageOutput === true ? { imageOutput: true } : {}),
     };
     if (prefixLen > bestPrefixLen) {
       bestPrefixLen = prefixLen;
@@ -308,7 +341,7 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
   }
   if (tied.length === 0) return null;
 
-  /** @type {Map<string, { providerId: string, model: string, toolFingerprint: string, toolChoiceNone?: boolean }>} */
+  /** @type {Map<string, ToolEpisodeBinding>} */
   const byBinding = new Map();
   for (const candidate of tied) {
     byBinding.set(`${candidate.providerId}\0${candidate.model}`, candidate);
@@ -364,6 +397,50 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
 }
 
 /**
+ * Always-allow may skip only when the grant already covers image input/output
+ * and the bound provider/model can honor them (Ollama vision in;
+ * OpenRouter image in/out when the catalog says so).
+ * @param {{ id?: string } | null | undefined} provider
+ * @param {string} model
+ * @param {{ imageInput?: boolean, imageOutput?: boolean } | null | undefined} grant
+ * @param {ChatMessage[]} messages
+ * @param {unknown} [output]
+ */
+async function imagesAllowAutoApprove(provider, model, grant, messages, output) {
+  const imageInput = messagesHaveImageParts(messages);
+  const imageOutput = requestWantsImageOutput(output);
+  if (!isImageGrantCovered(grant, { imageInput, imageOutput })) return false;
+  /** @type {boolean | undefined} */
+  let modelHasVision;
+  /** @type {boolean | undefined} */
+  let modelCanGenerateImages;
+  if (provider?.id === "ollama" && imageInput) {
+    modelHasVision = await ollamaModelHasVision(model);
+  }
+  if (provider?.id === "openrouter" && (imageInput || imageOutput)) {
+    try {
+      const caps = await openrouterModelModalities(model);
+      modelHasVision = caps.inputImage;
+      modelCanGenerateImages = caps.outputImage;
+    } catch {
+      // Catalog fetch errors must not abort the permission flow. Fail closed
+      // like ollamaModelHasVision so Always-allow re-prompts instead of
+      // turning the page request into an error.
+      return false;
+    }
+  }
+  if (provider?.id === "openai" && imageOutput) {
+    modelCanGenerateImages = openaiModelSupportsImageOutput(model);
+  }
+  return !blocksAllowForImages(provider, {
+    imageInput,
+    imageOutput,
+    modelHasVision,
+    modelCanGenerateImages,
+  });
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -373,6 +450,7 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
  *   preferredModel?: string,
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
+ *   output?: { images?: boolean },
  * }} args
  * @returns {Promise<{
  *   allowed: boolean,
@@ -455,12 +533,19 @@ export async function ensurePermission(args) {
     const grantModel = existing.model || grantFallbackModel;
 
     if (
-      await canSkipApprovalPrompt(
+      (await canSkipApprovalPrompt(
         grantProvider,
         tools,
         settings.apiKeys,
         args.toolChoice
-      )
+      )) &&
+      (await imagesAllowAutoApprove(
+        grantProvider,
+        grantModel,
+        existing,
+        args.messages,
+        args.output
+      ))
     ) {
       if (!toolFingerprint) {
         // Tool follow-ups may omit `tools`. If an Allow-once episode still
@@ -503,6 +588,7 @@ export async function ensurePermission(args) {
           toolFingerprint: existing.toolFingerprint,
           messages: args.messages,
           ...(existing.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
+          ...imageApprovalFields(existing, args.messages, args.output),
         });
         return {
           allowed: true,
@@ -530,15 +616,22 @@ export async function ensurePermission(args) {
   if (episode) {
     const episodeProvider = await getProviderAsync(episode.providerId);
     // Same gates as Always-allow: revoked optional access, unsupported hosted
-    // web_search, or a missing Ollama web_search key must re-prompt rather
-    // than auto-approving and failing later in streaming.
+    // web_search, a missing Ollama web_search key, or image input/output the
+    // episode (and provider/model) does not already cover must re-prompt.
     if (
-      await canSkipApprovalPrompt(
+      (await canSkipApprovalPrompt(
         episodeProvider,
         tools,
         settings.apiKeys,
         args.toolChoice
-      )
+      )) &&
+      (await imagesAllowAutoApprove(
+        episodeProvider,
+        episode.model,
+        episode,
+        args.messages,
+        args.output
+      ))
     ) {
       rememberToolEpisode(args.origin, {
         providerId: episode.providerId,
@@ -546,6 +639,7 @@ export async function ensurePermission(args) {
         toolFingerprint: episode.toolFingerprint,
         messages: args.messages,
         ...(episode.toolChoiceNone === true ? { toolChoiceNone: true } : {}),
+        ...imageApprovalFields(episode, args.messages, args.output),
       });
       return {
         allowed: true,
@@ -566,6 +660,7 @@ export async function ensurePermission(args) {
     model: promptModel,
     ...(tools ? { tools } : {}),
     ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
+    ...(args.output ? { output: args.output } : {}),
   });
 
   const chosenProviderId = normalizeProviderId(
@@ -626,6 +721,8 @@ export async function ensurePermission(args) {
           ...(toolFingerprint && args.toolChoice === "none"
             ? { toolChoiceNone: true }
             : {}),
+          ...(messagesHaveImageParts(args.messages) ? { imageInput: true } : {}),
+          ...(requestWantsImageOutput(args.output) ? { imageOutput: true } : {}),
         });
         // Always-allow may narrow the persistent grant; drop prior episodes so
         // broader in-memory fingerprints (e.g. parallel same-length openers)
@@ -639,6 +736,7 @@ export async function ensurePermission(args) {
           toolFingerprint,
           messages: args.messages,
           ...(args.toolChoice === "none" ? { toolChoiceNone: true } : {}),
+          ...imageApprovalFields(null, args.messages, args.output),
         });
       }
       await setOriginLastUsed(args.origin, {

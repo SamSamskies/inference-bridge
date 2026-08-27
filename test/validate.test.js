@@ -64,6 +64,31 @@ describe("validateInferenceRequest", () => {
     ).toBe(false);
   });
 
+  it("rejects output and content parts on the stable path", () => {
+    const output = validateInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      output: { images: true },
+    });
+    expect(output.ok).toBe(false);
+    expect(output.message).toMatch(/experimental/);
+
+    const parts = validateInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "hi" },
+            { type: "image", mediaType: "image/png", data: "aaa" },
+          ],
+        },
+      ],
+    });
+    expect(parts.ok).toBe(false);
+    expect(parts.message).toMatch(/experimental/);
+  });
+
   it("rejects tools, toolChoice, toolCalls, and toolCallId (experimental-only)", () => {
     const tools = validateInferenceRequest({
       method: "chat",
@@ -320,6 +345,65 @@ describe("validateInferenceRequest", () => {
 });
 
 describe("validateExperimentalInferenceRequest", () => {
+  it("accepts user image parts and output.images on the experimental path", () => {
+    const result = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "aaa" },
+          ],
+        },
+      ],
+      output: { images: false, extra: true },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.messages[0].content).toEqual([
+      { type: "text", text: "what is this?" },
+      { type: "image", mediaType: "image/png", data: "aaa" },
+    ]);
+    expect(result.value.output).toEqual({ images: false });
+  });
+
+  it("rejects invalid image parts and system image content", () => {
+    const badType = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image", mediaType: "image/tiff", data: "aaa" }],
+        },
+      ],
+    });
+    expect(badType.ok).toBe(false);
+    expect(badType.message).toMatch(/mediaType/);
+
+    const system = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "system",
+          content: [{ type: "text", text: "nope" }],
+        },
+      ],
+    });
+    expect(system.ok).toBe(false);
+
+    const urlOnly = validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image", url: "https://httpbin.org/image/png" }],
+        },
+      ],
+    });
+    expect(urlOnly.ok).toBe(false);
+    expect(urlOnly.message).toMatch(/url/);
+  });
+
   it("accepts plain chat without tools", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",

@@ -124,6 +124,10 @@ body.approval-body {
   color: var(--danger);
 }
 
+.capability-warning.is-note {
+  color: var(--muted);
+}
+
 .tools-panel {
   gap: 8px;
 }
@@ -157,5 +161,20 @@ body.approval-body {
   font-size: 0.8rem;
   line-height: 1.35;
   color: var(--muted);
+}
+
+.preview-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.preview-thumb {
+  max-width: 72px;
+  max-height: 72px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--line);
 }
 

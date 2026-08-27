@@ -115,6 +115,37 @@ describe("mapMessagesForAnthropic", () => {
     }
   });
 
+  it("maps user image parts to Anthropic base64 image blocks", () => {
+    expect(
+      mapMessagesForAnthropic([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "abc" },
+          ],
+        },
+      ])
+    ).toEqual({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: "abc",
+              },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   it("merges consecutive same-role messages", () => {
     expect(
       mapMessagesForAnthropic([
@@ -940,6 +971,19 @@ describe("anthropicProvider", () => {
       onDelta: () => {},
     });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBe(1);
+  });
+
+  it("fail-closes output.images", async () => {
+    await expect(
+      anthropicProvider.streamChat({
+        apiKey: "sk-ant-test",
+        model: "claude-sonnet-4-6",
+        messages: [{ role: "user", content: "draw a cat" }],
+        output: { images: true },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
   });
 });
 

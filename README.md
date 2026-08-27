@@ -280,6 +280,70 @@ Experimental APIs are **Inference Bridge–specific**. They are not part of the 
 
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
+### Images (experimental)
+
+`window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
+
+Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
+
+- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
+- OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
+- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
+- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
+- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
+- Chat Always-allow does not cover image input or image output. Approval lists them separately.
+
+Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
+
+- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails.
+- `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
+- `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
+
+Local Ollama does not fetch remote URLs (the page does, then Bridge sends bytes).
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What is in this photo?" },
+        { type: "image", url: "https://httpbin.org/image/png" },
+      ],
+    },
+  ],
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") console.log("[done]", chunk.message.content);
+}
+```
+
+Generate an image (OpenAI GPT-4o / GPT-5 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [{ role: "user", content: "a red panda sticker, simple shapes" }],
+  output: { images: true },
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") {
+    const content = chunk.message.content;
+    console.log("[done]", content);
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part.type !== "image") continue;
+      const img = document.createElement("img");
+      img.alt = "generated image";
+      img.src = `data:${part.mediaType};base64,${part.data}`;
+      img.style.maxWidth = "320px";
+      document.body.append(img);
+    }
+  }
+}
+```
+
 ### Function tools
 
 Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
@@ -352,14 +416,16 @@ You can include function tools in the same `tools` array; those still execute on
 | `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
 | `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as stable IPA `options`; unknown keys ignored. |
+| `output` | no | `{ images?: boolean }` | Image generation. Experimental; not on stable `request`. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
 
 **`messages` shapes**
 
 | Role | Fields |
 | --- | --- |
-| `system` / `user` | `content: string` |
-| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
+| `system` | `content: string` |
+| `user` | `content: string` or `ContentPart[]` (text / image) |
+| `assistant` | `content: string \| ContentPart[] \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
 | `tool` | `toolCallId: string`; `content: string` (usually JSON text) |
 
 **`tools` / `ToolCall`**
@@ -633,6 +699,7 @@ npm run package
 - [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 - [ ] `getFeatures()` still has no `webSearch: true`; stable `request` still rejects `tools`
+- [ ] Experimental `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 
 ### Current limitations
 

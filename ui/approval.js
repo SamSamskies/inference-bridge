@@ -9,6 +9,14 @@ import {
   isApprovalProviderReady,
 } from "../src/provider-ready.js";
 import {
+  blocksAllowForImages,
+  imageCapabilityNotes,
+  imageCapabilityWarnings,
+  openaiModelSupportsImageOutput,
+  messagesHaveImageParts,
+  requestWantsImageOutput,
+} from "../src/image-parts.js";
+import {
   blocksAllowForRequestTools,
   capabilityWarnings,
   hostedToolDescription,
@@ -54,6 +62,8 @@ const modelHint = document.getElementById("modelHint");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
+const imagesPanel = document.getElementById("imagesPanel");
+const imagesList = document.getElementById("imagesList");
 const previewEl = document.getElementById("preview");
 const errorEl = document.getElementById("error");
 const rememberInput = document.getElementById("remember");
@@ -77,7 +87,7 @@ let providers = [];
 let modelsReady = false;
 
 /** Models currently backing the model control (for validation). */
-/** @type {Array<{ id: string, label?: string }>} */
+/** @type {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>} */
 let currentModels = [];
 
 /** Bumped on each model load so a slower earlier fetch cannot repaint. */
@@ -88,6 +98,13 @@ let modelsLoadId = 0;
 let requestTools;
 /** @type {import("../src/providers/types.js").ToolChoice | undefined} */
 let requestToolChoice;
+let requestImageInput = false;
+let requestImageOutput = false;
+/** @type {boolean | undefined} */
+let selectedModelHasVision;
+/** @type {boolean | undefined} */
+let selectedModelCanGenerateImages;
+let visionCheckId = 0;
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
 allowBtn.disabled = true;
@@ -157,14 +174,155 @@ function updateProviderHint(providerId = providerSelect.value) {
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
   const provider = providers.find((p) => p.id === providerId);
-  const warnings = capabilityWarnings(provider, requestTools, requestToolChoice);
-  if (warnings.length === 0) {
+  const request = {
+    imageInput: requestImageInput,
+    imageOutput: requestImageOutput,
+    modelHasVision: selectedModelHasVision,
+    modelCanGenerateImages: selectedModelCanGenerateImages,
+  };
+  const warnings = [
+    ...capabilityWarnings(provider, requestTools, requestToolChoice),
+    ...imageCapabilityWarnings(provider, request),
+  ];
+  const notes = imageCapabilityNotes(provider, request);
+  if (warnings.length === 0 && notes.length === 0) {
     capabilityWarningEl.hidden = true;
     capabilityWarningEl.textContent = "";
+    capabilityWarningEl.classList.remove("is-note");
     return;
   }
   capabilityWarningEl.hidden = false;
-  capabilityWarningEl.textContent = warnings.join(" ");
+  capabilityWarningEl.classList.toggle("is-note", warnings.length === 0);
+  capabilityWarningEl.textContent = [...warnings, ...notes].join(" ");
+}
+
+function renderImages() {
+  imagesList.replaceChildren();
+  if (!requestImageInput && !requestImageOutput) {
+    imagesPanel.hidden = true;
+    return;
+  }
+  imagesPanel.hidden = false;
+  if (requestImageInput) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = "Image input";
+    const desc = document.createElement("p");
+    desc.className = "tool-desc";
+    desc.textContent =
+      "This request includes photos or screenshots. If allowed, those bytes go to the selected provider.";
+    li.append(name, desc);
+    imagesList.append(li);
+  }
+  if (requestImageOutput) {
+    const li = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "tool-name";
+    name.textContent = "Image output";
+    const desc = document.createElement("p");
+    desc.className = "tool-desc";
+    desc.textContent =
+      "This request asks the model to generate images. If allowed, those pixels are returned to this page.";
+    li.append(name, desc);
+    imagesList.append(li);
+  }
+}
+
+function imagesBlockAllow(provider) {
+  return blocksAllowForImages(provider, {
+    imageInput: requestImageInput,
+    imageOutput: requestImageOutput,
+    modelHasVision: selectedModelHasVision,
+    modelCanGenerateImages: selectedModelCanGenerateImages,
+  });
+}
+
+/**
+ * @param {string} model
+ * @returns {Promise<{ ok?: boolean, vision?: boolean } | undefined>}
+ */
+async function askOllamaVision(model) {
+  try {
+    return await chrome.runtime.sendMessage({
+      type: "ollama-vision",
+      model,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function refreshVisionCapability() {
+  const id = ++visionCheckId;
+  const providerId = providerSelect.value;
+  selectedModelHasVision = undefined;
+  selectedModelCanGenerateImages = undefined;
+
+  if (providerId === "openrouter" && (requestImageInput || requestImageOutput)) {
+    const model = readModelValue(providerId);
+    const info = currentModels.find((m) => m.id === model);
+    if (info) {
+      selectedModelHasVision = Array.isArray(info.inputModalities)
+        ? info.inputModalities.includes("image")
+        : false;
+      selectedModelCanGenerateImages = Array.isArray(info.outputModalities)
+        ? info.outputModalities.includes("image")
+        : false;
+    } else if (modelsReady) {
+      selectedModelHasVision = false;
+      selectedModelCanGenerateImages = false;
+    }
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+
+  if (providerId === "openai") {
+    if (requestImageOutput) {
+      selectedModelCanGenerateImages = openaiModelSupportsImageOutput(
+        readModelValue(providerId)
+      );
+    }
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+
+  if (providerId !== "ollama" && providerId !== "openrouter") {
+    // Anthropic / OpenAI-compatible / on-device: vision in, no image out.
+    if (requestImageOutput) selectedModelCanGenerateImages = false;
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  if (!requestImageInput) {
+    if (requestImageOutput) selectedModelCanGenerateImages = false;
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  const model = readModelValue(providerId);
+  if (!model) {
+    updateCapabilityWarning(providerId);
+    updateAllowEnabled();
+    return;
+  }
+  // Unknown until /api/show returns — do not paint "unsupported" while checking
+  // or when the worker reply is missing (same as a false negative on gemma4:cloud).
+  updateCapabilityWarning(providerId);
+  updateAllowEnabled();
+  let response = await askOllamaVision(model);
+  if (id !== visionCheckId) return;
+  if (!response || response.ok !== true) {
+    response = await askOllamaVision(model);
+    if (id !== visionCheckId) return;
+  }
+  if (response && response.ok === true) {
+    selectedModelHasVision = response.vision === true;
+  }
+  updateCapabilityWarning(providerId);
+  updateAllowEnabled();
 }
 
 /**
@@ -298,16 +456,20 @@ function updateAllowEnabled() {
     requestToolChoice
   );
   allowBtn.disabled =
-    !providerReady || !modelsReady || !valid || toolsBlocked;
+    !providerReady ||
+    !modelsReady ||
+    !valid ||
+    toolsBlocked ||
+    imagesBlockAllow(provider);
 }
 
 /**
  * @param {unknown} models
- * @returns {Array<{ id: string, label?: string }>}
+ * @returns {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>}
  */
 function normalizeModels(models) {
   if (!Array.isArray(models)) return [];
-  /** @type {Array<{ id: string, label?: string }>} */
+  /** @type {Array<{ id: string, label?: string, inputModalities?: string[], outputModalities?: string[] }>} */
   const out = [];
   for (const entry of models) {
     if (typeof entry === "string" && entry) {
@@ -319,6 +481,20 @@ function normalizeModels(models) {
         id: entry.id,
         ...(typeof entry.label === "string" && entry.label
           ? { label: entry.label }
+          : {}),
+        ...(Array.isArray(entry.inputModalities)
+          ? {
+              inputModalities: entry.inputModalities.filter(
+                (v) => typeof v === "string"
+              ),
+            }
+          : {}),
+        ...(Array.isArray(entry.outputModalities)
+          ? {
+              outputModalities: entry.outputModalities.filter(
+                (v) => typeof v === "string"
+              ),
+            }
           : {}),
       });
     }
@@ -459,6 +635,8 @@ async function loadModelsForProvider(providerId, preferredModel) {
   const loadId = ++modelsLoadId;
   modelsReady = false;
   currentModels = [];
+  selectedModelHasVision = undefined;
+  selectedModelCanGenerateImages = undefined;
   modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
   updateAllowEnabled();
   updateProviderHint(providerId);
@@ -477,88 +655,96 @@ async function loadModelsForProvider(providerId, preferredModel) {
     return loadId === modelsLoadId && providerSelect.value === providerId;
   }
 
-  if (providerId === "ollama") {
-    if (!isCurrentLoad()) return;
-    if (!ollamaStatus.available) {
+  try {
+    if (providerId === "ollama") {
+      if (!isCurrentLoad()) return;
+      if (!ollamaStatus.available) {
+        setModelHint("");
+        currentModels = [];
+        populateModelControl(providerId, [], undefined, { disabled: true });
+        modelsReady = false;
+        updateAllowEnabled();
+        return;
+      }
+      currentModels = ollamaStatus.models;
+      populateModelControl(providerId, ollamaStatus.models, preferredModel, {
+        allowUnknown: false,
+        disabled: ollamaStatus.models.length === 0,
+      });
       setModelHint("");
-      currentModels = [];
-      populateModelControl(providerId, [], undefined, { disabled: true });
-      modelsReady = false;
+      modelsReady = ollamaStatus.models.length > 0;
       updateAllowEnabled();
       return;
     }
-    currentModels = ollamaStatus.models;
-    populateModelControl(providerId, ollamaStatus.models, preferredModel, {
-      allowUnknown: false,
-      disabled: ollamaStatus.models.length === 0,
-    });
-    setModelHint("");
-    modelsReady = ollamaStatus.models.length > 0;
-    updateAllowEnabled();
-    return;
-  }
 
-  if (providerId === ON_DEVICE_PROVIDER_ID) {
+    if (providerId === ON_DEVICE_PROVIDER_ID) {
+      if (!isCurrentLoad()) return;
+      modelField.hidden = true;
+      currentModels = [
+        { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+      ];
+      populateModelControl(providerId, currentModels, ON_DEVICE_MODEL_ID, {
+        allowUnknown: false,
+        disabled: true,
+      });
+      setModelHint("");
+      modelsReady = onDeviceStatus.available;
+      updateAllowEnabled();
+      return;
+    }
+
+    modelField.hidden = false;
+
+    const response = await chrome.runtime.sendMessage({
+      type: "list-models",
+      providerId,
+    });
+
+    // Ignore stale responses after the user switches providers mid-flight.
     if (!isCurrentLoad()) return;
-    modelField.hidden = true;
-    currentModels = [
-      { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
-    ];
-    populateModelControl(providerId, currentModels, ON_DEVICE_MODEL_ID, {
-      allowUnknown: false,
-      disabled: true,
-    });
-    setModelHint("");
-    modelsReady = onDeviceStatus.available;
-    updateAllowEnabled();
-    return;
-  }
 
-  modelField.hidden = false;
+    if (!response?.ok) {
+      setModelHint(response?.error?.message || "Failed to list models.");
+      currentModels = [];
+      // OpenAI / OpenRouter still accept free-typed slugs when the catalog
+      // request fails — same as an empty successful catalog.
+      const allowUnknown = allowUnknownFor(providerId);
+      populateModelControl(providerId, [], preferredModel, {
+        allowUnknown,
+        disabled: !allowUnknown,
+      });
+      modelsReady = allowUnknown;
+      updateAllowEnabled();
+      return;
+    }
 
-  const response = await chrome.runtime.sendMessage({
-    type: "list-models",
-    providerId,
-  });
-
-  // Ignore stale responses after the user switches providers mid-flight.
-  if (!isCurrentLoad()) return;
-
-  if (!response?.ok) {
-    setModelHint(response?.error?.message || "Failed to list models.");
-    currentModels = [];
-    // OpenAI / OpenRouter still accept free-typed slugs when the catalog
-    // request fails — same as an empty successful catalog.
+    const models = normalizeModels(response.models);
+    currentModels = models;
     const allowUnknown = allowUnknownFor(providerId);
-    populateModelControl(providerId, [], preferredModel, {
+    populateModelControl(providerId, models, preferredModel, {
       allowUnknown,
-      disabled: !allowUnknown,
+      disabled: models.length === 0 && !allowUnknown,
     });
-    modelsReady = allowUnknown;
+
+    if (models.length === 0) {
+      setModelHint(
+        providerId.startsWith("compat:")
+          ? "Could not list models from /v1/models. Type a model id manually."
+          : "No models available for this provider."
+      );
+      modelsReady = allowUnknown;
+    } else {
+      setModelHint("");
+      modelsReady = true;
+    }
     updateAllowEnabled();
-    return;
+  } finally {
+    // Ollama / on-device return before the catalog path. Changing the model
+    // control does not fire `change`, so re-check vision after every load.
+    if (isCurrentLoad()) {
+      void refreshVisionCapability();
+    }
   }
-
-  const models = normalizeModels(response.models);
-  currentModels = models;
-  const allowUnknown = allowUnknownFor(providerId);
-  populateModelControl(providerId, models, preferredModel, {
-    allowUnknown,
-    disabled: models.length === 0 && !allowUnknown,
-  });
-
-  if (models.length === 0) {
-    setModelHint(
-      providerId.startsWith("compat:")
-        ? "Could not list models from /v1/models. Type a model id manually."
-        : "No models available for this provider."
-    );
-    modelsReady = allowUnknown;
-  } else {
-    setModelHint("");
-    modelsReady = true;
-  }
-  updateAllowEnabled();
 }
 
 /**
@@ -574,10 +760,54 @@ function createPreviewMessage(message) {
 
   const body = document.createElement("div");
   body.className = "preview-content";
-  body.textContent = message.content;
+  const preview = previewFromContent(message.content);
+  body.textContent = preview.text;
+  if (preview.images.length > 0) {
+    const thumbs = document.createElement("div");
+    thumbs.className = "preview-thumbs";
+    for (const image of preview.images) {
+      const img = document.createElement("img");
+      img.className = "preview-thumb";
+      img.alt = "";
+      img.src = `data:${image.mediaType};base64,${image.data}`;
+      thumbs.append(img);
+    }
+    body.append(thumbs);
+  }
 
   el.append(role, body);
   return el;
+}
+
+/**
+ * @param {unknown} content
+ * @returns {{ text: string, images: Array<{ mediaType: string, data: string }> }}
+ */
+function previewFromContent(content) {
+  if (typeof content === "string") return { text: content, images: [] };
+  if (!Array.isArray(content)) {
+    return { text: content == null ? "" : String(content), images: [] };
+  }
+  let text = "";
+  /** @type {Array<{ mediaType: string, data: string }>} */
+  const images = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "text" && typeof part.text === "string") {
+      text += part.text;
+    } else if (
+      part.type === "image" &&
+      typeof part.data === "string" &&
+      part.data
+    ) {
+      images.push({
+        mediaType:
+          typeof part.mediaType === "string" ? part.mediaType : "image/png",
+        data: part.data,
+      });
+    }
+  }
+  return { text, images };
 }
 
 /**
@@ -660,7 +890,8 @@ async function decide(action) {
         ollamaAvailable: ollamaStatus.available,
         onDeviceAvailable: onDeviceStatus.available,
       }) ||
-      blocksAllowForRequestTools(provider, requestTools, requestToolChoice)
+      blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
+      imagesBlockAllow(provider)
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -762,7 +993,10 @@ async function load() {
   requestTools = Array.isArray(request.tools) ? request.tools : undefined;
   requestToolChoice =
     request.toolChoice !== undefined ? request.toolChoice : undefined;
+  requestImageInput = messagesHaveImageParts(request.messages);
+  requestImageOutput = requestWantsImageOutput(request.output);
   renderTools(requestTools);
+  renderImages();
   updateCapabilityWarning(providerId);
   renderPreview(request.messages || []);
   updateRememberHint();
@@ -803,16 +1037,19 @@ providerSelect.addEventListener("change", () => {
 
 modelSelect.addEventListener("change", () => {
   updateAllowEnabled();
+  void refreshVisionCapability();
 });
 modelInput.addEventListener("input", () => {
   updateClearModelButton();
   updateAllowEnabled();
+  void refreshVisionCapability();
 });
 clearModelButton.addEventListener("click", () => {
   modelInput.value = "";
   updateClearModelButton();
   updateAllowEnabled();
   modelInput.focus();
+  void refreshVisionCapability();
 });
 
 rememberInput.addEventListener("change", updateRememberHint);

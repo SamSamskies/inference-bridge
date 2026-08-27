@@ -1,9 +1,16 @@
 /**
  * OpenAI Responses API streaming path.
- * Used only when hosted `{ type: "web_search" }` is present; function-tool-only
- * requests stay on Chat Completions (openai-compat-stream.js).
+ * Used when hosted `{ type: "web_search" }` is present and/or `output.images`
+ * is set. Function-tool-only requests stay on Chat Completions.
+ * `output.images` maps internally to `{ type: "image_generation" }` — not a
+ * page-facing IPA tool.
  */
 
+import {
+  assembleAssistantContent,
+  imagePartFromOpenAIBase64,
+  mapContentForOpenAIResponses,
+} from "../image-parts.js";
 import { OPENAI_WEB_SEARCH_TOOL } from "./hosted-tools.js";
 import {
   mapReasoningEffortForOpenAICompat,
@@ -15,6 +22,11 @@ import {
 } from "./temperature.js";
 
 export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+
+/** Internal Responses tool. Never advertised on the page Tool type. */
+export const OPENAI_IMAGE_GENERATION_TOOL = Object.freeze({
+  type: "image_generation",
+});
 
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
 /** @typedef {import("./types.js").Tool} Tool */
@@ -143,8 +155,9 @@ export function mapMessagesForOpenAIResponses(messages) {
       Array.isArray(m.toolCalls) &&
       m.toolCalls.length > 0
     ) {
-      if (typeof m.content === "string" && m.content) {
-        input.push({ role: "assistant", content: m.content });
+      if (m.content != null && m.content !== "") {
+        const mapped = mapContentForOpenAIResponses(m.content);
+        if (mapped) input.push({ role: "assistant", content: mapped });
       }
       for (const c of m.toolCalls) {
         input.push({
@@ -156,7 +169,7 @@ export function mapMessagesForOpenAIResponses(messages) {
       }
       continue;
     }
-    input.push({ role: m.role, content: m.content });
+    input.push({ role: m.role, content: mapContentForOpenAIResponses(m.content) });
   }
   return input;
 }
@@ -224,6 +237,7 @@ export function mapToolChoiceForOpenAIResponses(toolChoice) {
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
  *   options?: InferenceOptions,
+ *   includeAssistantImages?: boolean,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  *   onReasoningDelta?: (content: string) => void,
@@ -232,7 +246,7 @@ export function mapToolChoiceForOpenAIResponses(toolChoice) {
  *   model: string,
  *   message: {
  *     role: "assistant",
- *     content: string,
+ *     content: string | import("./types.js").ContentPart[],
  *     reasoning?: string,
  *     toolCalls?: ToolCall[],
  *   },
@@ -246,16 +260,24 @@ export async function streamOpenAIResponsesChat({
   tools,
   toolChoice,
   options,
+  includeAssistantImages = false,
   signal,
   onDelta,
   onReasoningDelta,
 }) {
+  const mappedTools = mapToolsForOpenAIResponses(tools);
+  if (
+    includeAssistantImages &&
+    !mappedTools.some((t) => t.type === "image_generation")
+  ) {
+    mappedTools.push({ ...OPENAI_IMAGE_GENERATION_TOOL });
+  }
   /** @type {Record<string, unknown>} */
   const body = {
     model,
     input: mapMessagesForOpenAIResponses(messages),
     stream: true,
-    tools: mapToolsForOpenAIResponses(tools),
+    tools: mappedTools,
     tool_choice: mapToolChoiceForOpenAIResponses(toolChoice),
   };
   const reasoningEffort = mapReasoningEffortForOpenAICompat(
@@ -349,6 +371,20 @@ export async function streamOpenAIResponsesChat({
   const functionCalls = new Map();
   /** @type {string[]} */
   const functionCallOrder = [];
+  /** @type {Map<string, import("./types.js").ImagePart>} */
+  const generatedImages = new Map();
+
+  /**
+   * @param {unknown} item
+   */
+  function rememberGeneratedImage(item) {
+    if (!includeAssistantImages || !item || typeof item !== "object") return;
+    const rec = /** @type {Record<string, unknown>} */ (item);
+    if (rec.type !== "image_generation_call") return;
+    const part = imagePartFromOpenAIBase64(rec.result);
+    if (!part) return;
+    generatedImages.set(`${part.mediaType}:${part.data}`, part);
+  }
 
   /**
    * @param {string} itemId
@@ -408,6 +444,13 @@ export async function streamOpenAIResponsesChat({
       return;
     }
 
+    if (
+      type === "response.output_item.added" ||
+      type === "response.output_item.done"
+    ) {
+      rememberGeneratedImage(parsed.item);
+    }
+
     if (type === "response.output_item.added") {
       const item = parsed.item;
       if (!item || typeof item !== "object") return;
@@ -464,6 +507,9 @@ export async function streamOpenAIResponsesChat({
             ? { outputTokens: u.output_tokens }
             : {}),
         };
+      }
+      if (Array.isArray(r.output)) {
+        for (const item of r.output) rememberGeneratedImage(item);
       }
     }
   }
@@ -539,8 +585,13 @@ export async function streamOpenAIResponsesChat({
     }
   }
 
-  /** @type {{ role: "assistant", content: string, reasoning?: string, toolCalls?: ToolCall[] }} */
-  const message = { role: "assistant", content };
+  /** @type {{ role: "assistant", content: string | import("./types.js").ContentPart[], reasoning?: string, toolCalls?: ToolCall[] }} */
+  const message = {
+    role: "assistant",
+    content: includeAssistantImages
+      ? assembleAssistantContent(content, [...generatedImages.values()])
+      : content,
+  };
   if (reasoning) {
     message.reasoning = reasoning;
   }

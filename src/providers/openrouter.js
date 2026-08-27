@@ -4,6 +4,11 @@
  */
 
 import {
+  assertImagesSupported,
+  messagesHaveImageParts,
+  requestWantsImageOutput,
+} from "../image-parts.js";
+import {
   mapToolsForOpenRouter,
   omitHostedWebSearchIfNone,
 } from "./hosted-tools.js";
@@ -12,6 +17,56 @@ import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_CHAT_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
 const OPENROUTER_MODELS_URL = `${OPENROUTER_BASE_URL}/models`;
+
+/** @type {Map<string, { inputImage: boolean, outputImage: boolean, outputText: boolean }>} */
+const modalitiesByModel = new Map();
+
+/**
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+function stringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v) => typeof v === "string");
+}
+
+/**
+ * @param {string} id
+ * @param {unknown} architecture
+ */
+function rememberModalities(id, architecture) {
+  const arch =
+    architecture && typeof architecture === "object" && !Array.isArray(architecture)
+      ? /** @type {Record<string, unknown>} */ (architecture)
+      : {};
+  const input = stringList(arch.input_modalities);
+  const output = stringList(arch.output_modalities);
+  modalitiesByModel.set(id, {
+    inputImage: input.includes("image"),
+    outputImage: output.includes("image"),
+    outputText: output.length === 0 || output.includes("text"),
+  });
+}
+
+/**
+ * Catalog lookup used by streamChat and Always-allow skip. Lists models if needed.
+ * @param {string} model
+ * @param {{ signal?: AbortSignal }} [args]
+ * @returns {Promise<{ inputImage: boolean, outputImage: boolean, outputText: boolean }>}
+ */
+export async function openrouterModelModalities(model, { signal } = {}) {
+  if (!model) return { inputImage: false, outputImage: false, outputText: true };
+  const cached = modalitiesByModel.get(model);
+  if (cached) return cached;
+  await listOpenRouterModels({ signal });
+  return (
+    modalitiesByModel.get(model) || {
+      inputImage: false,
+      outputImage: false,
+      outputText: true,
+    }
+  );
+}
 
 /**
  * @param {string} code
@@ -47,6 +102,10 @@ function mapOpenRouterStatus(status, detail) {
     return { code: "unavailable", message: detail };
   }
   return { code: "provider_error", message: detail };
+}
+
+export function resetOpenRouterModalitiesCache() {
+  modalitiesByModel.clear();
 }
 
 /**
@@ -90,8 +149,16 @@ export async function listOpenRouterModels({ signal } = {}) {
   for (const entry of entries) {
     const id = typeof entry?.id === "string" ? entry.id : "";
     if (!id) continue;
+    rememberModalities(id, entry?.architecture);
     const label = typeof entry?.name === "string" && entry.name ? entry.name : undefined;
-    models.push(label ? { id, label } : { id });
+    /** @type {import("./types.js").ModelInfo} */
+    const info = { id };
+    if (label) info.label = label;
+    const input = stringList(entry?.architecture?.input_modalities);
+    const output = stringList(entry?.architecture?.output_modalities);
+    if (input.length) info.inputModalities = input;
+    if (output.length) info.outputModalities = output;
+    models.push(info);
   }
   models.sort((a, b) => a.id.localeCompare(b.id));
   return models;
@@ -118,6 +185,7 @@ export const openrouterProvider = {
     tools,
     toolChoice,
     options,
+    output,
     signal,
     onDelta,
     onReasoningDelta,
@@ -129,9 +197,38 @@ export const openrouterProvider = {
       );
     }
 
+    const wantImages = requestWantsImageOutput(output);
+    const wantImageInput = messagesHaveImageParts(messages);
+    /** @type {{ inputImage: boolean, outputImage: boolean, outputText: boolean }} */
+    let caps = { inputImage: false, outputImage: false, outputText: true };
+    if (wantImages || wantImageInput) {
+      caps = await openrouterModelModalities(model, { signal });
+    }
+    if (wantImages && !caps.outputImage) {
+      throwInference(
+        "unavailable",
+        `OpenRouter model "${model}" does not generate images. Choose a model whose output modalities include image.`
+      );
+    }
+    if (wantImageInput && !caps.inputImage) {
+      throwInference(
+        "unavailable",
+        `OpenRouter model "${model}" does not accept image input. Choose a vision-capable model.`
+      );
+    }
+    assertImagesSupported(this, messages, output, {
+      imageInput: caps.inputImage,
+      imageOutput: caps.outputImage,
+    });
+
     const mappedTools = mapToolsForOpenRouter(
       omitHostedWebSearchIfNone(tools, toolChoice)
     );
+    /** @type {Record<string, unknown>} */
+    const extraBody = {};
+    if (wantImages) {
+      extraBody.modalities = caps.outputText ? ["image", "text"] : ["image"];
+    }
     return streamOpenAICompatChat({
       url: OPENROUTER_CHAT_URL,
       apiKey,
@@ -144,6 +241,8 @@ export const openrouterProvider = {
           }
         : {}),
       ...(options ? { options } : {}),
+      ...(Object.keys(extraBody).length > 0 ? { extraBody } : {}),
+      includeAssistantImages: wantImages,
       signal,
       onDelta,
       onReasoningDelta,
