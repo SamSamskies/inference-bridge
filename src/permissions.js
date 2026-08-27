@@ -418,9 +418,16 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
     modelHasVision = await ollamaModelHasVision(model);
   }
   if (provider?.id === "openrouter" && (imageInput || imageOutput)) {
-    const caps = await openrouterModelModalities(model);
-    modelHasVision = caps.inputImage;
-    modelCanGenerateImages = caps.outputImage;
+    try {
+      const caps = await openrouterModelModalities(model);
+      modelHasVision = caps.inputImage;
+      modelCanGenerateImages = caps.outputImage;
+    } catch {
+      // Catalog fetch errors must not abort the permission flow. Fail closed
+      // like ollamaModelHasVision so Always-allow re-prompts instead of
+      // turning the page request into an error.
+      return false;
+    }
   }
   if (provider?.id === "openai" && imageOutput) {
     modelCanGenerateImages = openaiModelSupportsImageOutput(model);

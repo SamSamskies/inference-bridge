@@ -58,6 +58,7 @@ beforeEach(() => {
   chromeMock.reset();
   clearToolEpisodes();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /**
@@ -666,6 +667,36 @@ describe("ensurePermission with images", () => {
       decision: "deny",
       providerId: "ollama",
       model: "llava",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts OpenRouter image grants when the catalog fetch fails", async () => {
+    await grantOriginAlways("https://img-or.example", {
+      providerId: "openrouter",
+      model: "google/gemini-2.5-flash-image",
+      imageInput: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      })
+    );
+
+    const pending = ensurePermission({
+      requestId: "ri3",
+      origin: "https://img-or.example",
+      messages: visionMessages,
+    });
+    await waitForPending("ri3");
+    expect(getPendingApproval("ri3")).toMatchObject({
+      origin: "https://img-or.example",
+    });
+    resolveApproval("ri3", {
+      decision: "deny",
+      providerId: "openrouter",
+      model: "google/gemini-2.5-flash-image",
     });
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
