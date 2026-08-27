@@ -90,6 +90,30 @@ describe("mapMessagesForPromptApi", () => {
     ]);
     expect(wrapPromptForPromptApi("hello")).toBe("hello");
   });
+
+  it("rejects image parts whose base64 cannot be decoded", () => {
+    try {
+      mapContentForPromptApi([
+        { type: "text", text: "what is this?" },
+        { type: "image", mediaType: "image/png", data: "!!!" },
+      ]);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(/** @type {any} */ (err).code).toBe("invalid_request");
+      expect(err).toMatchObject({
+        name: "InferenceError",
+        message: "Image part data must be valid base64.",
+      });
+    }
+    expect(() =>
+      mapMessagesForPromptApi([
+        {
+          role: "user",
+          content: [{ type: "image", mediaType: "image/png", data: "!!!" }],
+        },
+      ])
+    ).toThrow(/valid base64/);
+  });
 });
 
 describe("applyStreamChunk", () => {

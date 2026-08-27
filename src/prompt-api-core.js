@@ -137,7 +137,7 @@ export async function probeLanguageModelAvailability(
 
 /**
  * @param {{ type?: unknown, mediaType?: unknown, data?: unknown }} part
- * @returns {Blob | null}
+ * @returns {Blob}
  */
 function blobFromImagePart(part) {
   const mediaType = isImageMediaType(part.mediaType)
@@ -146,14 +146,16 @@ function blobFromImagePart(part) {
   const data = rawImageBase64(
     typeof part.data === "string" ? part.data : ""
   );
-  if (!data) return null;
+  if (!data) {
+    throwInference("invalid_request", "Image part data must be valid base64.");
+  }
   try {
     const binary = atob(data);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return new Blob([bytes], { type: mediaType });
   } catch {
-    return null;
+    throwInference("invalid_request", "Image part data must be valid base64.");
   }
 }
 
@@ -176,8 +178,7 @@ export function mapContentForPromptApi(content) {
     if (p.type === "text" && typeof p.text === "string") {
       parts.push({ type: "text", value: p.text });
     } else if (p.type === "image") {
-      const blob = blobFromImagePart(p);
-      if (blob) parts.push({ type: "image", value: blob });
+      parts.push({ type: "image", value: blobFromImagePart(p) });
     }
   }
   if (parts.length === 0) return "";
