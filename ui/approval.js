@@ -612,6 +612,8 @@ async function loadModelsForProvider(providerId, preferredModel) {
   const loadId = ++modelsLoadId;
   modelsReady = false;
   currentModels = [];
+  selectedModelHasVision = undefined;
+  selectedModelCanGenerateImages = undefined;
   modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
   updateAllowEnabled();
   updateProviderHint(providerId);
@@ -630,89 +632,96 @@ async function loadModelsForProvider(providerId, preferredModel) {
     return loadId === modelsLoadId && providerSelect.value === providerId;
   }
 
-  if (providerId === "ollama") {
-    if (!isCurrentLoad()) return;
-    if (!ollamaStatus.available) {
+  try {
+    if (providerId === "ollama") {
+      if (!isCurrentLoad()) return;
+      if (!ollamaStatus.available) {
+        setModelHint("");
+        currentModels = [];
+        populateModelControl(providerId, [], undefined, { disabled: true });
+        modelsReady = false;
+        updateAllowEnabled();
+        return;
+      }
+      currentModels = ollamaStatus.models;
+      populateModelControl(providerId, ollamaStatus.models, preferredModel, {
+        allowUnknown: false,
+        disabled: ollamaStatus.models.length === 0,
+      });
       setModelHint("");
-      currentModels = [];
-      populateModelControl(providerId, [], undefined, { disabled: true });
-      modelsReady = false;
+      modelsReady = ollamaStatus.models.length > 0;
       updateAllowEnabled();
       return;
     }
-    currentModels = ollamaStatus.models;
-    populateModelControl(providerId, ollamaStatus.models, preferredModel, {
-      allowUnknown: false,
-      disabled: ollamaStatus.models.length === 0,
-    });
-    setModelHint("");
-    modelsReady = ollamaStatus.models.length > 0;
-    updateAllowEnabled();
-    return;
-  }
 
-  if (providerId === ON_DEVICE_PROVIDER_ID) {
+    if (providerId === ON_DEVICE_PROVIDER_ID) {
+      if (!isCurrentLoad()) return;
+      modelField.hidden = true;
+      currentModels = [
+        { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+      ];
+      populateModelControl(providerId, currentModels, ON_DEVICE_MODEL_ID, {
+        allowUnknown: false,
+        disabled: true,
+      });
+      setModelHint("");
+      modelsReady = onDeviceStatus.available;
+      updateAllowEnabled();
+      return;
+    }
+
+    modelField.hidden = false;
+
+    const response = await chrome.runtime.sendMessage({
+      type: "list-models",
+      providerId,
+    });
+
+    // Ignore stale responses after the user switches providers mid-flight.
     if (!isCurrentLoad()) return;
-    modelField.hidden = true;
-    currentModels = [
-      { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
-    ];
-    populateModelControl(providerId, currentModels, ON_DEVICE_MODEL_ID, {
-      allowUnknown: false,
-      disabled: true,
-    });
-    setModelHint("");
-    modelsReady = onDeviceStatus.available;
-    updateAllowEnabled();
-    return;
-  }
 
-  modelField.hidden = false;
+    if (!response?.ok) {
+      setModelHint(response?.error?.message || "Failed to list models.");
+      currentModels = [];
+      // OpenAI / OpenRouter still accept free-typed slugs when the catalog
+      // request fails — same as an empty successful catalog.
+      const allowUnknown = allowUnknownFor(providerId);
+      populateModelControl(providerId, [], preferredModel, {
+        allowUnknown,
+        disabled: !allowUnknown,
+      });
+      modelsReady = allowUnknown;
+      updateAllowEnabled();
+      return;
+    }
 
-  const response = await chrome.runtime.sendMessage({
-    type: "list-models",
-    providerId,
-  });
-
-  // Ignore stale responses after the user switches providers mid-flight.
-  if (!isCurrentLoad()) return;
-
-  if (!response?.ok) {
-    setModelHint(response?.error?.message || "Failed to list models.");
-    currentModels = [];
-    // OpenAI / OpenRouter still accept free-typed slugs when the catalog
-    // request fails — same as an empty successful catalog.
+    const models = normalizeModels(response.models);
+    currentModels = models;
     const allowUnknown = allowUnknownFor(providerId);
-    populateModelControl(providerId, [], preferredModel, {
+    populateModelControl(providerId, models, preferredModel, {
       allowUnknown,
-      disabled: !allowUnknown,
+      disabled: models.length === 0 && !allowUnknown,
     });
-    modelsReady = allowUnknown;
+
+    if (models.length === 0) {
+      setModelHint(
+        providerId.startsWith("compat:")
+          ? "Could not list models from /v1/models. Type a model id manually."
+          : "No models available for this provider."
+      );
+      modelsReady = allowUnknown;
+    } else {
+      setModelHint("");
+      modelsReady = true;
+    }
     updateAllowEnabled();
-    return;
+  } finally {
+    // Ollama / on-device return before the catalog path. Changing the model
+    // control does not fire `change`, so re-check vision after every load.
+    if (isCurrentLoad()) {
+      void refreshVisionCapability();
+    }
   }
-
-  const models = normalizeModels(response.models);
-  currentModels = models;
-  const allowUnknown = allowUnknownFor(providerId);
-  populateModelControl(providerId, models, preferredModel, {
-    allowUnknown,
-    disabled: models.length === 0 && !allowUnknown,
-  });
-
-  if (models.length === 0) {
-    setModelHint(
-      providerId.startsWith("compat:")
-        ? "Could not list models from /v1/models. Type a model id manually."
-        : "No models available for this provider."
-    );
-    modelsReady = allowUnknown;
-  } else {
-    setModelHint("");
-    modelsReady = true;
-  }
-  updateAllowEnabled();
-  void refreshVisionCapability();
 }
 
 /**
