@@ -295,7 +295,7 @@ Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenA
 
 Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
 
-- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails.
+- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails. For remote URLs that lack CORS headers, an image proxy such as [wsrv.nl](https://wsrv.nl/) (e.g. `https://wsrv.nl/?url=…`) often works.
 - `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
 - `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
 
@@ -309,6 +309,7 @@ for await (const chunk of window.inference.experimental.request({
       role: "user",
       content: [
         { type: "text", text: "What is in this photo?" },
+        // Page fetch needs CORS; if the host blocks it, try a proxy e.g. https://wsrv.nl/?url=…
         { type: "image", url: "https://httpbin.org/image/png" },
       ],
     },
