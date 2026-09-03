@@ -20,6 +20,7 @@ export const ANTHROPIC_DEFAULT_MAX_TOKENS = 8192;
 
 /** Curated chat models for the Options/approval UI — not a live Anthropic catalog. */
 export const ANTHROPIC_MODELS = Object.freeze([
+  "claude-fable-5-1",
   "claude-fable-5",
   "claude-opus-5",
   "claude-opus-4-8",
