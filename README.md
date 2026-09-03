@@ -259,10 +259,10 @@ if (features.options?.temperature) {
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` on gpt-5.1+; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; omit on gpt-4.x | `thinking: { type: "disabled" }` (omit on Fable 5 — cannot disable) | `think: false` |
+| `"none"` | `reasoning_effort: "none"` on gpt-5.1+; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; omit on gpt-4.x | `thinking: { type: "disabled" }` (omit on Fable 5 / Fable 5.1 — cannot disable) | `think: false` |
 | `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | `think: "low"` / `"medium"` / `"high"` |
 
-Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. OpenAI maps IPA `"none"` from the model id (gpt-5.1+ → `none`; earlier gpt-5 → `minimal`). Anthropic maps from the model id too (Claude 4.6+ adaptive; Claude 4.5 extended budgets; Fable 5 cannot disable thinking). A 400 that lists supported values is retried once with the next-lowest effort (or with the field omitted if the list cannot be parsed). Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
+Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. OpenAI maps IPA `"none"` from the model id (gpt-5.1+ → `none`; earlier gpt-5 → `minimal`). Anthropic maps from the model id too (Claude 4.6+ adaptive; Claude 4.5 extended budgets; Fable 5 / Fable 5.1 cannot disable thinking). A 400 that lists supported values is retried once with the next-lowest effort (or with the field omitted if the list cannot be parsed). Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
 
 ### `temperature`
 
