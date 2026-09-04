@@ -23,6 +23,7 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 /** Curated chat models for the Options/approval UI — not a live OpenAI catalog. */
 export const OPENAI_MODELS = Object.freeze([
+  "gpt-6-astra",
   "gpt-5.6-luna",
   "gpt-5.6-terra",
   "gpt-5.6-sol",
