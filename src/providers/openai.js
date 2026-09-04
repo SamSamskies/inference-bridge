@@ -1,7 +1,8 @@
 /**
  * OpenAI streaming adapter.
- * Chat Completions by default; Responses API when hosted web_search is present
- * or `output.images` is set (internal `image_generation` tool, not page-facing).
+ * Chat Completions by default; Responses API when hosted web_search is present,
+ * `output.images` is set (internal `image_generation` tool, not page-facing),
+ * or the model requires Responses for function tools (GPT-6 Astra).
  */
 
 import {
@@ -23,6 +24,7 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 /** Curated chat models for the Options/approval UI — not a live OpenAI catalog. */
 export const OPENAI_MODELS = Object.freeze([
+  "gpt-6-astra",
   "gpt-5.6-luna",
   "gpt-5.6-terra",
   "gpt-5.6-sol",
@@ -37,6 +39,18 @@ export const OPENAI_MODELS = Object.freeze([
   "gpt-4o-mini",
   "gpt-4o",
 ]);
+
+/**
+ * GPT-6 Astra supports Chat Completions for text, but function calling requires
+ * the Responses API (Chat Completions tool calls return HTTP 400).
+ * @param {unknown} model
+ * @returns {boolean}
+ */
+export function openaiModelRequiresResponsesForFunctionTools(model) {
+  if (typeof model !== "string") return false;
+  const id = model.trim().toLowerCase();
+  return id.startsWith("gpt-6");
+}
 
 /** @typedef {import("./types.js").Provider} Provider */
 
@@ -68,7 +82,13 @@ export const openaiProvider = {
       imageOutput: wantImages && canGenerateImages,
     });
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
-    if (hasHostedWebSearch(toolsForRequest) || wantImages) {
+    const functionTools = filterFunctionTools(toolsForRequest);
+    const useResponses =
+      hasHostedWebSearch(toolsForRequest) ||
+      wantImages ||
+      (openaiModelRequiresResponsesForFunctionTools(model) &&
+        Boolean(functionTools));
+    if (useResponses) {
       return streamOpenAIResponsesChat({
         apiKey,
         model,
@@ -83,7 +103,6 @@ export const openaiProvider = {
       });
     }
 
-    const functionTools = filterFunctionTools(toolsForRequest);
     return streamOpenAICompatChat({
       url: OPENAI_URL,
       apiKey,

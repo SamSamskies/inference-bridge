@@ -137,6 +137,7 @@ export function openaiModelSupportsImageOutput(model) {
     id.startsWith("gpt-4o") ||
     id.startsWith("gpt-4.1") ||
     id.startsWith("gpt-5") ||
+    id.startsWith("gpt-6") ||
     id.startsWith("o3")
   );
 }

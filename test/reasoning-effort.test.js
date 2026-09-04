@@ -29,6 +29,12 @@ describe("mapReasoningEffortForOpenAICompat", () => {
     expect(mapReasoningEffortForOpenAICompat("none", "gpt-5.6-luna")).toBe(
       "none"
     );
+    expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-astra")).toBe(
+      "low"
+    );
+    expect(mapReasoningEffortForOpenAICompat("none", "openai/gpt-6-astra")).toBe(
+      "low"
+    );
     expect(mapReasoningEffortForOpenAICompat("none", "openai/gpt-5-nano")).toBe(
       "minimal"
     );
