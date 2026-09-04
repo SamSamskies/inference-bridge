@@ -161,6 +161,7 @@ describe("image helpers", () => {
     ).toEqual([]);
     expect(openaiModelSupportsImageOutput("gpt-4o")).toBe(true);
     expect(openaiModelSupportsImageOutput("gpt-5.6-luna")).toBe(true);
+    expect(openaiModelSupportsImageOutput("gpt-6-astra")).toBe(true);
     expect(openaiModelSupportsImageOutput("gpt-3.5-turbo")).toBe(false);
     expect(imagePartFromOpenAIBase64("iVBORw0K")).toEqual({
       type: "image",
