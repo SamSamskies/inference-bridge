@@ -445,10 +445,8 @@ async function handleStart(port, msg, onStreamId) {
       requestId: streamId,
       origin,
       messages: validated.value.messages,
-      ...(experimental && validated.value.tools
-        ? { tools: validated.value.tools }
-        : {}),
-      ...(experimental && validated.value.toolChoice !== undefined
+      ...(validated.value.tools ? { tools: validated.value.tools } : {}),
+      ...(validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
       ...(experimental && validated.value.output
@@ -556,10 +554,8 @@ async function handleStart(port, msg, onStreamId) {
       apiKey: settings.apiKeys[provider.id],
       model,
       messages: validated.value.messages,
-      ...(experimental && validated.value.tools
-        ? { tools: validated.value.tools }
-        : {}),
-      ...(experimental && validated.value.toolChoice !== undefined
+      ...(validated.value.tools ? { tools: validated.value.tools } : {}),
+      ...(validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
       ...(validated.value.options ? { options: validated.value.options } : {}),

@@ -89,22 +89,23 @@ describe("validateInferenceRequest", () => {
     expect(parts.message).toMatch(/experimental/);
   });
 
-  it("rejects tools, toolChoice, toolCalls, and toolCallId (experimental-only)", () => {
+  it("accepts tools, toolChoice, toolCalls, and tool messages on the stable path", () => {
     const tools = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
       tools: [{ type: "web_search" }],
     });
-    expect(tools.ok).toBe(false);
-    expect(tools.message).toMatch(/experimental/);
+    expect(tools.ok).toBe(true);
+    expect(tools.value.tools).toEqual([{ type: "web_search" }]);
+    expect(tools.value.toolChoice).toBe("auto");
 
     const toolChoice = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      toolChoice: "auto",
+      toolChoice: "none",
     });
-    expect(toolChoice.ok).toBe(false);
-    expect(toolChoice.message).toMatch(/experimental/);
+    expect(toolChoice.ok).toBe(true);
+    expect(toolChoice.value.toolChoice).toBe("none");
 
     const toolCalls = validateInferenceRequest({
       method: "chat",
@@ -120,19 +121,41 @@ describe("validateInferenceRequest", () => {
             },
           ],
         },
+        {
+          role: "tool",
+          toolCallId: "call_1",
+          content: '{"ok":true}',
+        },
       ],
     });
-    expect(toolCalls.ok).toBe(false);
-    expect(toolCalls.message).toMatch(/experimental/);
+    expect(toolCalls.ok).toBe(true);
+    expect(toolCalls.value.messages).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "get_weather", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "call_1",
+        content: '{"ok":true}',
+      },
+    ]);
 
-    const toolCallId = validateInferenceRequest({
+    const badToolCallId = validateInferenceRequest({
       method: "chat",
       messages: [
         { role: "assistant", content: "ok", toolCallId: "call_1" },
       ],
     });
-    expect(toolCallId.ok).toBe(false);
-    expect(toolCallId.message).toMatch(/experimental/);
+    expect(badToolCallId.ok).toBe(false);
+    expect(badToolCallId.message).toMatch(/toolCallId/);
   });
 
   it("rejects snake_case tool_calls / tool_call_id on the stable path", () => {

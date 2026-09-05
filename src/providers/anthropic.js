@@ -337,7 +337,7 @@ export const anthropicProvider = {
     };
     if (mappedTools.length > 0) {
       requestBody.tools = mappedTools;
-      // Default matches validateExperimentalInferenceRequest when tools present.
+      // Default matches validateInferenceRequest when tools present.
       requestBody.tool_choice = mapToolChoiceForAnthropic(
         toolChoice !== undefined ? toolChoice : "auto"
       );

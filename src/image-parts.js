@@ -1,6 +1,7 @@
 /**
  * Experimental image content parts + output.images helpers.
- * Stable IPA chat stays string-only; this surface is experimental.request only.
+ * Stable IPA chat stays string-only for content; image parts are
+ * experimental.request only. Tools are on stable request.
  */
 
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */

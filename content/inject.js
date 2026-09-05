@@ -19,6 +19,60 @@
   const pending = new Map();
   /** @type {Map<string, (data: any) => void>} */
   const streamHandlers = new Map();
+  /** One-shot deprecation notice for tools via experimental.request. */
+  let warnedExperimentalTools = false;
+  /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
+  let warnedExperimentalRunTools = false;
+
+  /**
+   * Graduated tools surface still accepted on experimental.request for
+   * back-compat. Images remain experimental-only.
+   * @param {any} request
+   * @returns {boolean}
+   */
+  function requestUsesGraduatedTools(request) {
+    if (!request || typeof request !== "object") return false;
+    if (request.tools !== undefined || request.toolChoice !== undefined) {
+      return true;
+    }
+    if (!Array.isArray(request.messages)) return false;
+    for (const msg of request.messages) {
+      if (!msg || typeof msg !== "object") continue;
+      if (
+        msg.role === "tool" ||
+        msg.toolCalls !== undefined ||
+        msg.toolCallId !== undefined
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {any} request
+   */
+  function warnExperimentalToolsOnce(request) {
+    if (warnedExperimentalTools || !requestUsesGraduatedTools(request)) {
+      return;
+    }
+    warnedExperimentalTools = true;
+    console.warn(
+      "[Inference Bridge] tools and hosted web_search graduated to " +
+        "window.inference.request; experimental.request remains for images. " +
+        "Prefer request() for tool calling."
+    );
+  }
+
+  function warnExperimentalRunToolsOnce() {
+    if (warnedExperimentalRunTools) return;
+    warnedExperimentalRunTools = true;
+    console.warn(
+      "[Inference Bridge] experimental.runTools is a DevTools / no-bundler " +
+        "helper. For shipped apps, prefer runTools from the ipa-tools package " +
+        "with window.inference.request()."
+    );
+  }
 
   /**
    * @param {string} code
@@ -269,6 +323,9 @@
   function createStream(request, options = {}) {
     const experimental = options.experimental === true;
     const signal = request && typeof request === "object" ? request.signal : undefined;
+    if (experimental) {
+      warnExperimentalToolsOnce(request);
+    }
 
     return {
       [Symbol.asyncIterator]() {
@@ -489,6 +546,8 @@
       throw makeError("invalid_request", "runTools options must be an object.");
     }
 
+    warnExperimentalRunToolsOnce();
+
     const {
       tools,
       execute,
@@ -527,7 +586,8 @@
 
       /** @type {any} */
       let done;
-      for await (const chunk of createStream(req, { experimental: true })) {
+      // Stable request: tools graduated; avoid experimental tools deprecation warn.
+      for await (const chunk of createStream(req)) {
         if (signal?.aborted) {
           throw makeError("aborted", "Request aborted");
         }
@@ -668,16 +728,15 @@
       },
       /**
        * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
-       * toolCalling stays false until tools graduate from experimental.request.
-       * Do not advertise webSearch here — hosted `{ type: "web_search" }` stays
-       * on experimental.request until a dedicated graduation (not as a side
-       * effect of graduating toolCalling).
+       * toolCalling / webSearch advertise tools and hosted `{ type: "web_search" }`
+       * on stable request. imageInput / imageOutput stay off until images graduate.
        * options.reasoningEffort / options.temperature are advertised once Bridge
        * validates and maps them.
        */
       getFeatures() {
         return {
-          toolCalling: false,
+          toolCalling: true,
+          webSearch: true,
           options: { reasoningEffort: true, temperature: true },
         };
       },

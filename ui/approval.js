@@ -93,7 +93,7 @@ let currentModels = [];
 /** Bumped on each model load so a slower earlier fetch cannot repaint. */
 let modelsLoadId = 0;
 
-/** Tools from the pending approval request (experimental path). */
+/** Tools from the pending approval request. */
 /** @type {import("../src/providers/types.js").Tool[] | undefined} */
 let requestTools;
 /** @type {import("../src/providers/types.js").ToolChoice | undefined} */

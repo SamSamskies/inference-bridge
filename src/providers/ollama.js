@@ -410,7 +410,7 @@ export async function streamOllamaChatTurn({
       };
       if (tools && tools.length > 0) {
         body.tools = tools;
-        // Default matches validateExperimentalInferenceRequest when tools present.
+        // Default matches validateInferenceRequest when tools present.
         body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
       }
       const think = mapReasoningEffortForOllama(options?.reasoningEffort);

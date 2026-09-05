@@ -8,14 +8,15 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 ## Features
 
-- `window.inference.request()` for streaming text chat
-- `window.inference.getFeatures()` (`toolCalling: false` until tools graduate to stable `request`; `options.reasoningEffort` and `options.temperature`)
+- `window.inference.request()` for streaming text chat, function tools, and hosted `{ type: "web_search" }`
+- `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `options.reasoningEffort`, `options.temperature`)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
-- Experimental function tools via `window.inference.experimental` (page-executed relay, optional `runTools` loop)
-- Experimental hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
+- Function tools on stable `request` (page-executed relay; optional `experimental.runTools` for DevTools demos)
+- Hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
+- Experimental image input and output via `window.inference.experimental`
 - Origin/Referer stripping for local Ollama and other loopback OpenAI-compatible servers (no `OLLAMA_ORIGINS` required in the common case)
 - Secure-context injection only (`https:` or loopback `http:`)
 
@@ -233,10 +234,10 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Spec contract (`window.inference.request`, `getFeatures`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: false, options: { reasoningEffort: true, temperature: true } }` |
+| Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: true, webSearch: true, options: { reasoningEffort: true, temperature: true } }` |
 | Request options | Implemented; `options.reasoningEffort` / `options.temperature` on stable + experimental `request` (best-effort provider mapping) |
-| Tools | Optional in IPA (`getFeatures().toolCalling`); Bridge-experimental only until graduation |
-| Vision / audio / embeddings | Not implemented; treat as future experimental candidates |
+| Tools | Implemented on stable `request` (`getFeatures().toolCalling` / `webSearch`) |
+| Vision / audio / embeddings | Vision is Bridge-experimental (`experimental.request`); audio / embeddings are future candidates |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
@@ -274,91 +275,21 @@ IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
 | `0`–`2` | top-level `temperature` | top-level `temperature`, clamped to `[0, 1]` | nested `options: { temperature }` |
 
 Values outside `[0, 2]` or non-finite numbers are `invalid_request`. Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot honor the value. OpenAI-compatible APIs retry once without `temperature` when a 400 names that field (some GPT-5 reasoning models, including gpt-5-nano, only accept the default `1`). On-device Prompt API ignores temperature today.
-## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. If a capability later graduates into IPA, migrate callers from `experimental.request` → `request`. The page-side tool loop already lives in [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) for real apps; Bridge also exposes `experimental.runTools` for DevTools / no-bundler demos. Neither belongs on stable `window.inference`.
 
-Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
+## Tools
 
-### Images (experimental)
-
-`window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
-
-Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
-
-- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
-- OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
-- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
-- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
-- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
-- Chat Always-allow does not cover image input or image output. Approval lists them separately.
-
-Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
-
-- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails. For remote URLs that lack CORS headers, an image proxy such as [wsrv.nl](https://wsrv.nl/) (e.g. `https://wsrv.nl/?url=…`) often works.
-- `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
-- `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
-
-Local Ollama does not fetch remote URLs (the page does, then Bridge sends bytes).
+Stable `window.inference.request` accepts function tools, hosted `{ type: "web_search" }`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages:
 
 ```js
-for await (const chunk of window.inference.experimental.request({
-  method: "chat",
-  messages: [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: "What is in this photo?" },
-        // Page fetch needs CORS; if the host blocks it, try a proxy e.g. https://wsrv.nl/?url=…
-        { type: "image", url: "https://httpbin.org/image/png" },
-      ],
-    },
-  ],
-})) {
-  if (chunk.type === "delta") console.log("[delta]", chunk.content);
-  if (chunk.type === "done") console.log("[done]", chunk.message.content);
-}
+window.inference.getFeatures()              // { toolCalling: true, webSearch: true, options: { reasoningEffort: true, temperature: true } }
+window.inference.request(...)               // IPA-stable chat + tools + options
+window.inference.experimental.runTools(...) // optional page-side agent loop helper (DevTools / no-bundler)
 ```
 
-Generate an image (OpenAI GPT-4o / GPT-5 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
+`experimental.request` still accepts tools for back-compat and logs a one-time `console.warn` directing callers to stable `request`. Prefer `request()` for new tool code. Images remain experimental-only.
 
-```js
-for await (const chunk of window.inference.experimental.request({
-  method: "chat",
-  messages: [{ role: "user", content: "a red panda sticker, simple shapes" }],
-  output: { images: true },
-})) {
-  if (chunk.type === "delta") console.log("[delta]", chunk.content);
-  if (chunk.type === "done") {
-    const content = chunk.message.content;
-    console.log("[done]", content);
-    if (!Array.isArray(content)) continue;
-    for (const part of content) {
-      if (part.type !== "image") continue;
-      const img = document.createElement("img");
-      img.alt = "generated image";
-      img.src = `data:${part.mediaType};base64,${part.data}`;
-      img.style.maxWidth = "320px";
-      document.body.append(img);
-    }
-  }
-}
-```
-
-### Function tools
-
-Stable IPA chat stays SPEC-faithful. Tool calling is only available through the experimental namespace:
-
-```js
-window.inference.getFeatures()              // { toolCalling: false, options: { reasoningEffort: true, temperature: true } }
-window.inference.request(...)               // IPA-stable chat (+ options when advertised)
-window.inference.experimental.request(...)  // Bridge experimental (tools, etc.)
-window.inference.experimental.runTools(...) // optional page-side agent loop helper
-```
-
-`getFeatures()` reports what stable `request` accepts, not whether `experimental.request` can relay tools. Bridge returns `toolCalling: false` until tools graduate; apps that want tools today should keep calling `experimental`. `options.reasoningEffort` and `options.temperature` are advertised on the stable surface and also accepted on `experimental.request`.
-
-Stable `window.inference.request` **rejects** `tools`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages (`invalid_request`). Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
+Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
@@ -366,7 +297,7 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
-#### Hosted `web_search`
+### Hosted `web_search`
 
 | Provider | Hosted `{ type: "web_search" }` |
 | --- | --- |
@@ -382,7 +313,7 @@ Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)*
 Use OpenAI, Anthropic, OpenRouter, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
 
 ```js
-for await (const chunk of window.inference.experimental.request({
+for await (const chunk of window.inference.request({
   method: "chat",
   messages: [
     {
@@ -408,25 +339,24 @@ for await (const chunk of window.inference.experimental.request({
 
 You can include function tools in the same `tools` array; those still execute on the page as usual.
 
-#### `experimental.request` parameters
+### `request` parameters (tools)
 
 | Param | Required | Type | Notes |
 | --- | --- | --- | --- |
 | `method` | yes | `"chat"` | Only chat is supported. |
-| `messages` | yes | `ExperimentalMessage[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. |
+| `messages` | yes | `Message[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. String content on stable `request` (image parts stay experimental). |
 | `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
-| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as stable IPA `options`; unknown keys ignored. |
-| `output` | no | `{ images?: boolean }` | Image generation. Experimental; not on stable `request`. |
+| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as IPA `options`; unknown keys ignored. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
 
-**`messages` shapes**
+**`messages` shapes (stable)**
 
 | Role | Fields |
 | --- | --- |
 | `system` | `content: string` |
-| `user` | `content: string` or `ContentPart[]` (text / image) |
-| `assistant` | `content: string \| ContentPart[] \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
+| `user` | `content: string` |
+| `assistant` | `content: string \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
 | `tool` | `toolCallId: string`; `content: string` (usually JSON text) |
 
 **`tools` / `ToolCall`**
@@ -436,28 +366,9 @@ You can include function tools in the same `tools` array; those still execute on
 | Function tool | `{ type: "function", function: { name, description?, parameters? } }` — `parameters` is JSON Schema |
 | `ToolCall` (on assistant / `done.message`) | `{ id, type: "function", function: { name, arguments } }` — `arguments` is a JSON string |
 
-Returns the same streaming contract as stable `request`: `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.toolCalls` may be set (often with empty/null `content`).
+Returns `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.toolCalls` may be set (often with empty/null `content`).
 
-#### `experimental.runTools` parameters
-
-Page-side agent loop. Calls `experimental.request` internally; Bridge still does not execute tools. For apps, prefer [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` (npm package, TypeScript types, works across IPA implementations); pass `experimental.request` until tools graduate onto stable `request`. Bridge’s `experimental.runTools` is convenient for console / paste-ready demos without a bundler.
-
-| Param | Required | Type | Notes |
-| --- | --- | --- | --- |
-| `messages` | yes | `ExperimentalMessage[]` | Conversation seed (mutated copy returned). |
-| `tools` | no | `Tool[]` | Forwarded on each round. |
-| `execute` | usually | `Record<string, (args) => unknown \| Promise<unknown>>` | Map of tool name → page handler. Required for any tool the model calls. |
-| `toolChoice` | no | same as `request` | Forwarded each round when set. |
-| `maxRounds` | no | `number` | Default `5`. Positive finite. |
-| `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
-| `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
-| `onToolCall` | no | `({ id, name, arguments }) => void` | Fired once per tool call after args are parsed, before `execute` runs. Useful for UI chips / logging; putting UI inside `execute` is still fine. |
-| `signal` | no | `AbortSignal` | Aborts between / during rounds. |
-| `method` | no | `"chat"` | Defaults to `"chat"`. |
-
-Returns `Promise<{ messages, final }>` where `final` is the last `done` chunk (text reply after tools, or the first turn if no `toolCalls`) and `messages` includes assistant/`tool` turns appended by the loop.
-
-#### Manual multi-turn (page executes)
+### Manual multi-turn (page executes)
 
 ```js
 async function getWeather({ city }) {
@@ -485,7 +396,7 @@ const messages = [
 ];
 
 let done;
-for await (const chunk of window.inference.experimental.request({
+for await (const chunk of window.inference.request({
   method: "chat",
   messages,
   tools,
@@ -515,7 +426,7 @@ if (done.message.toolCalls?.length) {
     });
   }
 
-  for await (const chunk of window.inference.experimental.request({
+  for await (const chunk of window.inference.request({
     method: "chat",
     messages,
     tools,
@@ -532,9 +443,24 @@ if (done.message.toolCalls?.length) {
 }
 ```
 
-#### `runTools` helper
+### `experimental.runTools` helper
 
-`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Useful in DevTools without installing a package; for shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) instead. Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn:
+`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Useful in DevTools without installing a package; the first call logs a one-time `console.warn`. For shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request` instead. Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn.
+
+| Param | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `messages` | yes | `Message[]` | Conversation seed (mutated copy returned). |
+| `tools` | no | `Tool[]` | Forwarded on each round. |
+| `execute` | usually | `Record<string, (args) => unknown \| Promise<unknown>>` | Map of tool name → page handler. Required for any tool the model calls. |
+| `toolChoice` | no | same as `request` | Forwarded each round when set. |
+| `maxRounds` | no | `number` | Default `5`. Positive finite. |
+| `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
+| `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
+| `onToolCall` | no | `({ id, name, arguments }) => void` | Fired once per tool call after args are parsed, before `execute` runs. Useful for UI chips / logging; putting UI inside `execute` is still fine. |
+| `signal` | no | `AbortSignal` | Aborts between / during rounds. |
+| `method` | no | `"chat"` | Defaults to `"chat"`. |
+
+Returns `Promise<{ messages, final }>` where `final` is the last `done` chunk (text reply after tools, or the first turn if no `toolCalls`) and `messages` includes assistant/`tool` turns appended by the loop.
 
 ```js
 const { final, messages } = await window.inference.experimental.runTools({
@@ -627,7 +553,7 @@ const { final } = await window.inference.experimental.runTools({
 console.log("[final]", final.message.content);
 ```
 
-#### Function-tool provider matrix
+### Function-tool provider matrix
 
 | Provider | Function tools |
 | --- | --- |
@@ -636,9 +562,79 @@ console.log("[final]", final.message.content);
 | OpenRouter | Chat Completions `tools` |
 | Ollama | `/api/chat` `tools` |
 | OpenAI-compatible | Chat Completions `tools` |
-| On-device | Not supported (`toolCalling` stays false for this provider) |
+| On-device | Not supported (Allow disabled / `unavailable`) |
 
-Approval shows an **Experimental** banner and a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools or hosted `web_search` request, Allow stays disabled with a hint to pick another provider. Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+Approval shows a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools or hosted `web_search` request, Allow stays disabled with a hint to pick another provider. Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
+
+## Experimental Features
+
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools and hosted web search have graduated to stable `request`. Images stay experimental until they graduate. `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
+
+Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
+### Images (experimental)
+
+`window.inference.experimental.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`. Stable `request` rejects both (`invalid_request`). `getFeatures()` does **not** advertise `imageInput` / `imageOutput`.
+
+Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
+
+- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
+- OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
+- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
+- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
+- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
+- Chat Always-allow does not cover image input or image output. Approval lists them separately.
+
+Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
+
+- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails. For remote URLs that lack CORS headers, an image proxy such as [wsrv.nl](https://wsrv.nl/) (e.g. `https://wsrv.nl/?url=…`) often works.
+- `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
+- `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
+
+Local Ollama does not fetch remote URLs (the page does, then Bridge sends bytes).
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What is in this photo?" },
+        // Page fetch needs CORS; if the host blocks it, try a proxy e.g. https://wsrv.nl/?url=…
+        { type: "image", url: "https://httpbin.org/image/png" },
+      ],
+    },
+  ],
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") console.log("[done]", chunk.message.content);
+}
+```
+
+Generate an image (OpenAI GPT-4o / GPT-5 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
+
+```js
+for await (const chunk of window.inference.experimental.request({
+  method: "chat",
+  messages: [{ role: "user", content: "a red panda sticker, simple shapes" }],
+  output: { images: true },
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") {
+    const content = chunk.message.content;
+    console.log("[done]", content);
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part.type !== "image") continue;
+      const img = document.createElement("img");
+      img.alt = "generated image";
+      img.src = `data:${part.mediaType};base64,${part.data}`;
+      img.style.maxWidth = "320px";
+      document.body.append(img);
+    }
+  }
+}
+```
 
 ## Development
 
@@ -658,7 +654,7 @@ npm run package
 ### Manual checks
 
 - [ ] `window.inference` exists on `https://example.com` after install
-- [ ] `window.inference.getFeatures()` returns `{ toolCalling: false, options: { reasoningEffort: true, temperature: true } }` (sync, no prompt)
+- [ ] `window.inference.getFeatures()` returns `{ toolCalling: true, webSearch: true, options: { reasoningEffort: true, temperature: true } }` (sync, no prompt)
 - [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
 - [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)
 - [ ] Invalid `options.reasoningEffort` or `options.temperature` → `invalid_request`
@@ -688,24 +684,25 @@ npm run package
 - [ ] Compat `/v1/models` failure still allows typing a model id
 - [ ] Switching default provider does not rewrite existing origin grants
 - [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
-- [ ] `window.inference.request` rejects `tools` / `toolChoice` / tool messages (`invalid_request`)
+- [ ] `window.inference.request` accepts `tools` / `toolChoice` / tool messages (feature-detect via `getFeatures`)
 - [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
-- [ ] Function tool round-trip via `experimental.request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
+- [ ] Function tool round-trip via `request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
 - [ ] `experimental.runTools` completes a page-executed loop with the same shape
 - [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI (OpenAI uses `/v1/responses` only when search is present)
-- [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, experimental chat searches; without key, Allow is disabled (no silent strip)
+- [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, chat searches; without key, Allow is disabled (no silent strip)
 - [ ] OpenAI-compatible / On-device: Allow disabled for `web_search`; if the request proceeds, `unavailable` (no silent strip)
 - [ ] `toolChoice: "none"` does not run hosted search (OpenAI / Anthropic / OpenRouter / Ollama ollama.com loop)
 - [ ] Approval lists “Web search (provider-hosted)” or “Web search (Ollama cloud)” (Ollama description mentions fetch)
-- [ ] Approval shows Experimental banner + tool names; Always-allow origin still prompts when tools present
+- [ ] Approval shows tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
-- [ ] `getFeatures()` still has no `webSearch: true`; stable `request` still rejects `tools`
+- [ ] `experimental.request` with tools still works and logs a one-time deprecation `console.warn`
+- [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the tools-graduation warn)
 - [ ] Experimental `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 
 ### Current limitations
 
 - Built-in providers are OpenAI, Anthropic, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are user-configured
-- Text chat on the stable IPA path; function tools are Bridge-experimental only (`window.inference.experimental`)
+- Function tools and hosted web search are on stable `request`; images remain Bridge-experimental (`window.inference.experimental`)
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property

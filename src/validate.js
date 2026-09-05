@@ -1,7 +1,6 @@
 import { IMAGE_MEDIA_TYPES, isImageMediaType } from "./image-parts.js";
 
-const ROLES = new Set(["system", "user", "assistant"]);
-const EXPERIMENTAL_ROLES = new Set(["system", "user", "assistant", "tool"]);
+const CHAT_ROLES = new Set(["system", "user", "assistant", "tool"]);
 const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
 const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
 const IMAGE_MEDIA_TYPE_LIST = IMAGE_MEDIA_TYPES.join('", "');
@@ -46,7 +45,7 @@ const IMAGE_MEDIA_TYPE_LIST = IMAGE_MEDIA_TYPES.join('", "');
  *   reasoning?: string,
  *   toolCalls?: ToolCall[],
  *   toolCallId?: string,
- * }} ExperimentalMessage
+ * }} ChatMessage
  */
 
 /**
@@ -73,7 +72,7 @@ function rejectLegacySnakeCaseToolFields(m, i) {
 }
 
 /**
- * Stable IPA path rejects experimental tool fields instead of stripping them.
+ * Stable IPA path rejects experimental image fields instead of stripping them.
  * @param {Record<string, unknown>} req
  * @param {Array<Record<string, unknown>>} messages
  * @returns {{ ok: false, message: string } | null}
@@ -196,52 +195,6 @@ function validateOutput(output) {
 }
 
 /**
- * @param {Record<string, unknown>} req
- * @param {Array<Record<string, unknown>>} messages
- * @returns {{ ok: false, message: string } | null}
- */
-function rejectStableToolFields(req, messages) {
-  // Treat undefined as absent so spreads like `{ ...opts, tools: undefined }`
-  // do not trip the stable path.
-  if (req.tools !== undefined) {
-    return {
-      ok: false,
-      message:
-        'tools is only available via window.inference.experimental.request.',
-    };
-  }
-  if (req.toolChoice !== undefined) {
-    return {
-      ok: false,
-      message:
-        'toolChoice is only available via window.inference.experimental.request.',
-    };
-  }
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
-    const legacy = rejectLegacySnakeCaseToolFields(m, i);
-    if (legacy) return legacy;
-    if (m.toolCalls !== undefined) {
-      return {
-        ok: false,
-        message:
-          'messages[].toolCalls is only available via window.inference.experimental.request.',
-      };
-    }
-    if (m.toolCallId !== undefined) {
-      return {
-        ok: false,
-        message:
-          'messages[].toolCallId is only available via window.inference.experimental.request.',
-      };
-    }
-  }
-  return null;
-}
-
-/**
- * Validate IPA `options` (`reasoningEffort`, `temperature`). Unknown keys ignored.
  * @param {unknown} options
  * @returns {{ ok: true, value?: InferenceOptions } | { ok: false, message: string }}
  */
@@ -285,87 +238,6 @@ function validateOptions(options) {
   if (Object.keys(value).length === 0) {
     return { ok: true, value: undefined };
   }
-  return { ok: true, value };
-}
-
-/**
- * Validate an InferenceRequest from a page script.
- * @param {unknown} request
- * @returns {{ ok: true, value: { method: "chat", messages: Array<{role: string, content: string, reasoning?: string}>, options?: InferenceOptions } } | { ok: false, message: string }}
- */
-export function validateInferenceRequest(request) {
-  if (request == null || typeof request !== "object" || Array.isArray(request)) {
-    return { ok: false, message: "Request must be an object." };
-  }
-
-  const req = /** @type {Record<string, unknown>} */ (request);
-
-  if (req.method !== "chat") {
-    return { ok: false, message: 'Only method "chat" is supported in this draft.' };
-  }
-
-  if (!Array.isArray(req.messages) || req.messages.length === 0) {
-    return { ok: false, message: "messages must be a non-empty array." };
-  }
-
-  const toolReject = rejectStableToolFields(
-    req,
-    /** @type {Array<Record<string, unknown>>} */ (req.messages)
-  );
-  if (toolReject) return toolReject;
-
-  const imageReject = rejectStableImageFields(
-    req,
-    /** @type {Array<Record<string, unknown>>} */ (req.messages)
-  );
-  if (imageReject) return imageReject;
-
-  const messages = [];
-  for (let i = 0; i < req.messages.length; i++) {
-    const msg = req.messages[i];
-    if (msg == null || typeof msg !== "object" || Array.isArray(msg)) {
-      return { ok: false, message: `messages[${i}] must be an object.` };
-    }
-    const m = /** @type {Record<string, unknown>} */ (msg);
-    if (typeof m.role !== "string" || !ROLES.has(m.role)) {
-      return {
-        ok: false,
-        message: `messages[${i}].role must be "system", "user", or "assistant".`,
-      };
-    }
-    if (typeof m.content !== "string") {
-      return { ok: false, message: `messages[${i}].content must be a string.` };
-    }
-    /** @type {{ role: string, content: string, reasoning?: string }} */
-    const normalized = { role: m.role, content: m.content };
-    if ("reasoning" in m) {
-      if (typeof m.reasoning !== "string") {
-        return {
-          ok: false,
-          message: `messages[${i}].reasoning must be a string when present.`,
-        };
-      }
-      if (m.reasoning) {
-        normalized.reasoning = m.reasoning;
-      }
-    }
-    messages.push(normalized);
-  }
-
-  if ("signal" in req && req.signal != null) {
-    // AbortSignal cannot cross realms; page bridge handles abort via messages.
-    // Ignore any serialized signal field if present.
-  }
-
-  /** @type {{ method: "chat", messages: typeof messages, options?: InferenceOptions }} */
-  const value = { method: "chat", messages };
-
-  if (req.options !== undefined) {
-    const options = validateOptions(req.options);
-    if (!options.ok) return options;
-    if (options.value) value.options = options.value;
-  }
-
   return { ok: true, value };
 }
 
@@ -543,21 +415,21 @@ function validateToolChoice(toolChoice) {
 }
 
 /**
- * Validate a Bridge-experimental InferenceRequest (tools / tool messages).
- * Not part of the IPA draft contract — only used for `window.inference.experimental.request`.
  * @param {unknown} request
+ * @param {{ allowImages?: boolean }} [opts]
  * @returns {{
  *   ok: true,
  *   value: {
  *     method: "chat",
- *     messages: ExperimentalMessage[],
+ *     messages: ChatMessage[],
  *     tools?: Tool[],
  *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
  *     options?: InferenceOptions,
+ *     output?: { images?: boolean },
  *   },
  * } | { ok: false, message: string }}
  */
-export function validateExperimentalInferenceRequest(request) {
+function validateChatRequest(request, { allowImages = false } = {}) {
   if (request == null || typeof request !== "object" || Array.isArray(request)) {
     return { ok: false, message: "Request must be an object." };
   }
@@ -572,7 +444,15 @@ export function validateExperimentalInferenceRequest(request) {
     return { ok: false, message: "messages must be a non-empty array." };
   }
 
-  /** @type {ExperimentalMessage[]} */
+  if (!allowImages) {
+    const imageReject = rejectStableImageFields(
+      req,
+      /** @type {Array<Record<string, unknown>>} */ (req.messages)
+    );
+    if (imageReject) return imageReject;
+  }
+
+  /** @type {ChatMessage[]} */
   const messages = [];
   for (let i = 0; i < req.messages.length; i++) {
     const msg = req.messages[i];
@@ -580,7 +460,7 @@ export function validateExperimentalInferenceRequest(request) {
       return { ok: false, message: `messages[${i}] must be an object.` };
     }
     const m = /** @type {Record<string, unknown>} */ (msg);
-    if (typeof m.role !== "string" || !EXPERIMENTAL_ROLES.has(m.role)) {
+    if (typeof m.role !== "string" || !CHAT_ROLES.has(m.role)) {
       return {
         ok: false,
         message: `messages[${i}].role must be "system", "user", "assistant", or "tool".`,
@@ -600,13 +480,13 @@ export function validateExperimentalInferenceRequest(request) {
       if (typeof m.content !== "string") {
         return { ok: false, message: `messages[${i}].content must be a string.` };
       }
-      if ("toolCalls" in m) {
+      if (m.toolCalls !== undefined) {
         return {
           ok: false,
           message: `messages[${i}] with role "tool" must not include toolCalls.`,
         };
       }
-      if ("reasoning" in m) {
+      if (m.reasoning !== undefined) {
         return {
           ok: false,
           message: `messages[${i}] with role "tool" must not include reasoning.`,
@@ -621,28 +501,36 @@ export function validateExperimentalInferenceRequest(request) {
     }
 
     if (m.role === "assistant") {
+      if (m.toolCallId !== undefined) {
+        return {
+          ok: false,
+          message: `messages[${i}] with role "assistant" must not include toolCallId.`,
+        };
+      }
       // Chat Completions often omits content when only toolCalls are present.
       /** @type {string | ContentPart[] | null} */
       let content;
       if (!("content" in m)) {
-        if (!("toolCalls" in m)) {
+        if (m.toolCalls === undefined) {
           return {
             ok: false,
-            message: `messages[${i}].content must be a string, content parts, or null.`,
+            message: allowImages
+              ? `messages[${i}].content must be a string, content parts, or null.`
+              : `messages[${i}].content must be a string or null.`,
           };
         }
         content = null;
       } else {
         const parsed = validateMessageContent(m.content, i, {
           allowNull: true,
-          allowParts: true,
+          allowParts: allowImages,
         });
         if (!parsed.ok) return parsed;
         content = parsed.value;
       }
-      /** @type {ExperimentalMessage} */
+      /** @type {ChatMessage} */
       const normalized = { role: "assistant", content };
-      if ("toolCalls" in m) {
+      if (m.toolCalls !== undefined) {
         const toolCalls = validateToolCalls(m.toolCalls, `messages[${i}].toolCalls`);
         if (!toolCalls.ok) return toolCalls;
         normalized.toolCalls = toolCalls.value;
@@ -663,17 +551,23 @@ export function validateExperimentalInferenceRequest(request) {
     }
 
     // system | user
-    if ("toolCalls" in m) {
+    if (m.toolCalls !== undefined) {
       return {
         ok: false,
         message: `messages[${i}] with role "${m.role}" must not include toolCalls.`,
       };
     }
+    if (m.toolCallId !== undefined) {
+      return {
+        ok: false,
+        message: `messages[${i}] with role "${m.role}" must not include toolCallId.`,
+      };
+    }
     const parsed = validateMessageContent(m.content, i, {
-      allowParts: m.role === "user",
+      allowParts: allowImages && m.role === "user",
     });
     if (!parsed.ok) return parsed;
-    /** @type {ExperimentalMessage} */
+    /** @type {ChatMessage} */
     const normalized = { role: m.role, content: parsed.value };
     if ("reasoning" in m) {
       if (typeof m.reasoning !== "string") {
@@ -691,7 +585,7 @@ export function validateExperimentalInferenceRequest(request) {
 
   /** @type {{
    *   method: "chat",
-   *   messages: ExperimentalMessage[],
+   *   messages: ChatMessage[],
    *   tools?: Tool[],
    *   toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
    *   options?: InferenceOptions,
@@ -721,7 +615,7 @@ export function validateExperimentalInferenceRequest(request) {
     if (options.value) value.options = options.value;
   }
 
-  if (req.output !== undefined) {
+  if (allowImages && req.output !== undefined) {
     const output = validateOutput(req.output);
     if (!output.ok) return output;
     if (output.value) value.output = output.value;
@@ -732,6 +626,46 @@ export function validateExperimentalInferenceRequest(request) {
   }
 
   return { ok: true, value };
+}
+
+/**
+ * Validate an InferenceRequest from a page script (stable IPA surface).
+ * Accepts function tools, hosted `{ type: "web_search" }`, and tool messages.
+ * Image content parts / `output.images` stay on experimental.request.
+ * @param {unknown} request
+ * @returns {{
+ *   ok: true,
+ *   value: {
+ *     method: "chat",
+ *     messages: ChatMessage[],
+ *     tools?: Tool[],
+ *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+ *     options?: InferenceOptions,
+ *   },
+ * } | { ok: false, message: string }}
+ */
+export function validateInferenceRequest(request) {
+  return validateChatRequest(request, { allowImages: false });
+}
+
+/**
+ * Validate a Bridge-experimental InferenceRequest (images / output).
+ * Tools are also accepted here for back-compat; prefer stable `request` for tools.
+ * @param {unknown} request
+ * @returns {{
+ *   ok: true,
+ *   value: {
+ *     method: "chat",
+ *     messages: ChatMessage[],
+ *     tools?: Tool[],
+ *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
+ *     options?: InferenceOptions,
+ *     output?: { images?: boolean },
+ *   },
+ * } | { ok: false, message: string }}
+ */
+export function validateExperimentalInferenceRequest(request) {
+  return validateChatRequest(request, { allowImages: true });
 }
 
 /**
