@@ -240,7 +240,7 @@ export async function streamOpenAICompatChat({
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
-      // Default matches validateExperimentalInferenceRequest when tools present.
+      // Default matches validateInferenceRequest when tools present.
       body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
     }
     const reasoningEffort = mapReasoningEffortForOpenAICompat(

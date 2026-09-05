@@ -1,5 +1,6 @@
 /**
- * Page-side multi-turn function-tool loop for experimental.request.
+ * Page-side multi-turn function-tool loop for experimental.runTools demos.
+ * Prefer ipa-tools runTools with stable request in shipped apps.
  *
  * Bridge does not execute tools — callers pass `execute` handlers. The loop
  * only relays via `request` (AsyncIterable) and appends role:"tool" messages.

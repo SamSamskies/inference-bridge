@@ -19,6 +19,48 @@
   const pending = new Map();
   /** @type {Map<string, (data: any) => void>} */
   const streamHandlers = new Map();
+  /** One-shot deprecation notice for tools via experimental.request. */
+  let warnedExperimentalTools = false;
+
+  /**
+   * Graduated tools surface still accepted on experimental.request for
+   * back-compat. Images remain experimental-only.
+   * @param {any} request
+   * @returns {boolean}
+   */
+  function requestUsesGraduatedTools(request) {
+    if (!request || typeof request !== "object") return false;
+    if (request.tools !== undefined || request.toolChoice !== undefined) {
+      return true;
+    }
+    if (!Array.isArray(request.messages)) return false;
+    for (const msg of request.messages) {
+      if (!msg || typeof msg !== "object") continue;
+      if (
+        msg.role === "tool" ||
+        msg.toolCalls !== undefined ||
+        msg.toolCallId !== undefined
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {any} request
+   */
+  function warnExperimentalToolsOnce(request) {
+    if (warnedExperimentalTools || !requestUsesGraduatedTools(request)) {
+      return;
+    }
+    warnedExperimentalTools = true;
+    console.warn(
+      "[Inference Bridge] tools and hosted web_search graduated to " +
+        "window.inference.request; experimental.request remains for images. " +
+        "Prefer request() for tool calling."
+    );
+  }
 
   /**
    * @param {string} code
@@ -269,6 +311,9 @@
   function createStream(request, options = {}) {
     const experimental = options.experimental === true;
     const signal = request && typeof request === "object" ? request.signal : undefined;
+    if (experimental) {
+      warnExperimentalToolsOnce(request);
+    }
 
     return {
       [Symbol.asyncIterator]() {
@@ -668,16 +713,15 @@
       },
       /**
        * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
-       * toolCalling stays false until tools graduate from experimental.request.
-       * Do not advertise webSearch here — hosted `{ type: "web_search" }` stays
-       * on experimental.request until a dedicated graduation (not as a side
-       * effect of graduating toolCalling).
+       * toolCalling / webSearch advertise tools and hosted `{ type: "web_search" }`
+       * on stable request. imageInput / imageOutput stay off until images graduate.
        * options.reasoningEffort / options.temperature are advertised once Bridge
        * validates and maps them.
        */
       getFeatures() {
         return {
-          toolCalling: false,
+          toolCalling: true,
+          webSearch: true,
           options: { reasoningEffort: true, temperature: true },
         };
       },
