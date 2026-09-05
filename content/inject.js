@@ -21,6 +21,8 @@
   const streamHandlers = new Map();
   /** One-shot deprecation notice for tools via experimental.request. */
   let warnedExperimentalTools = false;
+  /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
+  let warnedExperimentalRunTools = false;
 
   /**
    * Graduated tools surface still accepted on experimental.request for
@@ -59,6 +61,16 @@
       "[Inference Bridge] tools and hosted web_search graduated to " +
         "window.inference.request; experimental.request remains for images. " +
         "Prefer request() for tool calling."
+    );
+  }
+
+  function warnExperimentalRunToolsOnce() {
+    if (warnedExperimentalRunTools) return;
+    warnedExperimentalRunTools = true;
+    console.warn(
+      "[Inference Bridge] experimental.runTools is a DevTools / no-bundler " +
+        "helper. For shipped apps, prefer runTools from the ipa-tools package " +
+        "with window.inference.request()."
     );
   }
 
@@ -534,6 +546,8 @@
       throw makeError("invalid_request", "runTools options must be an object.");
     }
 
+    warnExperimentalRunToolsOnce();
+
     const {
       tools,
       execute,
@@ -572,7 +586,8 @@
 
       /** @type {any} */
       let done;
-      for await (const chunk of createStream(req, { experimental: true })) {
+      // Stable request: tools graduated; avoid experimental tools deprecation warn.
+      for await (const chunk of createStream(req)) {
         if (signal?.aborted) {
           throw makeError("aborted", "Request aborted");
         }

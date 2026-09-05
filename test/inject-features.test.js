@@ -125,3 +125,66 @@ describe("experimental.request tools deprecation", () => {
     expect(warnings).toHaveLength(0);
   });
 });
+
+describe("experimental.runTools deprecation", () => {
+  /**
+   * @param {{ consoleWarn?: (...args: unknown[]) => void }} [opts]
+   */
+  function loadInferenceWithWarn(opts = {}) {
+    const filename = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../content/inject.js"
+    );
+    const window = {
+      addEventListener() {},
+      removeEventListener() {},
+      isSecureContext: true,
+    };
+    window.top = window;
+    const consoleWarn = opts.consoleWarn || (() => {});
+    vm.runInNewContext(
+      readFileSync(filename, "utf8"),
+      {
+        window,
+        Object,
+        Math,
+        Map,
+        Set,
+        Promise,
+        Error,
+        Symbol,
+        console: { warn: consoleWarn },
+      },
+      { filename }
+    );
+    return window.inference;
+  }
+
+  it("warns once toward ipa-tools, not the tools graduation message", async () => {
+    const warnings = [];
+    const inference = loadInferenceWithWarn({
+      consoleWarn: (...args) => warnings.push(args.join(" ")),
+    });
+
+    await expect(
+      inference.experimental.runTools({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "x" } }],
+        execute: { x: async () => "ok" },
+      })
+    ).rejects.toThrow();
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/ipa-tools/);
+    expect(warnings[0]).not.toMatch(/graduated to window\.inference\.request/);
+
+    await expect(
+      inference.experimental.runTools({
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "x" } }],
+        execute: { x: async () => "ok" },
+      })
+    ).rejects.toThrow();
+    expect(warnings).toHaveLength(1);
+  });
+});

@@ -445,7 +445,7 @@ if (done.message.toolCalls?.length) {
 
 ### `experimental.runTools` helper
 
-`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Useful in DevTools without installing a package; for shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request` instead. Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn.
+`window.inference.experimental.runTools` runs the same page-side loop for you (still page-executed handlers). Useful in DevTools without installing a package; the first call logs a one-time `console.warn`. For shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request` instead. Register multiple tools in `tools` and matching handlers in `execute` — the model may call one or more per turn.
 
 | Param | Required | Type | Notes |
 | --- | --- | --- | --- |
@@ -568,7 +568,7 @@ Approval shows a Tools preview (function names and **Web search (provider-hosted
 
 ## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools and hosted web search have graduated to stable `request`. Images stay experimental until they graduate. `experimental.runTools` is a permanent DevTools / no-bundler convenience — prefer [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) for shipped page-side tool loops.
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools and hosted web search have graduated to stable `request`. Images stay experimental until they graduate. `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
 
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 ### Images (experimental)
@@ -696,6 +696,7 @@ npm run package
 - [ ] Approval shows tool names; Always-allow origin still prompts when tools present
 - [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
 - [ ] `experimental.request` with tools still works and logs a one-time deprecation `console.warn`
+- [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the tools-graduation warn)
 - [ ] Experimental `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 
 ### Current limitations
