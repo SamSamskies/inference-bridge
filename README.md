@@ -718,6 +718,10 @@ Issues and pull requests are welcome.
 - Prefer experimental, clearly labeled features over expanding the normative API prematurely
 - Add unit tests for non-UI logic where practical
 
+### AI coding agents
+
+Shared agent instructions live in **[AGENTS.md](./AGENTS.md)** (build commands, layout, IPA alignment, browser-first sample code). Reusable workflows are under **[`.agents/skills/`](./.agents/skills/)** (for example `ship-chrome-release`). Cursor-specific glob rules stay in [`.cursor/rules/`](./.cursor/rules/). See [docs/ai-agents.md](./docs/ai-agents.md) for Codex, Claude Code, Cursor, and other harnesses.
+
 See also [Chrome Web Store release checklist](./docs/chrome-web-store.md) and the [privacy policy](./PRIVACY.md).
 
 ## License
