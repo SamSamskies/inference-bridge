@@ -14,6 +14,7 @@ import {
   isToolFingerprintCovered,
   isToolGrantCovered,
   startsWithMessageHistory,
+  summarizeToolFingerprintLabels,
   summarizeToolsForPreview,
 } from "../src/tool-approval.js";
 
@@ -382,6 +383,33 @@ describe("summarizeToolsForPreview / hostedToolLabel", () => {
       /fetch/i
     );
     expect(hostedToolDescription("web_search", { id: "openai" })).toBe("");
+  });
+});
+
+describe("summarizeToolFingerprintLabels", () => {
+  it("labels hosted and function identities like the approval preview", () => {
+    expect(
+      summarizeToolFingerprintLabels(
+        "fn:get_weather|hosted:web_search",
+        { id: "openai" }
+      )
+    ).toEqual(["get_weather", "Web search (provider-hosted)"]);
+    expect(
+      summarizeToolFingerprintLabels("hosted:web_search", { id: "ollama" })
+    ).toEqual(["Web search (Ollama cloud)"]);
+  });
+
+  it("notes toolChoice none when present", () => {
+    expect(
+      summarizeToolFingerprintLabels("hosted:web_search", { id: "openai" }, {
+        toolChoiceNone: true,
+      })
+    ).toEqual(["Web search (provider-hosted)", "Tool choice: none"]);
+  });
+
+  it("returns an empty list for blank fingerprints", () => {
+    expect(summarizeToolFingerprintLabels("")).toEqual([]);
+    expect(summarizeToolFingerprintLabels(undefined)).toEqual([]);
   });
 });
 

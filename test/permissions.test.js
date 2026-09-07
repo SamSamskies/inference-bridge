@@ -19,6 +19,7 @@ import {
   saveSettings,
   setOriginLastUsed,
   setOriginProviderModel,
+  clearOriginToolsScope,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -1290,6 +1291,45 @@ describe("ensurePermission with tools", () => {
       model: "gpt-4o-mini",
     });
     await expect(again).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts tools after Options clears tools scope on Always-allow", async () => {
+    const origin = "https://tools-options-clear.example";
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+
+    await expect(clearOriginToolsScope(origin)).resolves.toBe(true);
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    // Plain chat still auto-allows.
+    await expect(
+      ensurePermission({
+        requestId: "rt4d",
+        origin,
+        messages: [{ role: "user", content: "hi" }],
+      })
+    ).resolves.toMatchObject({ allowed: true, once: false });
+
+    const pending = ensurePermission({
+      requestId: "rt4e",
+      origin,
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt4e");
+    resolveApproval("rt4e", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
   it("forgets in-memory tool episodes when Always-allow is granted without tools", async () => {

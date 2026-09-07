@@ -11,6 +11,9 @@ import {
   getOriginLastUsed,
   blockOrigin,
   hasStoredApiKey,
+  listAllowedOrigins,
+  clearOriginToolsScope,
+  clearOriginImageScope,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -451,6 +454,104 @@ describe("grantOriginAlways toolChoiceNone", () => {
       providerId: "ollama",
       model: "llava",
     });
+  });
+});
+
+describe("listAllowedOrigins / clear scope", () => {
+  it("surfaces tools and image scope on listed grants", async () => {
+    await grantOriginAlways("https://tools.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather|hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+      imageOutput: true,
+    });
+    await grantOriginAlways("https://chat.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    await expect(listAllowedOrigins()).resolves.toEqual([
+      {
+        origin: "https://chat.example",
+        providerId: "openai",
+        model: "gpt-4o-mini",
+        allowedAt: expect.any(Number),
+      },
+      {
+        origin: "https://tools.example",
+        providerId: "openai",
+        model: "gpt-4o-mini",
+        allowedAt: expect.any(Number),
+        toolFingerprint: "fn:get_weather|hosted:web_search",
+        toolChoiceNone: true,
+        imageInput: true,
+        imageOutput: true,
+      },
+    ]);
+  });
+
+  it("clears tools scope while keeping chat and image grants", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+    });
+
+    await expect(clearOriginToolsScope("https://app.example")).resolves.toBe(
+      true
+    );
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      imageInput: true,
+    });
+    await expect(listAllowedOrigins()).resolves.toEqual([
+      {
+        origin: "https://app.example",
+        providerId: "openai",
+        model: "gpt-4o-mini",
+        allowedAt: expect.any(Number),
+        imageInput: true,
+      },
+    ]);
+  });
+
+  it("clears image scope while keeping chat and tools grants", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "ollama",
+      model: "llava",
+      toolFingerprint: "fn:get_weather",
+      imageInput: true,
+      imageOutput: true,
+    });
+
+    await expect(clearOriginImageScope("https://app.example")).resolves.toBe(
+      true
+    );
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "ollama",
+      model: "llava",
+      toolFingerprint: "fn:get_weather",
+    });
+  });
+
+  it("returns false when clearing scope for an unknown origin", async () => {
+    await expect(clearOriginToolsScope("https://missing.example")).resolves.toBe(
+      false
+    );
+    await expect(clearOriginImageScope("https://missing.example")).resolves.toBe(
+      false
+    );
   });
 });
 

@@ -5,6 +5,8 @@ import {
   listAllowedOrigins,
   listBlockedOrigins,
   revokeOrigin,
+  clearOriginToolsScope,
+  clearOriginImageScope,
   setOriginProviderModel,
   unblockOrigin,
   isPlausibleModelForProvider,
@@ -14,6 +16,7 @@ import {
   requestHostPermissionForBaseUrl,
 } from "../src/host-permissions.js";
 import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
+import { summarizeToolFingerprintLabels } from "../src/tool-approval.js";
 import {
   isModelValid,
   populateModelInput,
@@ -1042,6 +1045,72 @@ async function renderOrigins() {
     modelStatus.className = "hint origin-model-hint";
     meta.append(modelStatus);
 
+    const toolLabels = summarizeToolFingerprintLabels(
+      grant.toolFingerprint,
+      { id: grant.providerId },
+      { toolChoiceNone: grant.toolChoiceNone === true }
+    );
+    /** @type {string[]} */
+    const imageLabels = [];
+    if (grant.imageInput === true) imageLabels.push("Image input");
+    if (grant.imageOutput === true) imageLabels.push("Image output");
+
+    /**
+     * @param {string} caption
+     * @param {string[]} labels
+     * @param {{ ariaLabel: string, onClick: () => Promise<void> }} revoke
+     */
+    function appendScopeRow(caption, labels, revoke) {
+      if (labels.length === 0) return;
+      const scope = document.createElement("div");
+      scope.className = "origin-scope";
+      const scopeCaption = document.createElement("span");
+      scopeCaption.textContent = caption;
+      const row = document.createElement("div");
+      row.className = "origin-scope-row";
+      const scopeText = document.createElement("p");
+      scopeText.className = "origin-scope-labels";
+      scopeText.textContent = labels.join(" · ");
+      const revokeBtn = document.createElement("button");
+      revokeBtn.type = "button";
+      revokeBtn.className = "linkish";
+      revokeBtn.textContent = "Revoke";
+      revokeBtn.setAttribute("aria-label", revoke.ariaLabel);
+      revokeBtn.addEventListener("click", () => {
+        void revoke.onClick();
+      });
+      row.append(scopeText, revokeBtn);
+      scope.append(scopeCaption, row);
+      meta.append(scope);
+    }
+
+    appendScopeRow("Tools", toolLabels, {
+      ariaLabel: `Revoke tools for ${grant.origin}`,
+      onClick: async () => {
+        const ok = await clearOriginToolsScope(grant.origin);
+        await renderOrigins();
+        setStatus(
+          ok
+            ? `Revoked tools for ${grant.origin}`
+            : `Could not revoke tools for ${grant.origin}`,
+          ok ? "ok" : "err"
+        );
+      },
+    });
+    appendScopeRow("Images", imageLabels, {
+      ariaLabel: `Revoke images for ${grant.origin}`,
+      onClick: async () => {
+        const ok = await clearOriginImageScope(grant.origin);
+        await renderOrigins();
+        setStatus(
+          ok
+            ? `Revoked images for ${grant.origin}`
+            : `Could not revoke images for ${grant.origin}`,
+          ok ? "ok" : "err"
+        );
+      },
+    });
+
     /** Bumped on each model load for this grant so slower fetches cannot repaint. */
     let originModelsLoadId = 0;
     /** @type {Array<{ id: string, label?: string }>} */
@@ -1273,6 +1342,9 @@ async function renderOrigins() {
       commitOriginModelInput();
     });
 
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "danger";
@@ -1282,8 +1354,9 @@ async function renderOrigins() {
       await renderOrigins();
       setStatus(`Revoked ${grant.origin}`, "ok");
     });
+    actions.append(button);
 
-    li.append(meta, button);
+    li.append(meta, actions);
     originsEl.append(li);
 
     if (!providerKnown) {

@@ -638,17 +638,101 @@ export async function revokeOrigin(origin) {
 }
 
 /**
- * @returns {Promise<Array<{ origin: string, providerId: string, model?: string, allowedAt: number }>>}
+ * Drop tools Always-allow scope while keeping chat (and image) grants.
+ * @param {string} origin
+ * @returns {Promise<boolean>} false if the origin is not granted
+ */
+export async function clearOriginToolsScope(origin) {
+  if (!isPersistableOriginKey(origin)) return false;
+  const { allowedOrigins } = await getSettings();
+  const grant = allowedOrigins[origin];
+  if (!grant) return false;
+  if (!grant.toolFingerprint && grant.toolChoiceNone !== true) return true;
+  /** @type {OriginGrant} */
+  const next = {
+    allowedAt: grant.allowedAt,
+    providerId: normalizeProviderId(grant.providerId),
+    model: grant.model,
+  };
+  if (grant.imageInput === true) next.imageInput = true;
+  if (grant.imageOutput === true) next.imageOutput = true;
+  allowedOrigins[origin] = next;
+  await chrome.storage.local.set({ allowedOrigins });
+  return true;
+}
+
+/**
+ * Drop image Always-allow flags while keeping chat (and tools) grants.
+ * @param {string} origin
+ * @returns {Promise<boolean>} false if the origin is not granted
+ */
+export async function clearOriginImageScope(origin) {
+  if (!isPersistableOriginKey(origin)) return false;
+  const { allowedOrigins } = await getSettings();
+  const grant = allowedOrigins[origin];
+  if (!grant) return false;
+  if (grant.imageInput !== true && grant.imageOutput !== true) return true;
+  /** @type {OriginGrant} */
+  const next = {
+    allowedAt: grant.allowedAt,
+    providerId: normalizeProviderId(grant.providerId),
+    model: grant.model,
+  };
+  if (
+    typeof grant.toolFingerprint === "string" &&
+    grant.toolFingerprint.trim()
+  ) {
+    next.toolFingerprint = grant.toolFingerprint.trim();
+    if (grant.toolChoiceNone === true) next.toolChoiceNone = true;
+  }
+  allowedOrigins[origin] = next;
+  await chrome.storage.local.set({ allowedOrigins });
+  return true;
+}
+
+/**
+ * @returns {Promise<Array<{
+ *   origin: string,
+ *   providerId: string,
+ *   model?: string,
+ *   allowedAt: number,
+ *   toolFingerprint?: string,
+ *   toolChoiceNone?: boolean,
+ *   imageInput?: boolean,
+ *   imageOutput?: boolean,
+ * }>>}
  */
 export async function listAllowedOrigins() {
   const { allowedOrigins } = await getSettings();
   return Object.entries(allowedOrigins)
-    .map(([origin, grant]) => ({
-      origin,
-      providerId: normalizeProviderId(grant?.providerId),
-      model: grant?.model,
-      allowedAt: grant?.allowedAt ?? 0,
-    }))
+    .map(([origin, grant]) => {
+      /** @type {{
+       *   origin: string,
+       *   providerId: string,
+       *   model?: string,
+       *   allowedAt: number,
+       *   toolFingerprint?: string,
+       *   toolChoiceNone?: boolean,
+       *   imageInput?: boolean,
+       *   imageOutput?: boolean,
+       * }} */
+      const row = {
+        origin,
+        providerId: normalizeProviderId(grant?.providerId),
+        model: grant?.model,
+        allowedAt: grant?.allowedAt ?? 0,
+      };
+      if (
+        typeof grant?.toolFingerprint === "string" &&
+        grant.toolFingerprint.trim()
+      ) {
+        row.toolFingerprint = grant.toolFingerprint.trim();
+        if (grant.toolChoiceNone === true) row.toolChoiceNone = true;
+      }
+      if (grant?.imageInput === true) row.imageInput = true;
+      if (grant?.imageOutput === true) row.imageOutput = true;
+      return row;
+    })
     .sort((a, b) => a.origin.localeCompare(b.origin));
 }
 

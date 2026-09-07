@@ -289,6 +289,40 @@ export function hostedToolLabel(hostedId, provider) {
 }
 
 /**
+ * Short labels for a stored tools fingerprint (Options Always-allow rows).
+ * Mirrors approval preview naming without needing the original tool objects.
+ * @param {string | undefined | null} fingerprint
+ * @param {{ id?: string } | null | undefined} [provider]
+ * @param {{ toolChoiceNone?: boolean }} [opts]
+ * @returns {string[]}
+ */
+export function summarizeToolFingerprintLabels(
+  fingerprint,
+  provider,
+  opts = {}
+) {
+  if (typeof fingerprint !== "string" || !fingerprint.trim()) return [];
+  /** @type {string[]} */
+  const labels = [];
+  for (const id of fingerprint.split("|").filter(Boolean)) {
+    if (id.startsWith("hosted:")) {
+      labels.push(hostedToolLabel(id.slice("hosted:".length), provider));
+      continue;
+    }
+    if (id.startsWith("fn:")) {
+      const name = id.slice(3);
+      if (name) labels.push(name);
+      continue;
+    }
+    labels.push(id);
+  }
+  if (opts.toolChoiceNone === true && labels.length > 0) {
+    labels.push("Tool choice: none");
+  }
+  return labels;
+}
+
+/**
  * Optional muted description under a hosted tool in the approval Tools list.
  * Used for context that is not an error (so it must not use the red warning).
  * @param {string} hostedId
