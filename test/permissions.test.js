@@ -19,6 +19,8 @@ import {
   saveSettings,
   setOriginLastUsed,
   setOriginProviderModel,
+  clearOriginToolsScope,
+  clearOriginImageScope,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -1292,6 +1294,45 @@ describe("ensurePermission with tools", () => {
     await expect(again).resolves.toMatchObject({ allowed: false });
   });
 
+  it("re-prompts tools after Options clears tools scope on Always-allow", async () => {
+    const origin = "https://tools-options-clear.example";
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+
+    await expect(clearOriginToolsScope(origin)).resolves.toBe(true);
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    // Plain chat still auto-allows.
+    await expect(
+      ensurePermission({
+        requestId: "rt4d",
+        origin,
+        messages: [{ role: "user", content: "hi" }],
+      })
+    ).resolves.toMatchObject({ allowed: true, once: false });
+
+    const pending = ensurePermission({
+      requestId: "rt4e",
+      origin,
+      messages: [{ role: "user", content: "weather?" }],
+      tools: weatherTools,
+    });
+    await waitForPending("rt4e");
+    resolveApproval("rt4e", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
   it("forgets in-memory tool episodes when Always-allow is granted without tools", async () => {
     const origin = "https://tools-episode-clear.example";
     const opening = [{ role: "user", content: "Weather in Austin?" }];
@@ -2534,6 +2575,71 @@ describe("ensurePermission with tools", () => {
     });
     await waitForPending("rt8b");
     resolveApproval("rt8b", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    await expect(turn2).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("re-prompts episode follow-ups after Options clears image scope", async () => {
+    const origin = "https://episode-image-revoke.example";
+    const opening = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Weather in Austin?" },
+          { type: "image", mediaType: "image/png", data: "aaa" },
+        ],
+      },
+    ];
+    const followUp = [
+      ...opening,
+      weatherFollowUpMessages[1],
+      weatherFollowUpMessages[2],
+    ];
+
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+      imageInput: true,
+    });
+
+    // Tools + image Always-allow seeds an episode that carries imageInput.
+    await expect(
+      ensurePermission({
+        requestId: "rt8-imgrev-a",
+        origin,
+        messages: opening,
+        tools: weatherTools,
+      })
+    ).resolves.toMatchObject({
+      allowed: true,
+      once: false,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+    });
+    expect(getPendingApproval("rt8-imgrev-a")).toBeNull();
+
+    await expect(clearOriginImageScope(origin)).resolves.toBe(true);
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "fn:get_weather",
+    });
+
+    // Stale episode must not keep auto-approving image input after Images → Revoke.
+    const turn2 = ensurePermission({
+      requestId: "rt8-imgrev-b",
+      origin,
+      messages: followUp,
+      tools: weatherTools,
+    });
+    await waitForPending("rt8-imgrev-b");
+    expect(getPendingApproval("rt8-imgrev-b")).not.toBeNull();
+    resolveApproval("rt8-imgrev-b", {
       decision: "deny",
       providerId: "openai",
       model: "gpt-4o-mini",

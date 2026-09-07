@@ -237,7 +237,7 @@ button:disabled {
 
 .list li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
@@ -276,6 +276,60 @@ button:disabled {
   margin: 0;
   font-size: 0.8rem;
   min-height: 1.1em;
+}
+
+.origin-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.origin-scope > span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.origin-scope-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 280px;
+}
+
+.origin-scope-labels {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+button.linkish {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  min-width: 0;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+button.linkish:hover {
+  color: var(--danger);
+  background: transparent;
+  filter: brightness(1.15);
+}
+
+button.linkish:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .hint-row {
