@@ -124,7 +124,8 @@ function forgetMatchingToolEpisodes(origin, messages, now = Date.now()) {
 
 /**
  * chrome.storage.onChanged handler: drop episodes when Always-allow grants are
- * removed or their provider/model/tools binding changes in place (e.g. Options).
+ * removed or their provider/model/tools/image binding changes in place
+ * (e.g. Options revoke or edit).
  * @param {object} changes
  * @param {string} areaName
  */
@@ -149,10 +150,10 @@ export function onAllowedOriginsStorageChanged(changes, areaName) {
  */
 function grantRoutingChanged(prev, next) {
   if (!next || typeof next !== "object") return true;
-  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown }} */ (
+  const prevGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown, imageInput?: unknown, imageOutput?: unknown }} */ (
     prev && typeof prev === "object" ? prev : {}
   );
-  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown }} */ (
+  const nextGrant = /** @type {{ providerId?: unknown, model?: unknown, toolFingerprint?: unknown, toolChoiceNone?: unknown, imageInput?: unknown, imageOutput?: unknown }} */ (
     next
   );
   const prevModel =
@@ -172,7 +173,9 @@ function grantRoutingChanged(prev, next) {
       normalizeProviderId(nextGrant.providerId) ||
     prevModel !== nextModel ||
     prevFp !== nextFp ||
-    (prevGrant.toolChoiceNone === true) !== (nextGrant.toolChoiceNone === true)
+    (prevGrant.toolChoiceNone === true) !== (nextGrant.toolChoiceNone === true) ||
+    (prevGrant.imageInput === true) !== (nextGrant.imageInput === true) ||
+    (prevGrant.imageOutput === true) !== (nextGrant.imageOutput === true)
   );
 }
 
