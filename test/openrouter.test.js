@@ -165,6 +165,44 @@ describe("openrouterProvider.streamChat", () => {
     });
   });
 
+  it("includes OpenRouter metadata.raw detail in HTTP provider errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            error: {
+              message: "Provider returned error",
+              code: 400,
+              metadata: {
+                provider_name: "Nex AGI",
+                raw: JSON.stringify({
+                  error: { message: "Failed to extract 1 image(s)" },
+                }),
+              },
+            },
+          },
+          400
+        )
+      )
+    );
+
+    await expect(
+      openrouterProvider.streamChat({
+        apiKey: "sk-or-test",
+        model: "openrouter/free",
+        messages: [{ role: "user", content: "hi" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "provider_error",
+      message:
+        "Provider returned error (Nex AGI): Failed to extract 1 image(s)",
+    });
+  });
+
   it("maps 401 and 402 to provider_error", async () => {
     for (const status of [401, 402]) {
       vi.stubGlobal(
