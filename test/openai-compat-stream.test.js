@@ -318,6 +318,20 @@ describe("streamOpenAICompatChat", () => {
     });
   });
 
+  it("includes nested OpenRouter metadata in mid-stream errors", async () => {
+    const sse = [
+      'data: {"error":{"message":"Provider returned error","metadata":{"provider_name":"Nex AGI","raw":"{\\"error\\":{\\"message\\":\\"image too large\\"}}"}}}',
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(sse)));
+
+    await expect(streamOpenAICompatChat(baseArgs())).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "provider_error",
+      message: "Provider returned error (Nex AGI): image too large",
+    });
+  });
+
   it("throws provider_error on mid-stream string error", async () => {
     vi.stubGlobal(
       "fetch",

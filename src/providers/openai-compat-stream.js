@@ -9,6 +9,10 @@ import {
   mapContentForOpenAICompat,
 } from "../image-parts.js";
 import {
+  formatProviderApiError,
+  readProviderErrorDetail,
+} from "./provider-error.js";
+import {
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
@@ -67,21 +71,6 @@ function setChatCompletionsReasoningEffort(body, effort) {
   } else {
     body.reasoning_effort = effort;
   }
-}
-
-/**
- * @param {Response} response
- * @param {string} fallback
- * @returns {Promise<string>}
- */
-async function readProviderErrorDetail(response, fallback) {
-  try {
-    const body = await response.json();
-    if (body?.error?.message) return body.error.message;
-  } catch {
-    // ignore parse failure
-  }
-  return fallback;
 }
 
 /**
@@ -357,15 +346,13 @@ export async function streamOpenAICompatChat({
 
     // Mid-stream errors arrive as data events with a top-level error field
     // (HTTP status is already 200). OpenAI does not send these, but the check
-    // is harmless when the field is absent.
+    // is harmless when the field is absent. OpenRouter may nest the real
+    // reason under error.metadata.raw.
     if (parsed.error) {
-      const message =
-        typeof parsed.error?.message === "string" && parsed.error.message
-          ? parsed.error.message
-          : typeof parsed.error === "string"
-            ? parsed.error
-            : `${label} stream error`;
-      throwInference("provider_error", message);
+      throwInference(
+        "provider_error",
+        formatProviderApiError(parsed.error, `${label} stream error`)
+      );
     }
 
     if (typeof parsed.model === "string" && parsed.model) {

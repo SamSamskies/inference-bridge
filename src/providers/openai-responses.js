@@ -14,6 +14,10 @@ import {
 } from "../image-parts.js";
 import { OPENAI_WEB_SEARCH_TOOL } from "./hosted-tools.js";
 import {
+  formatProviderApiError,
+  readProviderErrorDetail,
+} from "./provider-error.js";
+import {
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
@@ -52,12 +56,9 @@ function throwInference(code, message) {
  * @returns {string | undefined}
  */
 function openaiErrorMessage(err) {
-  if (typeof err === "string" && err) return err;
-  if (err && typeof err === "object") {
-    const message = /** @type {any} */ (err).message;
-    if (typeof message === "string" && message) return message;
-  }
-  return undefined;
+  if (err == null) return undefined;
+  const formatted = formatProviderApiError(err, "");
+  return formatted || undefined;
 }
 
 /**
@@ -115,21 +116,6 @@ function setResponsesReasoningEffort(body, effort) {
   } else {
     body.reasoning = { effort };
   }
-}
-
-/**
- * @param {Response} response
- * @param {string} fallback
- * @returns {Promise<string>}
- */
-async function readProviderErrorDetail(response, fallback) {
-  try {
-    const errBody = await response.json();
-    if (errBody?.error?.message) return errBody.error.message;
-  } catch {
-    // ignore parse failure
-  }
-  return fallback;
 }
 
 /**
