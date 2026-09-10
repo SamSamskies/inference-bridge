@@ -109,7 +109,30 @@ export function resetOpenRouterModalitiesCache() {
 }
 
 /**
+ * OpenRouter `:batch` slugs are Async Batch API-only (POST /api/beta/batches).
+ * They cannot be used with interactive chat completions / streaming.
+ * @param {string} model
+ * @returns {boolean}
+ */
+export function isOpenRouterBatchModel(model) {
+  return typeof model === "string" && model.endsWith(":batch");
+}
+
+/**
+ * @param {string} model
+ * @returns {string}
+ */
+function openRouterBatchModelMessage(model) {
+  const syncTwin = model.slice(0, -":batch".length);
+  const hint = syncTwin
+    ? ` Use "${syncTwin}" for interactive chat, or pick a non-batch model.`
+    : " Pick a non-batch model for interactive chat.";
+  return `OpenRouter model "${model}" is Batch API-only and cannot be used for interactive chat.${hint}`;
+}
+
+/**
  * List OpenRouter models from the public catalog (no auth required).
+ * Omits `:batch` variants — those require the async Batch API, not chat completions.
  * @param {{ signal?: AbortSignal }} [args]
  * @returns {Promise<import("./types.js").ModelInfo[]>}
  */
@@ -148,7 +171,7 @@ export async function listOpenRouterModels({ signal } = {}) {
   const models = [];
   for (const entry of entries) {
     const id = typeof entry?.id === "string" ? entry.id : "";
-    if (!id) continue;
+    if (!id || isOpenRouterBatchModel(id)) continue;
     rememberModalities(id, entry?.architecture);
     const label = typeof entry?.name === "string" && entry.name ? entry.name : undefined;
     /** @type {import("./types.js").ModelInfo} */
@@ -195,6 +218,9 @@ export const openrouterProvider = {
         "unavailable",
         "No OpenRouter model selected. Choose a model in the extension Options or approval dialog."
       );
+    }
+    if (isOpenRouterBatchModel(model)) {
+      throwInference("invalid_request", openRouterBatchModelMessage(model));
     }
 
     const wantImages = requestWantsImageOutput(output);
