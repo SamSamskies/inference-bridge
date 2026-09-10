@@ -1,7 +1,5 @@
 /**
- * Experimental image content parts + output.images helpers.
- * Stable IPA chat stays string-only for content; image parts are
- * experimental.request only. Tools are on stable request.
+ * Image content parts + output.images helpers for stable request.
  */
 
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
@@ -215,7 +213,7 @@ export function imageCapabilityWarnings(provider, request) {
       }
     } else if (!providerMapsImageInput(provider)) {
       warnings.push(
-        `${label} cannot read image parts in this experimental build. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
+        `${label} cannot read image parts. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
       );
     }
   }
@@ -284,7 +282,7 @@ export function assertImagesSupported(provider, messages, output, capabilities =
 }
 
 /**
- * Flatten experimental content parts for Ollama `/api/chat`.
+ * Flatten content parts for Ollama `/api/chat`.
  * Text parts concatenate in order; image parts become `images` (raw base64).
  *
  * @param {unknown} content

@@ -8,8 +8,7 @@ Manifest V3 Chrome extension implementing the [Inference Provider API (IPA)](htt
 
 - **Spec:** [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md)
 - **Stable API:** `window.inference.request()`, `window.inference.getFeatures()`
-- **Experimental:** `window.inference.experimental` — images (candidate for IPA graduation); `runTools` (Bridge DevTools helper; shipped apps should use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools))
-- Tools and hosted `{ type: "web_search" }` are on stable `request` (`getFeatures().toolCalling` / `webSearch`)
+- **Experimental:** `window.inference.experimental` — `request` is a deprecated alias of stable `request`; `runTools` (Bridge DevTools helper; shipped apps should use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools))
 
 ## Commands
 

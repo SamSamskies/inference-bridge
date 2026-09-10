@@ -102,7 +102,7 @@ function imagePart(content) {
   return parts.find((part) => part && part.type === "image");
 }
 
-describe("experimental image url / Blob encoding", () => {
+describe("image url / Blob encoding", () => {
   it("fetches image urls in the page and forwards base64 data", async () => {
     const fetched = [];
     const { inference, port1 } = loadInference({
@@ -361,12 +361,14 @@ describe("experimental image url / Blob encoding", () => {
     await expect(nextPromise).rejects.toMatchObject({ code: "aborted" });
   });
 
-  it("does not fetch image urls on stable request", async () => {
-    let fetched = false;
+  it("fetches image urls on stable request", async () => {
+    const fetched = [];
     const { inference, port1 } = loadInference({
-      fetch: async () => {
-        fetched = true;
-        return new Response(PNG_BYTES);
+      fetch: async (input) => {
+        fetched.push(String(input));
+        return new Response(PNG_BYTES, {
+          headers: { "Content-Type": "image/png" },
+        });
       },
     });
 
@@ -385,10 +387,12 @@ describe("experimental image url / Blob encoding", () => {
       { experimental: false }
     );
 
-    expect(fetched).toBe(false);
+    expect(fetched).toEqual(["https://httpbin.org/image/png"]);
     expect(imagePart(start.request.messages[0].content)).toEqual({
       type: "image",
-      url: "https://httpbin.org/image/png",
+      mediaType: "image/png",
+      data: PNG_B64,
     });
+    expect(start.experimental).toBeUndefined();
   });
 });
