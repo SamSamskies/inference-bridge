@@ -72,33 +72,6 @@ function rejectLegacySnakeCaseToolFields(m, i) {
 }
 
 /**
- * Stable IPA path rejects experimental image fields instead of stripping them.
- * @param {Record<string, unknown>} req
- * @param {Array<Record<string, unknown>>} messages
- * @returns {{ ok: false, message: string } | null}
- */
-function rejectStableImageFields(req, messages) {
-  if (req.output !== undefined) {
-    return {
-      ok: false,
-      message:
-        "output is only available via window.inference.experimental.request.",
-    };
-  }
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
-    if (Array.isArray(m.content)) {
-      return {
-        ok: false,
-        message: `messages[${i}].content parts are only available via window.inference.experimental.request.`,
-      };
-    }
-  }
-  return null;
-}
-
-/**
  * @param {unknown} content
  * @param {number} i
  * @param {{ allowNull?: boolean, allowParts?: boolean }} opts
@@ -415,8 +388,10 @@ function validateToolChoice(toolChoice) {
 }
 
 /**
+ * Validate an InferenceRequest from a page script (stable IPA surface).
+ * Accepts function tools, hosted `{ type: "web_search" }`, tool messages,
+ * image content parts, and `output.images`.
  * @param {unknown} request
- * @param {{ allowImages?: boolean }} [opts]
  * @returns {{
  *   ok: true,
  *   value: {
@@ -429,7 +404,7 @@ function validateToolChoice(toolChoice) {
  *   },
  * } | { ok: false, message: string }}
  */
-function validateChatRequest(request, { allowImages = false } = {}) {
+export function validateInferenceRequest(request) {
   if (request == null || typeof request !== "object" || Array.isArray(request)) {
     return { ok: false, message: "Request must be an object." };
   }
@@ -442,14 +417,6 @@ function validateChatRequest(request, { allowImages = false } = {}) {
 
   if (!Array.isArray(req.messages) || req.messages.length === 0) {
     return { ok: false, message: "messages must be a non-empty array." };
-  }
-
-  if (!allowImages) {
-    const imageReject = rejectStableImageFields(
-      req,
-      /** @type {Array<Record<string, unknown>>} */ (req.messages)
-    );
-    if (imageReject) return imageReject;
   }
 
   /** @type {ChatMessage[]} */
@@ -514,16 +481,14 @@ function validateChatRequest(request, { allowImages = false } = {}) {
         if (m.toolCalls === undefined) {
           return {
             ok: false,
-            message: allowImages
-              ? `messages[${i}].content must be a string, content parts, or null.`
-              : `messages[${i}].content must be a string or null.`,
+            message: `messages[${i}].content must be a string, content parts, or null.`,
           };
         }
         content = null;
       } else {
         const parsed = validateMessageContent(m.content, i, {
           allowNull: true,
-          allowParts: allowImages,
+          allowParts: true,
         });
         if (!parsed.ok) return parsed;
         content = parsed.value;
@@ -564,7 +529,7 @@ function validateChatRequest(request, { allowImages = false } = {}) {
       };
     }
     const parsed = validateMessageContent(m.content, i, {
-      allowParts: allowImages && m.role === "user",
+      allowParts: m.role === "user",
     });
     if (!parsed.ok) return parsed;
     /** @type {ChatMessage} */
@@ -615,7 +580,7 @@ function validateChatRequest(request, { allowImages = false } = {}) {
     if (options.value) value.options = options.value;
   }
 
-  if (allowImages && req.output !== undefined) {
+  if (req.output !== undefined) {
     const output = validateOutput(req.output);
     if (!output.ok) return output;
     if (output.value) value.output = output.value;
@@ -629,43 +594,13 @@ function validateChatRequest(request, { allowImages = false } = {}) {
 }
 
 /**
- * Validate an InferenceRequest from a page script (stable IPA surface).
- * Accepts function tools, hosted `{ type: "web_search" }`, and tool messages.
- * Image content parts / `output.images` stay on experimental.request.
+ * @deprecated Images graduated to stable `request`. Alias of
+ * {@link validateInferenceRequest} for older call sites.
  * @param {unknown} request
- * @returns {{
- *   ok: true,
- *   value: {
- *     method: "chat",
- *     messages: ChatMessage[],
- *     tools?: Tool[],
- *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
- *     options?: InferenceOptions,
- *   },
- * } | { ok: false, message: string }}
- */
-export function validateInferenceRequest(request) {
-  return validateChatRequest(request, { allowImages: false });
-}
-
-/**
- * Validate a Bridge-experimental InferenceRequest (images / output).
- * Tools are also accepted here for back-compat; prefer stable `request` for tools.
- * @param {unknown} request
- * @returns {{
- *   ok: true,
- *   value: {
- *     method: "chat",
- *     messages: ChatMessage[],
- *     tools?: Tool[],
- *     toolChoice?: "auto" | "none" | "required" | { type: "function", function: { name: string } },
- *     options?: InferenceOptions,
- *     output?: { images?: boolean },
- *   },
- * } | { ok: false, message: string }}
+ * @returns {ReturnType<typeof validateInferenceRequest>}
  */
 export function validateExperimentalInferenceRequest(request) {
-  return validateChatRequest(request, { allowImages: true });
+  return validateInferenceRequest(request);
 }
 
 /**

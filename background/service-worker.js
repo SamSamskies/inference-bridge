@@ -5,7 +5,6 @@
 import { serializeInferenceError } from "../src/errors.js";
 import {
   validateInferenceRequest,
-  validateExperimentalInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
 import { getSettings, hasStoredApiKey } from "../src/storage.js";
@@ -426,10 +425,7 @@ async function handleStart(port, msg, onStreamId) {
       return null;
     }
 
-    const experimental = msg.experimental === true;
-    const validated = experimental
-      ? validateExperimentalInferenceRequest(msg.request)
-      : validateInferenceRequest(msg.request);
+    const validated = validateInferenceRequest(msg.request);
     if (!validated.ok) {
       sendError("invalid_request", validated.message);
       activeStreams.delete(streamId);
@@ -449,9 +445,7 @@ async function handleStart(port, msg, onStreamId) {
       ...(validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
-      ...(experimental && validated.value.output
-        ? { output: validated.value.output }
-        : {}),
+      ...(validated.value.output ? { output: validated.value.output } : {}),
     });
 
     // Aborted while the permission prompt was open (tab closed / explicit abort).
@@ -559,9 +553,7 @@ async function handleStart(port, msg, onStreamId) {
         ? { toolChoice: validated.value.toolChoice }
         : {}),
       ...(validated.value.options ? { options: validated.value.options } : {}),
-      ...(experimental && validated.value.output
-        ? { output: validated.value.output }
-        : {}),
+      ...(validated.value.output ? { output: validated.value.output } : {}),
       signal: controller.signal,
       onDelta: (content) => {
         if (controller.signal.aborted) return;

@@ -53,7 +53,7 @@
 
 /**
  * @typedef {{ type: "text", text: string }} TextPart
- * Wire image part after the page injector. `experimental.request` also accepts
+ * Wire image part after the page injector. Page-facing `request` also accepts
  * `{ type: "image", url }` and `{ data: Blob }`; inject.js resolves those here.
  * @typedef {{
  *   type: "image",

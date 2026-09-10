@@ -63,7 +63,7 @@ Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-de
 • Streaming chat via window.inference.request()
 • Function tools and hosted web search on window.inference.request (page-executed function tools; keys stay in the extension)
 • Hosted web search on OpenAI, Anthropic, OpenRouter, and Ollama (Ollama search runs through ollama.com with an optional account key)
-• Experimental image input and output via window.inference.experimental (vision models / OpenAI & OpenRouter image generation; keys stay in the extension)
+• Image input and output on window.inference.request (vision models / OpenAI & OpenRouter image generation; keys stay in the extension)
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
 • OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints

@@ -64,14 +64,14 @@ describe("validateInferenceRequest", () => {
     ).toBe(false);
   });
 
-  it("rejects output and content parts on the stable path", () => {
+  it("accepts output and content parts on the stable path", () => {
     const output = validateInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
       output: { images: true },
     });
-    expect(output.ok).toBe(false);
-    expect(output.message).toMatch(/experimental/);
+    expect(output.ok).toBe(true);
+    expect(output.value.output).toEqual({ images: true });
 
     const parts = validateInferenceRequest({
       method: "chat",
@@ -85,8 +85,11 @@ describe("validateInferenceRequest", () => {
         },
       ],
     });
-    expect(parts.ok).toBe(false);
-    expect(parts.message).toMatch(/experimental/);
+    expect(parts.ok).toBe(true);
+    expect(parts.value.messages[0].content).toEqual([
+      { type: "text", text: "hi" },
+      { type: "image", mediaType: "image/png", data: "aaa" },
+    ]);
   });
 
   it("accepts tools, toolChoice, toolCalls, and tool messages on the stable path", () => {
@@ -368,7 +371,26 @@ describe("validateInferenceRequest", () => {
 });
 
 describe("validateExperimentalInferenceRequest", () => {
-  it("accepts user image parts and output.images on the experimental path", () => {
+  it("aliases validateInferenceRequest (images graduated)", () => {
+    const request = {
+      method: "chat",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "aaa" },
+          ],
+        },
+      ],
+      output: { images: false, extra: true },
+    };
+    expect(validateExperimentalInferenceRequest(request)).toEqual(
+      validateInferenceRequest(request)
+    );
+  });
+
+  it("accepts user image parts and output.images", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [
