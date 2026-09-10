@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  isOpenRouterBatchModel,
   listOpenRouterModels,
   openrouterProvider,
   resetOpenRouterModalitiesCache,
@@ -70,6 +71,30 @@ describe("listOpenRouterModels", () => {
     });
   });
 
+  it("omits :batch catalog entries (Batch API-only)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            { id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna" },
+            {
+              id: "openai/gpt-5.6-luna:batch",
+              name: "OpenAI: GPT-5.6 Luna (batch)",
+            },
+            { id: "openrouter/free", name: "Free Models Router" },
+          ],
+        })
+      )
+    );
+
+    const models = await listOpenRouterModels();
+    expect(models.map((m) => m.id)).toEqual([
+      "openai/gpt-5.6-luna",
+      "openrouter/free",
+    ]);
+  });
+
   it("throws unavailable on network failure", async () => {
     vi.stubGlobal(
       "fetch",
@@ -106,7 +131,36 @@ describe("listOpenRouterModels", () => {
   });
 });
 
+describe("isOpenRouterBatchModel", () => {
+  it("detects :batch suffix only", () => {
+    expect(isOpenRouterBatchModel("openai/gpt-5.6-luna:batch")).toBe(true);
+    expect(isOpenRouterBatchModel("openai/gpt-5.6-luna")).toBe(false);
+    expect(isOpenRouterBatchModel("openai/gpt-4:free")).toBe(false);
+    expect(isOpenRouterBatchModel("")).toBe(false);
+  });
+});
+
 describe("openrouterProvider.streamChat", () => {
+  it("rejects :batch models before calling chat completions", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      openrouterProvider.streamChat({
+        apiKey: "sk-or-test",
+        model: "openai/gpt-5.6-luna:batch",
+        messages: [{ role: "user", content: "hi" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      name: "InferenceError",
+      code: "invalid_request",
+      message: expect.stringContaining("openai/gpt-5.6-luna"),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("streams deltas, ignores keep-alive comments, and maps usage", async () => {
     const sse = [
       ": OPENROUTER PROCESSING",
