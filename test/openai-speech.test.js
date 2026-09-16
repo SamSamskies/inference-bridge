@@ -42,6 +42,7 @@ describe("OpenAI transcription", () => {
     expect(init.body).toBeInstanceOf(FormData);
     expect(init.body.get("model")).toBe("gpt-4o-transcribe");
     expect(init.body.get("response_format")).toBe("json");
+    expect(init.body.get("stream")).toBe("true");
     expect(init.body.get("language")).toBe("en-US");
     const file = init.body.get("file");
     expect(file).toBeInstanceOf(Blob);
@@ -50,6 +51,47 @@ describe("OpenAI transcription", () => {
       model: "gpt-4o-transcribe",
       transcript: { text: "hello world", language: "en" },
       usage: { inputSeconds: 1.25 },
+    });
+  });
+
+  it("emits append-only deltas and returns the final streaming transcript", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          "event: transcript.text.delta",
+          'data: {"type":"transcript.text.delta","delta":"hello "}',
+          "",
+          "event: transcript.text.delta",
+          'data: {"type":"transcript.text.delta","delta":"world"}',
+          "",
+          "event: transcript.text.done",
+          'data: {"type":"transcript.text.done","text":"hello world","languages":[{"code":"en"}]}',
+          "",
+          "",
+        ].join("\n"),
+        { headers: { "Content-Type": "text/event-stream; charset=utf-8" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const deltas = [];
+
+    const result = await transcribeOpenAI({
+      apiKey: "sk-test",
+      model: "gpt-transcribe",
+      audio: {
+        data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }),
+        mediaType: "audio/wav",
+        byteLength: 1,
+      },
+      signal: new AbortController().signal,
+      onDelta: (content) => deltas.push(content),
+    });
+
+    expect(deltas).toEqual(["hello ", "world"]);
+    expect(deltas.join("")).toBe(result.transcript.text);
+    expect(result).toEqual({
+      model: "gpt-transcribe",
+      transcript: { text: "hello world", language: "en" },
     });
   });
 

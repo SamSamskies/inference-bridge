@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-08-17
+**Last updated:** 2026-09-16
 
 Inference Bridge is a Chrome extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles.
 
@@ -8,8 +8,10 @@ Inference Bridge is a Chrome extension that implements the experimental [Inferen
 
 - API keys and provider settings are stored locally in the browser via `chrome.storage.local`.
 - Inference request content is sent only to the provider the user selects (for example OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI, or a user-configured OpenAI-compatible server).
+- When experimental speech is enabled and approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
+- Recordings, transcripts, and generated audio are held only in memory for the active request and are never stored in `chrome.storage`.
 
 ## Data the extension stores locally
 
@@ -20,6 +22,7 @@ Inference Bridge is a Chrome extension that implements the experimental [Inferen
 | Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | `chrome.storage.local` |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | `chrome.storage.local` |
 | Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | `chrome.storage.local` |
+| Per-origin speech grants and provider/model/voice choices | Keep transcription and synthesis authorization separate from chat and from each other | `chrome.storage.local` |
 
 This data stays on the device unless the user clears extension storage or uninstalls the extension.
 
@@ -27,14 +30,14 @@ This data stays on the device unless the user clears extension storage or uninst
 
 When the user allows a site to use inference:
 
-- **OpenAI:** chat messages (and, when the user allows image input, image bytes from the page) and the stored OpenAI API key are sent to `https://api.openai.com` for the selected model. When the user allows image output, generated image bytes from OpenAI are returned to the page.
+- **OpenAI:** chat messages (and, when the user allows image input, image bytes from the page) and the stored OpenAI API key are sent to `https://api.openai.com` for the selected model. When the user allows image output, generated image bytes from OpenAI are returned to the page. When the user separately enables and approves experimental speech, the complete bounded audio/media file is uploaded to OpenAI for transcription, or synthesis text is sent to OpenAI and generated MP3 bytes are returned to the page. An MP4/WebM upload can include visual or other container bytes even though only its audio track has transcription semantics.
 - **Anthropic:** chat messages (and, when the user allows image input, image bytes from the page) and the stored Anthropic API key are sent to `https://api.anthropic.com` (Messages API) for the selected model.
 - **OpenRouter:** chat messages and the stored OpenRouter API key are sent to `https://openrouter.ai` for the selected model. The public model catalog (`GET /api/v1/models`) is fetched without an API key to populate the Options UI. When the user allows image input or output, image bytes may be sent to or returned from OpenRouter for the selected model.
 - **Ollama:** chat messages (and, when the user allows image input, image bytes from the page) are sent to the local Ollama endpoint (`http://localhost:11434` / `http://127.0.0.1:11434`). If the page passes an image `url`, the page fetches it (same CORS rules as the site) and the extension then sends those bytes to the selected provider. When the user enables hosted `{ type: "web_search" }` and has saved an Ollama account API key, Inference Bridge also sends search queries (and optional page-fetch URLs) plus that key to `https://ollama.com` (`/api/web_search`, `/api/web_fetch`). Local chat does not use that key. Generated images are not requested from Ollama in the current build.
 - **On-device:** chat messages (and, when the user allows image input, image bytes from the page) are processed by the browser Prompt API (`LanguageModel`) on the device. No API key is used. The browser chooses and may download the model when the user clicks **Install** in Options. Generated images are not requested from the Prompt API.
 - **OpenAI-compatible:** chat messages (and, when the user allows image input, image bytes from the page, plus an optional API key, if configured) are sent only to the base URL the user saved. The extension may also call that server’s `/v1/models` to populate the model picker.
 
-The extension does not receive or relay responses through any Inference Bridge server.
+The extension does not receive or relay responses through any Inference Bridge server. Page-supplied transcription URLs are fetched by the page under that page's CORS rules; the privileged extension does not fetch them. Speech media is passed through without local demuxing, transcoding, visual analysis, or automatic playback.
 
 ## Permissions
 
@@ -43,7 +46,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `storage` | Save settings, API keys, and origin grants |
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject `chrome-extension://` origins |
 | `offscreen` | Host the browser Prompt API for the On-device provider (not available in the service worker) |
-| `https://api.openai.com/*` | Call the OpenAI Chat Completions API |
+| `https://api.openai.com/*` | Call OpenAI chat, image, transcription, and speech-synthesis APIs selected by the user |
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog and Chat Completions API |
 | `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
@@ -58,6 +61,8 @@ Content scripts inject `window.inference` into top-level HTTP(S) pages so web ap
 - We do not use inference content for advertising.
 - We do not require an Inference Bridge account.
 - We do not collect analytics in the current release.
+- We do not persist recordings, transcripts, or generated audio.
+- We do not capture the microphone or tab audio, autoplay generated speech, or upload speech media without operation-specific approval.
 
 ## Changes
 

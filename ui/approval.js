@@ -1097,7 +1097,7 @@ async function load() {
     requestMethod === "transcribe"
       ? "This site wants to send a complete media file to a provider for transcription."
       : requestMethod === "synthesize"
-        ? "This site wants a provider to generate synthetic speech from text."
+        ? "This site wants a provider to generate synthetic speech from text. This may incur provider charges."
         : "This site wants to send a chat request through Inference Bridge.";
   const requestedId =
     typeof request.providerId === "string" &&

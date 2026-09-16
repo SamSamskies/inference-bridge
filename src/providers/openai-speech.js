@@ -104,6 +104,7 @@ export async function transcribeOpenAI(args) {
   const body = new FormData();
   body.append("model", args.model);
   body.append("response_format", "json");
+  body.append("stream", "true");
   if (args.language) body.append("language", args.language);
   body.append(
     "file",
@@ -126,6 +127,14 @@ export async function transcribeOpenAI(args) {
   }
   if (!response.ok) {
     throw await mapOpenAIError(response, "transcription");
+  }
+
+  const responseMediaType = (response.headers.get("Content-Type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (responseMediaType === "text/event-stream") {
+    return readStreamingTranscription(response, args);
   }
 
   let payload;
@@ -157,6 +166,88 @@ export async function transcribeOpenAI(args) {
     Number.isFinite(payload.duration)
       ? { usage: { inputSeconds: payload.duration } }
       : {}),
+  };
+}
+
+async function readStreamingTranscription(response, args) {
+  if (!response.body) {
+    throw inferenceError(
+      "provider_error",
+      "OpenAI returned an empty transcription stream."
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalEvent = null;
+
+  async function consumeBlock(block) {
+    const data = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data || data === "[DONE]") return;
+    let event;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw inferenceError(
+        "provider_error",
+        "OpenAI returned malformed transcription stream data."
+      );
+    }
+    if (
+      event.type === "transcript.text.delta" &&
+      typeof event.delta === "string" &&
+      event.delta
+    ) {
+      await args.onDelta(event.delta);
+    } else if (
+      event.type === "transcript.text.done" &&
+      typeof event.text === "string"
+    ) {
+      finalEvent = event;
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || "";
+      for (const block of blocks) await consumeBlock(block);
+      if (done) break;
+    }
+    if (buffer.trim()) await consumeBlock(buffer);
+  } catch (err) {
+    if (args.signal.aborted || /** @type {any} */ (err)?.name === "AbortError") {
+      throw inferenceError("aborted", "Request aborted");
+    }
+    throw err;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const text = typeof finalEvent?.text === "string" ? finalEvent.text : "";
+  if (!text.trim()) {
+    throw inferenceError(
+      "invalid_request",
+      "No audible speech was detected in the media file."
+    );
+  }
+  const language =
+    Array.isArray(finalEvent.languages) &&
+    typeof finalEvent.languages[0]?.code === "string"
+      ? finalEvent.languages[0].code
+      : undefined;
+  return {
+    model: args.model,
+    transcript: {
+      text,
+      ...(language ? { language } : {}),
+    },
   };
 }
 

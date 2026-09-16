@@ -227,4 +227,85 @@ describe("MAIN-world speech transport", () => {
     });
     await iterator.return();
   });
+
+  it("aborts without acknowledging queued synthesis bytes when the iterator closes", async () => {
+    const { inference, port } = loadInference();
+    await tick();
+    const messages = [];
+    port.onmessage = (event) => {
+      messages.push(event.data);
+      if (event.data?.type === "start") {
+        port.postMessage({ id: event.data.id, streamId: "stream-close" });
+      }
+    };
+    const iterator = inference.experimental
+      .request({ method: "synthesize", text: "Close me" })
+      [Symbol.asyncIterator]();
+    const first = iterator.next();
+    await waitFor(() =>
+      messages.find((message) => message.type === "start")
+    );
+    port.postMessage({
+      type: "chunk",
+      streamId: "stream-close",
+      chunk: { type: "accepted" },
+    });
+    await first;
+    port.postMessage({
+      type: "binary-data",
+      streamId: "stream-close",
+      sequence: 0,
+      data: btoa(String.fromCharCode(1, 2, 3)),
+    });
+    await tick();
+
+    await iterator.return();
+    await waitFor(() =>
+      messages.find(
+        (message) =>
+          message.type === "abort" && message.streamId === "stream-close"
+      )
+    );
+    expect(messages.some((message) => message.type === "binary-ack")).toBe(
+      false
+    );
+  });
+
+  it("aborts an active transcription upload when its signal fires", async () => {
+    const { inference, port } = loadInference();
+    await tick();
+    const messages = [];
+    const controller = new AbortController();
+    port.onmessage = (event) => {
+      messages.push(event.data);
+      if (event.data?.type === "start") {
+        port.postMessage({ id: event.data.id, streamId: "stream-abort" });
+      }
+    };
+    const iterator = inference.experimental
+      .request({
+        method: "transcribe",
+        audio: {
+          data: new Blob([Uint8Array.from([1, 2, 3])], {
+            type: "audio/wav",
+          }),
+          mediaType: "audio/wav",
+        },
+        signal: controller.signal,
+      })
+      [Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await waitFor(() =>
+      messages.find((message) => message.type === "start")
+    );
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "aborted" });
+    await waitFor(() =>
+      messages.find(
+        (message) =>
+          message.type === "abort" && message.streamId === "stream-abort"
+      )
+    );
+  });
 });
