@@ -46,6 +46,47 @@
           // ignore
         }
       }
+      return;
+    }
+
+    if (data.type === "binary-chunk" || data.type === "binary-ack") {
+      const port = ports.get(data.streamId);
+      if (!port) return;
+      try {
+        if (data.type === "binary-ack") {
+          port.postMessage({
+            type: "binary-ack",
+            streamId: data.streamId,
+            sequence: data.sequence,
+          });
+          return;
+        }
+        if (!(data.data instanceof ArrayBuffer) || data.data.byteLength === 0) {
+          throw new Error("Invalid binary chunk");
+        }
+        const bytes = new Uint8Array(data.data);
+        let binary = "";
+        const batchBytes = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += batchBytes) {
+          binary += String.fromCharCode(
+            ...bytes.subarray(offset, offset + batchBytes)
+          );
+        }
+        port.postMessage({
+          type: "binary-chunk",
+          streamId: data.streamId,
+          sequence: data.sequence,
+          byteLength: bytes.byteLength,
+          done: data.done === true,
+          data: btoa(binary),
+        });
+      } catch {
+        try {
+          port.postMessage({ type: "abort", streamId: data.streamId });
+        } catch {
+          // disconnect cleanup will abort the stream
+        }
+      }
     }
   };
 
@@ -189,6 +230,18 @@
           if (msg.chunk?.type === "done") {
             cleanup();
           }
+          return;
+        }
+
+        if (msg.type === "binary-pull" || msg.type === "binary-data") {
+          postToPage({
+            streamId,
+            type: msg.type,
+            sequence: msg.sequence,
+            ...(msg.type === "binary-pull"
+              ? { maxBytes: msg.maxBytes }
+              : { data: msg.data }),
+          });
           return;
         }
 

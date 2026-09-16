@@ -3,6 +3,7 @@ import {
   TRANSCRIPTION_INPUT_MAX_BYTES,
   isStructurallyValidLanguageTag,
   isValidSynthesisText,
+  isValidTranscriptionByteLength,
   normalizeTranscriptionMediaType,
   rawBase64ByteLength,
 } from "./speech.js";
@@ -672,7 +673,14 @@ function validateExperimentalTranscribeRequest(req) {
     return { ok: false, message: "audio must be an object." };
   }
   const audio = /** @type {Record<string, unknown>} */ (req.audio);
-  const unknownAudio = firstUnknownField(audio, ["data", "url", "mediaType"]);
+  const unknownAudio = firstUnknownField(audio, [
+    "data",
+    "url",
+    "mediaType",
+    "detectedMediaType",
+    "byteLength",
+    "sourceId",
+  ]);
   if (unknownAudio) {
     return {
       ok: false,
@@ -681,7 +689,11 @@ function validateExperimentalTranscribeRequest(req) {
   }
   const hasData = typeof audio.data === "string" && audio.data.length > 0;
   const hasUrl = typeof audio.url === "string" && audio.url.trim().length > 0;
-  if (hasData === hasUrl) {
+  const hasWireSource =
+    typeof audio.sourceId === "string" && audio.sourceId.length > 0;
+  if (
+    [hasData, hasUrl, hasWireSource].filter(Boolean).length !== 1
+  ) {
     return {
       ok: false,
       message: "audio must include exactly one of data or url.",
@@ -698,6 +710,25 @@ function validateExperimentalTranscribeRequest(req) {
       };
     }
   }
+  let detectedMediaType;
+  if (audio.detectedMediaType !== undefined) {
+    detectedMediaType = normalizeTranscriptionMediaType(
+      audio.detectedMediaType
+    );
+    if (!detectedMediaType) {
+      return {
+        ok: false,
+        message: `Unsupported transcription media type: ${String(audio.detectedMediaType)}.`,
+      };
+    }
+  }
+  if (mediaType && detectedMediaType && mediaType !== detectedMediaType) {
+    return {
+      ok: false,
+      message: `Conflicting transcription media types: ${mediaType} and ${detectedMediaType}.`,
+    };
+  }
+  mediaType ||= detectedMediaType;
   if (hasData && !mediaType) {
     return {
       ok: false,
@@ -721,6 +752,21 @@ function validateExperimentalTranscribeRequest(req) {
       };
     }
   }
+  if (hasWireSource) {
+    if (!mediaType) {
+      return {
+        ok: false,
+        message: "The transcription source has no supported media type.",
+      };
+    }
+    if (!isValidTranscriptionByteLength(audio.byteLength)) {
+      return {
+        ok: false,
+        message: `audio.byteLength must be between 1 and ${TRANSCRIPTION_INPUT_MAX_BYTES}.`,
+      };
+    }
+    byteLength = audio.byteLength;
+  }
 
   if (
     req.language !== undefined &&
@@ -737,7 +783,9 @@ function validateExperimentalTranscribeRequest(req) {
     value: {
       method: "transcribe",
       audio: {
-        ...(hasData
+        ...(hasWireSource
+          ? { sourceId: audio.sourceId, byteLength }
+          : hasData
           ? { data: audio.data, byteLength }
           : { url: /** @type {string} */ (audio.url).trim() }),
         ...(mediaType ? { mediaType } : {}),

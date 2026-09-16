@@ -12,6 +12,7 @@
 
   const CHANNEL = "__ipa_inference__";
   let nextId = 1;
+  let nextAudioSourceId = 1;
 
   /** @type {MessagePort | null} */
   let bridgePort = null;
@@ -119,6 +120,140 @@
       binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
     }
     return btoa(binary);
+  }
+
+  /**
+   * Decode bounded public raw base64 into Blob parts without creating one
+   * additional whole-payload binary string.
+   * @param {string} data
+   * @param {string} mediaType
+   * @returns {Blob}
+   */
+  function rawBase64ToBlob(data, mediaType) {
+    if (
+      !data ||
+      data.length % 4 !== 0 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+        data
+      )
+    ) {
+      throw makeError("invalid_request", "audio.data must be valid raw base64.");
+    }
+    const parts = [];
+    // Keep slices quartet-aligned and temporary binary strings small.
+    const encodedChunkChars = 32 * 1024;
+    try {
+      for (let offset = 0; offset < data.length; offset += encodedChunkChars) {
+        const binary = atob(data.slice(offset, offset + encodedChunkChars));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        parts.push(bytes);
+      }
+    } catch {
+      throw makeError("invalid_request", "audio.data must be valid raw base64.");
+    }
+    return new Blob(parts, { type: mediaType });
+  }
+
+  /**
+   * @param {unknown} data
+   * @returns {Uint8Array}
+   */
+  function runtimeBase64ToBytes(data) {
+    if (typeof data !== "string" || !data) {
+      throw makeError("provider_error", "Malformed binary response chunk.");
+    }
+    let binary;
+    try {
+      binary = atob(data);
+    } catch {
+      throw makeError("provider_error", "Malformed binary response chunk.");
+    }
+    if (!binary.length) {
+      throw makeError("provider_error", "Received an empty binary response chunk.");
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  /**
+   * Resolve page-facing transcription input under page CORS and replace it
+   * with metadata only. Bytes remain in the MAIN-world Blob until pulled.
+   * @param {any} request
+   * @param {AbortSignal} [signal]
+   */
+  async function prepareTranscriptionSource(request, signal) {
+    const audio = request.audio;
+    const declaredMediaType =
+      typeof audio.mediaType === "string" ? audio.mediaType : "";
+    let source;
+
+    if (typeof audio.url === "string" && audio.url.trim()) {
+      let response;
+      try {
+        response = await fetch(
+          audio.url.trim(),
+          signal ? { signal } : undefined
+        );
+      } catch (err) {
+        if (
+          signal?.aborted ||
+          (err && typeof err === "object" && err.name === "AbortError")
+        ) {
+          throw makeError("aborted", "Request aborted");
+        }
+        throw makeError(
+          "invalid_request",
+          "Could not fetch audio url (network or CORS). The page must be allowed to read it."
+        );
+      }
+      if (!response.ok) {
+        throw makeError(
+          "invalid_request",
+          `Audio url returned HTTP ${response.status}.`
+        );
+      }
+      source = await response.blob();
+    } else if (
+      typeof Blob !== "undefined" &&
+      audio.data instanceof Blob
+    ) {
+      source = audio.data;
+    } else if (typeof audio.data === "string") {
+      if (!declaredMediaType) {
+        throw makeError(
+          "invalid_request",
+          "audio.mediaType is required for raw base64 data."
+        );
+      }
+      source = rawBase64ToBlob(audio.data, declaredMediaType);
+    } else {
+      throw makeError(
+        "invalid_request",
+        "audio must include exactly one of data or url."
+      );
+    }
+
+    const sourceId = `audio_${nextAudioSourceId++}_${Math.random()
+      .toString(36)
+      .slice(2, 9)}`;
+    return {
+      request: {
+        ...request,
+        audio: {
+          sourceId,
+          byteLength: source.size,
+          ...(declaredMediaType ? { mediaType: declaredMediaType } : {}),
+          ...(source.type ? { detectedMediaType: source.type } : {}),
+        },
+      },
+      source,
+    };
   }
 
   /**
@@ -317,7 +452,7 @@
       [Symbol.asyncIterator]() {
         /** @type {"idle" | "open" | "closed"} */
         let state = "idle";
-        /** @type {Array<{ kind: "chunk", value: any } | { kind: "end" } | { kind: "error", error: Error }>} */
+        /** @type {Array<{ kind: "chunk", value: any, acknowledge?: number } | { kind: "end" } | { kind: "error", error: Error }>} */
         const queue = [];
         /** @type {Set<() => void>} */
         const waiters = new Set();
@@ -328,6 +463,11 @@
         let startPromise = null;
         /** @type {Error | null} */
         let terminalError = null;
+        /** @type {Blob | null} */
+        let uploadSource = null;
+        let uploadSequence = 0;
+        let uploadOffset = 0;
+        let uploadBusy = false;
 
         function wake() {
           if (waiters.size === 0) return;
@@ -350,6 +490,8 @@
             signal.removeEventListener("abort", onAbort);
             onAbort = null;
           }
+          uploadSource = null;
+          uploadBusy = false;
         }
 
         function abortRemote() {
@@ -391,6 +533,87 @@
             closeWithError(
               makeError(data.error?.code || "provider_error", data.error?.message)
             );
+          } else if (data.type === "binary-pull") {
+            void handleUploadPull(data);
+          } else if (data.type === "binary-data") {
+            try {
+              if (!Number.isSafeInteger(data.sequence) || data.sequence < 0) {
+                throw makeError(
+                  "provider_error",
+                  "Malformed binary response sequence."
+                );
+              }
+              const bytes = runtimeBase64ToBytes(data.data);
+              enqueue({
+                kind: "chunk",
+                value: {
+                  type: "audio_delta",
+                  mediaType: "audio/mpeg",
+                  data: bytes,
+                },
+                acknowledge: data.sequence,
+              });
+            } catch (err) {
+              abortRemote();
+              closeWithError(
+                err instanceof Error
+                  ? err
+                  : makeError("provider_error", String(err))
+              );
+            }
+          }
+        }
+
+        async function handleUploadPull(data) {
+          if (
+            !uploadSource ||
+            uploadBusy ||
+            !Number.isSafeInteger(data.sequence) ||
+            data.sequence !== uploadSequence ||
+            !Number.isSafeInteger(data.maxBytes) ||
+            data.maxBytes <= 0
+          ) {
+            abortRemote();
+            closeWithError(
+              makeError("aborted", "Invalid binary upload sequence.")
+            );
+            return;
+          }
+          uploadBusy = true;
+          try {
+            const end = Math.min(
+              uploadSource.size,
+              uploadOffset + data.maxBytes
+            );
+            if (end <= uploadOffset) {
+              throw makeError("aborted", "Binary upload requested past end.");
+            }
+            const buffer = await uploadSource
+              .slice(uploadOffset, end)
+              .arrayBuffer();
+            if (state === "closed") return;
+            bridgePort.postMessage(
+              {
+                type: "binary-chunk",
+                streamId,
+                sequence: uploadSequence,
+                byteLength: buffer.byteLength,
+                done: end === uploadSource.size,
+                data: buffer,
+              },
+              [buffer]
+            );
+            uploadOffset = end;
+            uploadSequence += 1;
+          } catch (err) {
+            abortRemote();
+            closeWithError(
+              err instanceof Error
+                ? err
+                : makeError("aborted", "Binary upload failed.")
+            );
+          } finally {
+            uploadBusy = false;
           }
         }
 
@@ -411,7 +634,16 @@
           let serializable =
             request && typeof request === "object" ? { ...request } : {};
           delete serializable.signal;
-          serializable = await encodeRequestImages(serializable, signal);
+          if (experimental && serializable.method === "transcribe") {
+            const prepared = await prepareTranscriptionSource(
+              serializable,
+              signal
+            );
+            serializable = prepared.request;
+            uploadSource = prepared.source;
+          } else {
+            serializable = await encodeRequestImages(serializable, signal);
+          }
 
           // Register AbortSignal before the round-trip so abort during start
           // marks the iterator closed; abortRemote runs once streamId exists.
@@ -491,7 +723,20 @@
             while (true) {
               if (queue.length > 0) {
                 const item = queue.shift();
-                if (item.kind === "chunk") return { value: item.value, done: false };
+                if (item.kind === "chunk") {
+                  if (
+                    item.acknowledge !== undefined &&
+                    streamId &&
+                    bridgePort
+                  ) {
+                    bridgePort.postMessage({
+                      type: "binary-ack",
+                      streamId,
+                      sequence: item.acknowledge,
+                    });
+                  }
+                  return { value: item.value, done: false };
+                }
                 if (item.kind === "end") return { value: undefined, done: true };
                 if (item.kind === "error") throw item.error;
               }
@@ -831,12 +1076,6 @@
       }
     }
 
-    // The surface is visible before providers land, but must fail before
-    // approval or network I/O instead of falling through to chat.
-    throw makeError(
-      "unavailable",
-      `No provider implementing experimental ${request.method} is configured.`
-    );
   }
 
   /**

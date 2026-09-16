@@ -29,6 +29,16 @@ import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import { messagesHaveImageParts } from "../src/image-parts.js";
 import {
+  BinaryChunkReceiver,
+  BinaryChunkSender,
+  decodeRuntimeBase64,
+  encodeRuntimeBase64,
+} from "../src/binary-transfer.js";
+import {
+  SYNTHESIS_OUTPUT_MAX_BYTES,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+} from "../src/speech.js";
+import {
   getOnDeviceAvailability,
   installOnDeviceModel,
   cancelOnDeviceInstall,
@@ -55,10 +65,13 @@ chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 /** @type {Map<string, {
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
+ *   streamId: string,
  *   tabId?: number,
  *   phase: StreamPhase,
  *   portDisconnected?: boolean,
  *   announced?: boolean,
+ *   uploadTransfer?: any,
+ *   downloadTransfer?: any,
  * }>} */
 const activeStreams = new Map();
 
@@ -142,6 +155,18 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === "abort") {
       const id = typeof msg.streamId === "string" ? msg.streamId : boundStreamId;
       if (id) abortStream(id, "Request aborted");
+      return;
+    }
+    if (msg.type === "binary-chunk") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry?.port === port) handleBinaryChunk(id, entry, msg);
+      return;
+    }
+    if (msg.type === "binary-ack") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry?.port === port) handleBinaryAck(entry, msg);
     }
   });
 
@@ -461,6 +486,257 @@ chrome.action.onClicked.addListener(() => {
 });
 
 /**
+ * Pull a validated transcription source from the page with one chunk in
+ * flight. Called only after approval/provider preflight in speech routing.
+ * @param {string} streamId
+ * @param {{ byteLength: number, mediaType: string }} metadata
+ * @returns {Promise<Blob>}
+ */
+function receiveTranscriptionBlob(streamId, metadata) {
+  const entry = activeStreams.get(streamId);
+  if (!entry || entry.controller.signal.aborted) {
+    return Promise.reject(inferenceError("aborted", "Request aborted"));
+  }
+  if (entry.uploadTransfer) {
+    return Promise.reject(
+      inferenceError("provider_error", "A binary upload is already active.")
+    );
+  }
+  let receiver;
+  try {
+    receiver = new BinaryChunkReceiver({
+      maxBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
+      expectedBytes: metadata.byteLength,
+    });
+  } catch (err) {
+    return Promise.reject(
+      inferenceError(
+        "invalid_request",
+        err instanceof Error ? err.message : "Invalid binary upload metadata."
+      )
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    entry.uploadTransfer = {
+      receiver,
+      chunks: [],
+      mediaType: metadata.mediaType,
+      resolve,
+      reject,
+    };
+    requestNextUploadChunk(entry);
+  });
+}
+
+/**
+ * @param {any} entry
+ */
+function requestNextUploadChunk(entry) {
+  try {
+    const request = entry.uploadTransfer.receiver.requestChunk();
+    entry.port.postMessage({
+      type: "binary-pull",
+      streamId: entry.streamId,
+      ...request,
+    });
+  } catch (err) {
+    failUpload(
+      entry,
+      inferenceError(
+        "aborted",
+        err instanceof Error ? err.message : "Binary upload failed."
+      )
+    );
+  }
+}
+
+/**
+ * @param {string} streamId
+ * @param {any} entry
+ * @param {any} message
+ */
+function handleBinaryChunk(streamId, entry, message) {
+  const transfer = entry.uploadTransfer;
+  if (!transfer) {
+    abortStream(streamId, "Unexpected binary upload chunk");
+    return;
+  }
+  try {
+    const bytes = decodeRuntimeBase64(message.data);
+    if (message.byteLength !== bytes.byteLength) {
+      throw new Error("Binary upload chunk length does not match its metadata.");
+    }
+    const state = transfer.receiver.receiveChunk({
+      sequence: message.sequence,
+      byteLength: bytes.byteLength,
+      done: message.done === true,
+    });
+    transfer.chunks.push(bytes);
+    if (state.complete) {
+      const blob = new Blob(transfer.chunks, { type: transfer.mediaType });
+      const resolve = transfer.resolve;
+      transfer.chunks.length = 0;
+      delete entry.uploadTransfer;
+      resolve(blob);
+      return;
+    }
+    requestNextUploadChunk(entry);
+  } catch (err) {
+    failUpload(
+      entry,
+      inferenceError(
+        "invalid_request",
+        err instanceof Error ? err.message : "Malformed binary upload."
+      )
+    );
+  }
+}
+
+/**
+ * Initialize flow-controlled worker-to-page audio output.
+ * @param {string} streamId
+ */
+function beginSynthesisTransfer(streamId) {
+  const entry = activeStreams.get(streamId);
+  if (!entry || entry.controller.signal.aborted) {
+    throw inferenceError("aborted", "Request aborted");
+  }
+  if (entry.downloadTransfer) {
+    throw inferenceError(
+      "provider_error",
+      "A binary download is already active."
+    );
+  }
+  entry.downloadTransfer = {
+    sender: new BinaryChunkSender({ maxBytes: SYNTHESIS_OUTPUT_MAX_BYTES }),
+    pendingAck: null,
+  };
+}
+
+/**
+ * Send bytes and wait until the page consumes/acknowledges every public
+ * audio_delta. Callers mark the final non-empty bytes with done: true.
+ * @param {string} streamId
+ * @param {Uint8Array} bytes
+ * @param {{ done?: boolean }} [options]
+ */
+async function sendSynthesisBytes(streamId, bytes, options = {}) {
+  const entry = activeStreams.get(streamId);
+  const transfer = entry?.downloadTransfer;
+  if (!entry || !transfer || entry.controller.signal.aborted) {
+    throw inferenceError("aborted", "Request aborted");
+  }
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw inferenceError(
+      "provider_error",
+      "Synthesis returned an empty binary chunk."
+    );
+  }
+
+  for (let offset = 0; offset < bytes.byteLength; ) {
+    const end = Math.min(
+      bytes.byteLength,
+      offset + transfer.sender.chunkBytes
+    );
+    const final = end === bytes.byteLength && options.done === true;
+    const part = bytes.subarray(offset, end);
+    let packet;
+    try {
+      packet = transfer.sender.beginChunk(part.byteLength, { done: final });
+    } catch (err) {
+      throw inferenceError(
+        "provider_error",
+        err instanceof Error ? err.message : "Binary output limit exceeded."
+      );
+    }
+    await new Promise((resolve, reject) => {
+      transfer.pendingAck = {
+        sequence: packet.sequence,
+        resolve,
+        reject,
+      };
+      try {
+        entry.port.postMessage({
+          type: "binary-data",
+          streamId,
+          sequence: packet.sequence,
+          data: encodeRuntimeBase64(part),
+        });
+      } catch {
+        transfer.pendingAck = null;
+        reject(inferenceError("aborted", "Binary output disconnected."));
+      }
+    });
+    offset = end;
+  }
+}
+
+/**
+ * @param {any} entry
+ * @param {any} message
+ */
+function handleBinaryAck(entry, message) {
+  const transfer = entry.downloadTransfer;
+  const pending = transfer?.pendingAck;
+  if (!transfer || !pending || message.sequence !== pending.sequence) {
+    const streamId = entry.streamId;
+    if (streamId) abortStream(streamId, "Invalid binary acknowledgement");
+    return;
+  }
+  try {
+    transfer.sender.acknowledge(message.sequence);
+    transfer.pendingAck = null;
+    pending.resolve();
+  } catch {
+    const streamId = entry.streamId;
+    if (streamId) abortStream(streamId, "Invalid binary acknowledgement");
+  }
+}
+
+/**
+ * @param {any} entry
+ * @param {Error} error
+ */
+function failUpload(entry, error) {
+  const transfer = entry.uploadTransfer;
+  if (!transfer) return;
+  transfer.receiver.abort();
+  transfer.chunks.length = 0;
+  delete entry.uploadTransfer;
+  transfer.reject(error);
+}
+
+/**
+ * @param {any} entry
+ * @param {string} reason
+ */
+function cleanupBinaryTransfers(entry, reason) {
+  if (entry.uploadTransfer) {
+    failUpload(entry, inferenceError("aborted", reason));
+  }
+  if (entry.downloadTransfer) {
+    const transfer = entry.downloadTransfer;
+    transfer.sender.abort();
+    const pending = transfer.pendingAck;
+    transfer.pendingAck = null;
+    delete entry.downloadTransfer;
+    pending?.reject(inferenceError("aborted", reason));
+  }
+}
+
+/**
+ * @param {string} code
+ * @param {string} message
+ */
+function inferenceError(code, message) {
+  const error = new Error(message);
+  error.name = "InferenceError";
+  /** @type {any} */ (error).code = code;
+  return error;
+}
+
+/**
  * @param {chrome.runtime.Port} port
  * @param {any} msg
  * @param {(id: string) => void} onStreamId
@@ -474,6 +750,7 @@ async function handleStart(port, msg, onStreamId) {
   activeStreams.set(streamId, {
     port,
     controller,
+    streamId,
     tabId,
     phase: "awaiting_permission",
     announced: false,
@@ -706,6 +983,7 @@ async function handleStart(port, msg, onStreamId) {
         usage: result.usage,
       },
     });
+    cleanupBinaryTransfers(entry, "Request finished");
     activeStreams.delete(streamId);
     return streamId;
   } catch (err) {
@@ -715,6 +993,8 @@ async function handleStart(port, msg, onStreamId) {
       sendError(code, message);
     }
     cancelApproval(streamId);
+    const entry = activeStreams.get(streamId);
+    if (entry) cleanupBinaryTransfers(entry, message);
     activeStreams.delete(streamId);
     return streamId;
   }
@@ -729,6 +1009,7 @@ function abortStream(streamId, reason) {
   cancelApproval(streamId);
   if (!entry) return;
 
+  cleanupBinaryTransfers(entry, reason);
   activeStreams.delete(streamId);
   try {
     entry.controller.abort();
