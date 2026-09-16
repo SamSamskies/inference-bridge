@@ -598,9 +598,10 @@ Current implementation limits:
   audio track has transcription semantics.
 - Synthesis accepts up to 4,096 Unicode code points and returns only MP3
   (`audio/mpeg`), capped at 32,000,000 bytes.
-- OpenAI is the first supported provider. Anthropic, On-device, generic
-  OpenAI-compatible endpoints, and Ollama synthesis are unavailable rather
-  than emulated through chat.
+- OpenAI and OpenRouter are supported through their dedicated transcription
+  and speech endpoints. Anthropic, On-device, generic OpenAI-compatible
+  endpoints, and Ollama synthesis are unavailable rather than emulated
+  through chat.
 
 Paste-ready synthesis example:
 
@@ -795,9 +796,11 @@ npm run package
 - [ ] Experimental speech is absent from stable `getFeatures()` and defaults to disabled in `experimental.getFeatures().methods`
 - [ ] Enabling Experimental speech updates `experimental.getFeatures().methods` after page reload; disabling it makes both methods fail before approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
+- [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
+- [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s reviewed catalog
 - [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
 - [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis

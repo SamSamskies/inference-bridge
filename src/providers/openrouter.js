@@ -13,6 +13,20 @@ import {
   omitHostedWebSearchIfNone,
 } from "./hosted-tools.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
+import {
+  OPENROUTER_SYNTHESIS_MODELS,
+  OPENROUTER_TRANSCRIPTION_MEDIA_TYPES,
+  OPENROUTER_TRANSCRIPTION_MODELS,
+  openRouterMediaTypesForModel,
+  openRouterVoicesForModel,
+  synthesizeOpenRouter,
+  transcribeOpenRouter,
+} from "./openrouter-speech.js";
+import {
+  SYNTHESIS_OUTPUT_MAX_BYTES,
+  SYNTHESIS_TEXT_MAX_CODE_POINTS,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+} from "../speech.js";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_CHAT_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
@@ -198,6 +212,29 @@ export const openrouterProvider = {
   defaultModel: "openrouter/auto",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  transcription: {
+    defaultModel: OPENROUTER_TRANSCRIPTION_MODELS[0].id,
+    models: OPENROUTER_TRANSCRIPTION_MODELS,
+    acceptedMediaTypes: OPENROUTER_TRANSCRIPTION_MEDIA_TYPES,
+    maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
+    listAcceptedMediaTypesForModel: openRouterMediaTypesForModel,
+  },
+  synthesis: {
+    defaultModel: OPENROUTER_SYNTHESIS_MODELS[0].id,
+    defaultVoice: "en_paul_neutral",
+    models: OPENROUTER_SYNTHESIS_MODELS,
+    voices: Object.freeze([{ id: "en_paul_neutral" }]),
+    async listVoices({ model } = {}) {
+      return openRouterVoicesForModel(
+        model || OPENROUTER_SYNTHESIS_MODELS[0].id
+      );
+    },
+    outputMediaTypes: Object.freeze(["audio/mpeg"]),
+    maxTextCodePoints: SYNTHESIS_TEXT_MAX_CODE_POINTS,
+    maxOutputBytes: SYNTHESIS_OUTPUT_MAX_BYTES,
+  },
+  transcribe: transcribeOpenRouter,
+  synthesize: synthesizeOpenRouter,
 
   listModels: listOpenRouterModels,
 

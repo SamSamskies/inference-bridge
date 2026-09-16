@@ -85,7 +85,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **offscreen** — Host the browser Prompt API (`LanguageModel`) in an offscreen document for the On-device provider; the API is not reliable in the service worker.
 - **https://api.openai.com/**\* — Send chat/image requests and, only when locally enabled and separately approved, bounded transcription files or speech-synthesis text when the user selects OpenAI.
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
-- **https://openrouter.ai/**\* — List models and send chat completions when the user selects OpenRouter.
+- **https://openrouter.ai/**\* — List models; send chat/image requests; and, only when locally enabled and separately approved, send bounded transcription files or speech-synthesis text when the user selects OpenRouter.
 - **https://ollama.com/**\* — Run hosted web search / fetch via Ollama cloud when the user selects Ollama and requests `{ type: "web_search" }` (optional Ollama account API key).
 - **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port.
 - **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.

@@ -165,12 +165,12 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai"]);
+    ).toEqual(["openai", "openrouter"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai"]);
+    ).toEqual(["openai", "openrouter"]);
   });
 
   it("filters transcription providers by normalized declared media type", () => {
