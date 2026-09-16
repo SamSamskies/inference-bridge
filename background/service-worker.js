@@ -19,9 +19,11 @@ import {
 } from "../src/permissions.js";
 import {
   getProviderAsync,
+  filterProvidersForMethod,
   listAllProviders,
   listProviders,
   resolveProviderModels,
+  resolveProviderVoices,
 } from "../src/providers/registry.js";
 import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
@@ -177,6 +179,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         decision: message.decision,
         providerId: message.providerId,
         model: message.model,
+        voice: message.voice,
       }),
     });
     return false;
@@ -218,6 +221,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
+    const method =
+      message.method === "transcribe" || message.method === "synthesize"
+        ? message.method
+        : "chat";
+    const request =
+      typeof message.mediaType === "string"
+        ? { mediaType: message.mediaType }
+        : {};
     /**
      * @param {import("../src/providers/types.js").Provider[]} all
      * @param {Record<string, string> | null | undefined} [apiKeys]
@@ -225,6 +236,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
      */
     const serializeProviders = (all, apiKeys) =>
       all.map((p) => ({
+        operation: method,
         id: p.id,
         label: p.label,
         requiresApiKey: Boolean(p.requiresApiKey),
@@ -234,13 +246,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ...(apiKeys
           ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) }
           : {}),
-        defaultModel: p.defaultModel,
+        defaultModel:
+          method === "transcribe"
+            ? p.transcription?.defaultModel
+            : method === "synthesize"
+              ? p.synthesis?.defaultModel
+              : p.defaultModel,
+        ...(method === "synthesize" && p.synthesis?.defaultVoice
+          ? { defaultVoice: p.synthesis.defaultVoice }
+          : {}),
         supportsFunctionTools: Boolean(p.supportsFunctionTools),
         hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
-        models: p.models
-          ? p.models.map((entry) =>
+        models: (
+          method === "transcribe"
+            ? p.transcription?.models
+            : method === "synthesize"
+              ? p.synthesis?.models
+              : p.models
+        )
+          ? (
+              method === "transcribe"
+                ? p.transcription.models
+                : method === "synthesize"
+                  ? p.synthesis.models
+                  : p.models
+            ).map((entry) =>
               typeof entry === "string" ? { id: entry } : entry
             )
           : undefined,
@@ -255,12 +287,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         } catch {
           // Keep listing; omit hasApiKey so Allow is not falsely disabled.
         }
-        sendResponse({ providers: serializeProviders(all, apiKeys) });
+        sendResponse({
+          providers: serializeProviders(
+            filterProvidersForMethod(all, method, request),
+            apiKeys
+          ),
+        });
       })
       .catch((err) => {
         // Built-ins do not depend on settings/compat; keep them available.
         sendResponse({
-          providers: serializeProviders(listProviders()),
+          providers: serializeProviders(
+            filterProvidersForMethod(listProviders(), method, request)
+          ),
           error: {
             code: "unavailable",
             message:
@@ -290,14 +329,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         try {
           const settings = await getSettings();
+          const method =
+            message.method === "transcribe" || message.method === "synthesize"
+              ? message.method
+              : "chat";
           const models = await resolveProviderModels(provider, {
             apiKey: settings.apiKeys[provider.id],
+            method,
           });
           sendResponse({
             ok: true,
             providerId: provider.id,
             models,
-            defaultModel: provider.defaultModel,
+            defaultModel:
+              method === "transcribe"
+                ? provider.transcription?.defaultModel
+                : method === "synthesize"
+                  ? provider.synthesis?.defaultModel
+                  : provider.defaultModel,
           });
         } catch (err) {
           sendResponse({
@@ -336,6 +385,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       })
       .catch(() => {
         sendResponse({ ok: true, vision: false });
+      });
+    return true;
+  }
+
+  if (message?.type === "list-voices") {
+    const providerId =
+      typeof message.providerId === "string" ? message.providerId : "";
+    void getProviderAsync(providerId)
+      .then(async (provider) => {
+        if (!provider?.synthesis) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: "invalid_request",
+              message: `Provider does not support synthesis: ${providerId}`,
+            },
+          });
+          return;
+        }
+        const settings = await getSettings();
+        sendResponse({
+          ok: true,
+          providerId,
+          voices: await resolveProviderVoices(provider, {
+            model:
+              typeof message.model === "string" ? message.model : undefined,
+            apiKey: settings.apiKeys[provider.id],
+          }),
+          defaultVoice: provider.synthesis.defaultVoice,
+        });
+      })
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          error: {
+            code: /** @type {any} */ (err)?.code || "unavailable",
+            message:
+              err instanceof Error ? err.message : "Failed to list voices",
+          },
+        });
       });
     return true;
   }

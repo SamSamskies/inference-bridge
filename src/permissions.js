@@ -14,6 +14,11 @@ import {
   isPlausibleModelForProvider,
   isCompatProviderId,
   hasStoredApiKey,
+  getOriginOperationGrant,
+  getOriginOperationLastUsed,
+  grantOriginOperationAlways,
+  setOriginOperationLastUsed,
+  isSpeechOperation,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
@@ -50,6 +55,17 @@ import {
  *   tools?: Tool[],
  *   toolChoice?: ToolChoice,
  *   output?: { images?: boolean },
+ *   method?: "chat",
+ * } | {
+ *   requestId: string,
+ *   origin: string,
+ *   method: "transcribe" | "synthesize",
+ *   providerId: string,
+ *   model: string,
+ *   voice?: string,
+ *   mediaType?: string,
+ *   byteLength?: number,
+ *   text?: string,
  * }} ApprovalRequest
  */
 
@@ -82,7 +98,7 @@ const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
- *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string }) => void,
+ *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string }) => void,
  *   windowId?: number,
  * }>} */
 const pendingApprovals = new Map();
@@ -444,6 +460,171 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
 }
 
 /**
+ * Speech permission routing is separate from chat/tool episodes. Existing
+ * allowedOrigins entries can never satisfy this function.
+ * @param {{
+ *   requestId: string,
+ *   origin: string,
+ *   method: "transcribe" | "synthesize",
+ *   preferredProviderId?: string,
+ *   preferredModel?: string,
+ *   preferredVoice?: string,
+ *   mediaType?: string,
+ *   byteLength?: number,
+ *   text?: string,
+ * }} args
+ */
+export async function ensureSpeechPermission(args) {
+  if (!isSpeechOperation(args.method)) {
+    return {
+      allowed: false,
+      providerId: "",
+      model: "",
+      once: false,
+      code: "invalid_request",
+      message: "Unknown speech operation.",
+    };
+  }
+
+  const settings = await getSettings();
+  const lastUsed = await getOriginOperationLastUsed(args.origin, args.method);
+  const defaults = settings.operationDefaults[args.method];
+  const existing = await getOriginOperationGrant(args.origin, args.method);
+  const providerId =
+    (typeof args.preferredProviderId === "string" &&
+      args.preferredProviderId.trim()) ||
+    existing?.providerId ||
+    lastUsed?.providerId ||
+    defaults?.providerId ||
+    "";
+  const sameProvider = (route) => route?.providerId === providerId;
+  const model =
+    (typeof args.preferredModel === "string" && args.preferredModel.trim()) ||
+    (sameProvider(existing) && existing.model) ||
+    (sameProvider(lastUsed) && lastUsed.model) ||
+    (sameProvider(defaults) && defaults.model) ||
+    "";
+  const voice =
+    args.method === "synthesize"
+      ? (typeof args.preferredVoice === "string" &&
+          args.preferredVoice.trim()) ||
+        (sameProvider(existing) && existing.voice) ||
+        (sameProvider(lastUsed) && lastUsed.voice) ||
+        (sameProvider(defaults) && defaults.voice) ||
+        ""
+      : "";
+
+  if (await isOriginBlocked(args.origin)) {
+    return {
+      allowed: false,
+      providerId,
+      model,
+      ...(voice ? { voice } : {}),
+      once: false,
+    };
+  }
+  if (existing?.providerId && existing.model) {
+    return {
+      allowed: true,
+      providerId: existing.providerId,
+      model: existing.model,
+      ...(args.method === "synthesize" && existing.voice
+        ? { voice: existing.voice }
+        : {}),
+      once: false,
+    };
+  }
+  if (!providerId || !model || (args.method === "synthesize" && !voice)) {
+    return {
+      allowed: false,
+      providerId,
+      model,
+      ...(voice ? { voice } : {}),
+      once: false,
+      code: "unavailable",
+      message: `No ${args.method} provider route is configured.`,
+    };
+  }
+
+  const decision = await promptUser({
+    requestId: args.requestId,
+    origin: args.origin,
+    method: args.method,
+    providerId,
+    model,
+    ...(voice ? { voice } : {}),
+    ...(args.mediaType ? { mediaType: args.mediaType } : {}),
+    ...(Number.isSafeInteger(args.byteLength)
+      ? { byteLength: args.byteLength }
+      : {}),
+    ...(typeof args.text === "string" ? { text: args.text } : {}),
+  });
+  const chosenProviderId =
+    typeof decision.providerId === "string"
+      ? decision.providerId.trim()
+      : "";
+  const chosenModel =
+    typeof decision.model === "string" ? decision.model.trim() : "";
+  const chosenVoice =
+    args.method === "synthesize" && typeof decision.voice === "string"
+      ? decision.voice.trim()
+      : "";
+
+  switch (decision.decision) {
+    case "allow_once":
+    case "always": {
+      if (
+        !chosenProviderId ||
+        !chosenModel ||
+        (args.method === "synthesize" && !chosenVoice)
+      ) {
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          ...(chosenVoice ? { voice: chosenVoice } : {}),
+          once: false,
+          code: "unavailable",
+          message: `The selected ${args.method} route is incomplete.`,
+        };
+      }
+      const route = {
+        providerId: chosenProviderId,
+        model: chosenModel,
+        ...(chosenVoice ? { voice: chosenVoice } : {}),
+      };
+      if (decision.decision === "always") {
+        await grantOriginOperationAlways(args.origin, args.method, route);
+      }
+      await setOriginOperationLastUsed(args.origin, args.method, route);
+      return {
+        allowed: true,
+        ...route,
+        once: decision.decision === "allow_once",
+      };
+    }
+    case "never":
+      await blockOrigin(args.origin);
+      return {
+        allowed: false,
+        providerId: chosenProviderId,
+        model: chosenModel,
+        ...(chosenVoice ? { voice: chosenVoice } : {}),
+        once: false,
+      };
+    case "deny":
+    default:
+      return {
+        allowed: false,
+        providerId: chosenProviderId,
+        model: chosenModel,
+        ...(chosenVoice ? { voice: chosenVoice } : {}),
+        once: false,
+      };
+  }
+}
+
+/**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   requestId: string,
@@ -787,7 +968,7 @@ export async function ensurePermission(args) {
 
 /**
  * @param {ApprovalRequest} request
- * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string }>}
+ * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string }>}
  */
 function promptUser(request) {
   return new Promise((resolve, reject) => {
@@ -845,7 +1026,7 @@ function promptUser(request) {
 /**
  * Called by the approval page.
  * @param {string} requestId
- * @param {{ decision: ApprovalDecision, providerId?: string, model: string }} result
+ * @param {{ decision: ApprovalDecision, providerId?: string, model: string, voice?: string }} result
  * @returns {boolean}
  */
 export function resolveApproval(requestId, result) {
@@ -872,6 +1053,11 @@ export function resolveApproval(requestId, result) {
     decision,
     providerId: normalizeProviderId(rawProviderId),
     model: typeof result.model === "string" ? result.model : entry.request.model,
+    ...(typeof result.voice === "string"
+      ? { voice: result.voice }
+      : "voice" in entry.request && typeof entry.request.voice === "string"
+        ? { voice: entry.request.voice }
+        : {}),
   });
 
   // Let the approval page close itself after sendMessage succeeds.

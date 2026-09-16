@@ -15,7 +15,7 @@
             <span class="eyebrow-label">Permission request for</span>
             <span class="eyebrow-origin" id="origin">…</span>
           </div>
-          <p class="hint">
+          <p class="hint" id="requestDescription">
             This site wants to send a chat request through Inference Bridge.
           </p>
         </header>
@@ -51,6 +51,11 @@
             </div>
             <datalist id="modelList"></datalist>
             <p class="hint" id="modelHint" hidden></p>
+          </label>
+          <label class="field" id="voiceField" hidden>
+            <span>Voice</span>
+            <select id="voice"></select>
+            <p class="hint" id="voiceHint" hidden></p>
           </label>
           <p class="capability-warning" id="capabilityWarning" hidden></p>
         </section>
