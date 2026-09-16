@@ -161,8 +161,16 @@ describe("operation-scoped provider capabilities", () => {
     expect(providerSupportsMethod(chatOnly, "transcribe")).toBe(false);
     expect(providerSupportsMethod(descriptorOnly, "transcribe")).toBe(false);
     expect(providerSupportsMethod(methodOnly, "transcribe")).toBe(false);
-    expect(filterProvidersForMethod(listProviders(), "transcribe")).toEqual([]);
-    expect(filterProvidersForMethod(listProviders(), "synthesize")).toEqual([]);
+    expect(
+      filterProvidersForMethod(listProviders(), "transcribe").map(
+        (provider) => provider.id
+      )
+    ).toEqual(["openai"]);
+    expect(
+      filterProvidersForMethod(listProviders(), "synthesize").map(
+        (provider) => provider.id
+      )
+    ).toEqual(["openai"]);
   });
 
   it("filters transcription providers by normalized declared media type", () => {

@@ -19,6 +19,20 @@ import {
   streamOpenAICompatChat,
 } from "./openai-compat-stream.js";
 import { streamOpenAIResponsesChat } from "./openai-responses.js";
+import {
+  OPENAI_SYNTHESIS_MODELS,
+  OPENAI_SYNTHESIS_VOICES,
+  OPENAI_TRANSCRIPTION_MEDIA_TYPES,
+  OPENAI_TRANSCRIPTION_MODELS,
+  openAIVoicesForModel,
+  synthesizeOpenAI,
+  transcribeOpenAI,
+} from "./openai-speech.js";
+import {
+  SYNTHESIS_OUTPUT_MAX_BYTES,
+  SYNTHESIS_TEXT_MAX_CODE_POINTS,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+} from "../speech.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -63,6 +77,26 @@ export const openaiProvider = {
   defaultModel: "gpt-5.6-luna",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  transcription: {
+    defaultModel: OPENAI_TRANSCRIPTION_MODELS[0],
+    models: OPENAI_TRANSCRIPTION_MODELS,
+    acceptedMediaTypes: OPENAI_TRANSCRIPTION_MEDIA_TYPES,
+    maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
+  },
+  synthesis: {
+    defaultModel: OPENAI_SYNTHESIS_MODELS[0],
+    defaultVoice: "alloy",
+    models: OPENAI_SYNTHESIS_MODELS,
+    voices: OPENAI_SYNTHESIS_VOICES,
+    async listVoices({ model } = {}) {
+      return openAIVoicesForModel(model || OPENAI_SYNTHESIS_MODELS[0]);
+    },
+    outputMediaTypes: Object.freeze(["audio/mpeg"]),
+    maxTextCodePoints: SYNTHESIS_TEXT_MAX_CODE_POINTS,
+    maxOutputBytes: SYNTHESIS_OUTPUT_MAX_BYTES,
+  },
+  transcribe: transcribeOpenAI,
+  synthesize: synthesizeOpenAI,
 
   async streamChat({
     apiKey,

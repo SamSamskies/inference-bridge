@@ -11,6 +11,7 @@ import {
 import { getSettings, hasStoredApiKey } from "../src/storage.js";
 import {
   ensurePermission,
+  ensureSpeechPermission,
   resolveApproval,
   getPendingApproval,
   handleApprovalWindowClosed,
@@ -24,6 +25,8 @@ import {
   listProviders,
   resolveProviderModels,
   resolveProviderVoices,
+  providerSupportsMethod,
+  resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
 import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
@@ -737,6 +740,274 @@ function inferenceError(code, message) {
 }
 
 /**
+ * @param {{
+ *   streamId: string,
+ *   port: chrome.runtime.Port,
+ *   origin: string,
+ *   request: any,
+ *   controller: AbortController,
+ * }} args
+ */
+async function handleSpeechStart({
+  streamId,
+  port,
+  origin,
+  request,
+  controller,
+}) {
+  let settings = await getSettings();
+  if (!settings.experimentalSpeechEnabled) {
+    throw inferenceError(
+      "invalid_request",
+      "Experimental speech methods are disabled in Inference Bridge Options."
+    );
+  }
+
+  const method = request.method;
+  const capabilityRequest =
+    method === "transcribe"
+      ? { mediaType: request.audio.mediaType }
+      : { mediaType: "audio/mpeg" };
+  const capable = filterProvidersForMethod(
+    await listAllProviders(),
+    method,
+    capabilityRequest
+  );
+  if (capable.length === 0) {
+    throw inferenceError(
+      "unavailable",
+      method === "transcribe"
+        ? `No configured provider can transcribe ${request.audio.mediaType}.`
+        : "No configured provider supports MP3 speech synthesis."
+    );
+  }
+
+  const storedDefault = settings.operationDefaults[method];
+  const preferred =
+    capable.find((provider) => provider.id === storedDefault?.providerId) ||
+    capable[0];
+  const descriptor =
+    method === "transcribe" ? preferred.transcription : preferred.synthesis;
+  const preferredModel =
+    storedDefault?.providerId === preferred.id
+      ? storedDefault.model
+      : descriptor.defaultModel;
+  const preferredVoice =
+    method === "synthesize"
+      ? storedDefault?.providerId === preferred.id
+        ? storedDefault.voice
+        : descriptor.defaultVoice
+      : undefined;
+
+  // Source bytes remain in the page. Announce the stream before opening UI so
+  // the injector can bind its source and survive approval-phase rebind.
+  port.postMessage({ type: "started", streamId });
+  const permission = await ensureSpeechPermission({
+    requestId: streamId,
+    origin,
+    method,
+    preferredProviderId: preferred.id,
+    preferredModel,
+    ...(preferredVoice ? { preferredVoice } : {}),
+    ...(method === "transcribe"
+      ? {
+          mediaType: request.audio.mediaType,
+          byteLength: request.audio.byteLength,
+        }
+      : { text: request.text }),
+  });
+
+  let entry = activeStreams.get(streamId);
+  if (!entry || controller.signal.aborted) return streamId;
+  if (entry.portDisconnected) {
+    entry = await waitForPortRebind(streamId, Infinity);
+    if (!entry || controller.signal.aborted) {
+      activeStreams.delete(streamId);
+      return streamId;
+    }
+  }
+  if (!permission.allowed) {
+    throw inferenceError(
+      permission.code || "permission_denied",
+      permission.message || "Permission denied by user."
+    );
+  }
+
+  entry.phase = "streaming";
+  settings = await getSettings();
+  const provider = await getProviderAsync(permission.providerId);
+  if (
+    !provider ||
+    !providerSupportsMethod(provider, method, capabilityRequest)
+  ) {
+    throw inferenceError(
+      "unavailable",
+      `The selected provider no longer supports ${method}.`
+    );
+  }
+  if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+    throw inferenceError(
+      "unavailable",
+      `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
+    );
+  }
+  const model = permission.model;
+  if (!model) {
+    throw inferenceError(
+      "unavailable",
+      `No model is selected for ${provider.label} ${method}.`
+    );
+  }
+  const operationModels = await resolveProviderModels(provider, {
+    method,
+    apiKey: settings.apiKeys[provider.id],
+    signal: controller.signal,
+  });
+  if (
+    operationModels.length > 0 &&
+    !operationModels.some((candidate) => candidate.id === model)
+  ) {
+    throw inferenceError(
+      "unavailable",
+      `${provider.label} ${method} model is unavailable: ${model}.`
+    );
+  }
+  if (method === "transcribe") {
+    const mediaTypes = await resolveTranscriptionMediaTypes(provider, {
+      model,
+      apiKey: settings.apiKeys[provider.id],
+      signal: controller.signal,
+    });
+    if (!mediaTypes.includes(request.audio.mediaType)) {
+      throw inferenceError(
+        "unavailable",
+        `${provider.label} cannot transcribe ${request.audio.mediaType} without conversion; choose a compatible provider or file.`
+      );
+    }
+    if (
+      provider.transcription.maxInputBytes &&
+      request.audio.byteLength > provider.transcription.maxInputBytes
+    ) {
+      throw inferenceError(
+        "invalid_request",
+        `${provider.label} transcription input exceeds its byte limit.`
+      );
+    }
+  } else {
+    const voices = await resolveProviderVoices(provider, {
+      model,
+      apiKey: settings.apiKeys[provider.id],
+      signal: controller.signal,
+    });
+    if (
+      !permission.voice ||
+      !provider.synthesis.outputMediaTypes.includes("audio/mpeg") ||
+      !voices.some((candidate) => candidate.id === permission.voice)
+    ) {
+      throw inferenceError(
+        "unavailable",
+        `${provider.label} has no compatible synthesis voice or output format.`
+      );
+    }
+  }
+
+  entry.port.postMessage({
+    type: "chunk",
+    chunk: { type: "accepted" },
+  });
+
+  if (method === "transcribe") {
+    const audio = await receiveTranscriptionBlob(streamId, {
+      byteLength: request.audio.byteLength,
+      mediaType: request.audio.mediaType,
+    });
+    let emitted = "";
+    let emittedDelta = false;
+    const result = await provider.transcribe({
+      apiKey: settings.apiKeys[provider.id],
+      model,
+      audio: {
+        data: audio,
+        mediaType: request.audio.mediaType,
+        byteLength: request.audio.byteLength,
+      },
+      ...(request.language ? { language: request.language } : {}),
+      signal: controller.signal,
+      onDelta: async (content) => {
+        if (typeof content !== "string" || !content) return;
+        emittedDelta = true;
+        emitted += content;
+        entry.port.postMessage({
+          type: "chunk",
+          chunk: { type: "delta", content },
+        });
+      },
+    });
+    if (emittedDelta && emitted !== result.transcript.text) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} transcription deltas did not match the final transcript.`
+      );
+    }
+    entry.port.postMessage({
+      type: "chunk",
+      chunk: {
+        type: "done",
+        model: result.model,
+        transcript: result.transcript,
+        ...(result.usage ? { usage: result.usage } : {}),
+      },
+    });
+  } else {
+    beginSynthesisTransfer(streamId);
+    let pendingAudio = null;
+    const result = await provider.synthesize({
+      apiKey: settings.apiKeys[provider.id],
+      model,
+      voice: permission.voice,
+      text: request.text,
+      mediaType: "audio/mpeg",
+      signal: controller.signal,
+      onAudioDelta: async (data) => {
+        if (!(data instanceof Uint8Array) || data.byteLength === 0) return;
+        if (pendingAudio) {
+          await sendSynthesisBytes(streamId, pendingAudio);
+        }
+        // Copy because ReadableStream implementations may reuse backing memory.
+        pendingAudio = data.slice();
+      },
+    });
+    if (!pendingAudio) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} returned no synthesis audio.`
+      );
+    }
+    await sendSynthesisBytes(streamId, pendingAudio, { done: true });
+    const sentBytes = entry.downloadTransfer.sender.totalBytes;
+    if (sentBytes !== result.audio.byteLength) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} synthesis byte length did not match streamed audio.`
+      );
+    }
+    entry.port.postMessage({
+      type: "chunk",
+      chunk: {
+        type: "done",
+        model: result.model,
+        audio: result.audio,
+        ...(result.usage ? { usage: result.usage } : {}),
+      },
+    });
+  }
+
+  cleanupBinaryTransfers(entry, "Request finished");
+  activeStreams.delete(streamId);
+  return streamId;
+}
+
+/**
  * @param {chrome.runtime.Port} port
  * @param {any} msg
  * @param {(id: string) => void} onStreamId
@@ -802,20 +1073,13 @@ async function handleStart(port, msg, onStreamId) {
       return null;
     }
     if (validated.value.method !== "chat") {
-      const settings = await getSettings();
-      if (!settings.experimentalSpeechEnabled) {
-        sendError(
-          "invalid_request",
-          "Experimental speech methods are disabled in Inference Bridge Options."
-        );
-      } else {
-        sendError(
-          "unavailable",
-          `No provider implementing experimental ${validated.value.method} is configured.`
-        );
-      }
-      activeStreams.delete(streamId);
-      return null;
+      return await handleSpeechStart({
+        streamId,
+        port,
+        origin,
+        request: validated.value,
+        controller,
+      });
     }
 
     // Acknowledge so the page can attach stream listeners before permission UI.
