@@ -4,6 +4,7 @@
 
 import { serializeInferenceError } from "../src/errors.js";
 import {
+  validateExperimentalInferenceRequest,
   validateInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
@@ -425,9 +426,28 @@ async function handleStart(port, msg, onStreamId) {
       return null;
     }
 
-    const validated = validateInferenceRequest(msg.request);
+    const validated =
+      msg.experimental === true
+        ? validateExperimentalInferenceRequest(msg.request)
+        : validateInferenceRequest(msg.request);
     if (!validated.ok) {
       sendError("invalid_request", validated.message);
+      activeStreams.delete(streamId);
+      return null;
+    }
+    if (validated.value.method !== "chat") {
+      const settings = await getSettings();
+      if (!settings.experimentalSpeechEnabled) {
+        sendError(
+          "invalid_request",
+          "Experimental speech methods are disabled in Inference Bridge Options."
+        );
+      } else {
+        sendError(
+          "unavailable",
+          `No provider implementing experimental ${validated.value.method} is configured.`
+        );
+      }
       activeStreams.delete(streamId);
       return null;
     }

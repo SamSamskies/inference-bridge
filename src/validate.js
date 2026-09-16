@@ -1,3 +1,12 @@
+import {
+  SYNTHESIS_OUTPUT_MEDIA_TYPE,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+  isStructurallyValidLanguageTag,
+  isValidSynthesisText,
+  normalizeTranscriptionMediaType,
+  rawBase64ByteLength,
+} from "./speech.js";
+
 import { IMAGE_MEDIA_TYPES, isImageMediaType } from "./image-parts.js";
 
 const CHAT_ROLES = new Set(["system", "user", "assistant", "tool"]);
@@ -594,13 +603,208 @@ export function validateInferenceRequest(request) {
 }
 
 /**
- * @deprecated Images graduated to stable `request`. Alias of
- * {@link validateInferenceRequest} for older call sites.
+ * Closed discriminated-union validation for the experimental request surface.
+ * Stable request validation remains chat-only and unchanged.
  * @param {unknown} request
- * @returns {ReturnType<typeof validateInferenceRequest>}
  */
 export function validateExperimentalInferenceRequest(request) {
-  return validateInferenceRequest(request);
+  if (request == null || typeof request !== "object" || Array.isArray(request)) {
+    return { ok: false, message: "Request must be an object." };
+  }
+  const req = /** @type {Record<string, unknown>} */ (request);
+  if (req.method === "chat") {
+    const unknown = firstUnknownField(req, [
+      "method",
+      "messages",
+      "tools",
+      "toolChoice",
+      "options",
+      "output",
+      "signal",
+    ]);
+    if (unknown) {
+      return {
+        ok: false,
+        message: `Field "${unknown}" is not valid for method "chat".`,
+      };
+    }
+    return validateInferenceRequest(request);
+  }
+  if (req.method === "transcribe") {
+    return validateExperimentalTranscribeRequest(req);
+  }
+  if (req.method === "synthesize") {
+    return validateExperimentalSynthesizeRequest(req);
+  }
+  return {
+    ok: false,
+    message: 'method must be "chat", "transcribe", or "synthesize".',
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} value
+ * @param {string[]} allowed
+ * @returns {string}
+ */
+function firstUnknownField(value, allowed) {
+  const allowedSet = new Set(allowed);
+  return Object.keys(value).find((key) => !allowedSet.has(key)) || "";
+}
+
+/**
+ * @param {Record<string, unknown>} req
+ */
+function validateExperimentalTranscribeRequest(req) {
+  const unknown = firstUnknownField(req, [
+    "method",
+    "audio",
+    "language",
+    "signal",
+  ]);
+  if (unknown) {
+    return {
+      ok: false,
+      message: `Field "${unknown}" is not valid for method "transcribe".`,
+    };
+  }
+  if (!req.audio || typeof req.audio !== "object" || Array.isArray(req.audio)) {
+    return { ok: false, message: "audio must be an object." };
+  }
+  const audio = /** @type {Record<string, unknown>} */ (req.audio);
+  const unknownAudio = firstUnknownField(audio, ["data", "url", "mediaType"]);
+  if (unknownAudio) {
+    return {
+      ok: false,
+      message: `Field "audio.${unknownAudio}" is not valid for transcription.`,
+    };
+  }
+  const hasData = typeof audio.data === "string" && audio.data.length > 0;
+  const hasUrl = typeof audio.url === "string" && audio.url.trim().length > 0;
+  if (hasData === hasUrl) {
+    return {
+      ok: false,
+      message: "audio must include exactly one of data or url.",
+    };
+  }
+
+  let mediaType;
+  if (audio.mediaType !== undefined) {
+    mediaType = normalizeTranscriptionMediaType(audio.mediaType);
+    if (!mediaType) {
+      return {
+        ok: false,
+        message: `Unsupported transcription media type: ${String(audio.mediaType)}.`,
+      };
+    }
+  }
+  if (hasData && !mediaType) {
+    return {
+      ok: false,
+      message: "audio.mediaType is required for raw base64 data.",
+    };
+  }
+
+  let byteLength;
+  if (hasData) {
+    byteLength = rawBase64ByteLength(audio.data);
+    if (byteLength < 0) {
+      return { ok: false, message: "audio.data must be valid raw base64." };
+    }
+    if (byteLength === 0) {
+      return { ok: false, message: "audio.data must not be empty." };
+    }
+    if (byteLength > TRANSCRIPTION_INPUT_MAX_BYTES) {
+      return {
+        ok: false,
+        message: `audio.data exceeds the ${TRANSCRIPTION_INPUT_MAX_BYTES}-byte transcription limit.`,
+      };
+    }
+  }
+
+  if (
+    req.language !== undefined &&
+    !isStructurallyValidLanguageTag(req.language)
+  ) {
+    return {
+      ok: false,
+      message: "language must be a structurally valid BCP 47 tag.",
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      method: "transcribe",
+      audio: {
+        ...(hasData
+          ? { data: audio.data, byteLength }
+          : { url: /** @type {string} */ (audio.url).trim() }),
+        ...(mediaType ? { mediaType } : {}),
+      },
+      ...(req.language !== undefined ? { language: req.language } : {}),
+    },
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} req
+ */
+function validateExperimentalSynthesizeRequest(req) {
+  const unknown = firstUnknownField(req, [
+    "method",
+    "text",
+    "output",
+    "signal",
+  ]);
+  if (unknown) {
+    return {
+      ok: false,
+      message: `Field "${unknown}" is not valid for method "synthesize".`,
+    };
+  }
+  if (!isValidSynthesisText(req.text)) {
+    return {
+      ok: false,
+      message: "text must be non-empty and at most 4096 Unicode code points.",
+    };
+  }
+
+  if (req.output !== undefined) {
+    if (
+      !req.output ||
+      typeof req.output !== "object" ||
+      Array.isArray(req.output)
+    ) {
+      return { ok: false, message: "output must be an object." };
+    }
+    const output = /** @type {Record<string, unknown>} */ (req.output);
+    const unknownOutput = firstUnknownField(output, ["mediaType"]);
+    if (unknownOutput) {
+      return {
+        ok: false,
+        message: `Field "output.${unknownOutput}" is not valid for synthesis.`,
+      };
+    }
+    if (
+      output.mediaType !== undefined &&
+      output.mediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE
+    ) {
+      return {
+        ok: false,
+        message: `output.mediaType must be "${SYNTHESIS_OUTPUT_MEDIA_TYPE}".`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      method: "synthesize",
+      text: req.text,
+      output: { mediaType: SYNTHESIS_OUTPUT_MEDIA_TYPE },
+    },
+  };
 }
 
 /**

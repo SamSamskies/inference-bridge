@@ -119,6 +119,27 @@
       </dialog>
 
       <section class="panel stack">
+        <h2>Experimental speech</h2>
+        <label class="field">
+          <span>
+            <input id="experimentalSpeechEnabled" type="checkbox" />
+            Enable experimental speech methods
+          </span>
+        </label>
+        <p class="hint">
+          Exposes non-standard bounded transcription and speech synthesis
+          methods to pages. This incubation surface is default-off and may
+          change before any IPA proposal is accepted.
+        </p>
+        <div
+          class="status"
+          id="experimentalSpeechStatus"
+          role="status"
+          aria-live="polite"
+        ></div>
+      </section>
+
+      <section class="panel stack">
         <h2>OpenAI-compatible servers</h2>
         <p class="hint">
           Add LM Studio, llama.cpp, vLLM, LocalAI, or other OpenAI-compatible

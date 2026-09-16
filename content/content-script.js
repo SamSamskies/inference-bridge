@@ -17,6 +17,17 @@
 
   const { port1: bridgePort, port2 } = new MessageChannel();
 
+  function postFeatureState(enabled) {
+    try {
+      bridgePort.postMessage({
+        type: "feature-state",
+        experimentalSpeechEnabled: enabled === true,
+      });
+    } catch {
+      // ignore — page may have navigated away
+    }
+  }
+
   bridgePort.onmessage = (event) => {
     const data = event.data;
     if (!data || typeof data !== "object") return;
@@ -40,6 +51,25 @@
 
   // inject.js is listed first in the manifest so its init listener is ready.
   window.postMessage({ channel: CHANNEL, direction: "init" }, "*", [port2]);
+
+  // MAIN-world feature discovery must remain synchronous. Prime its private
+  // cache asynchronously and keep it current without exposing storage to pages.
+  chrome.storage.local
+    .get("experimentalSpeechEnabled")
+    .then((stored) =>
+      postFeatureState(stored.experimentalSpeechEnabled === true)
+    )
+    .catch(() => postFeatureState(false));
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (
+      areaName === "local" &&
+      changes.experimentalSpeechEnabled
+    ) {
+      postFeatureState(
+        changes.experimentalSpeechEnabled.newValue === true
+      );
+    }
+  });
 
   /**
    * @param {any} data

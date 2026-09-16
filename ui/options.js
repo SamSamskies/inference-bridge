@@ -54,6 +54,12 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
+const experimentalSpeechEnabledInput = document.getElementById(
+  "experimentalSpeechEnabled"
+);
+const experimentalSpeechStatus = document.getElementById(
+  "experimentalSpeechStatus"
+);
 const originsEl = document.getElementById("origins");
 const originsEmpty = document.getElementById("originsEmpty");
 const blockedEl = document.getElementById("blocked");
@@ -1634,6 +1640,8 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
+  experimentalSpeechEnabledInput.checked =
+    settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
   savedDefaultProviderId = settings.defaultProviderId;
   modelDrafts = { ...settings.defaultModels };
@@ -1699,12 +1707,34 @@ async function persistDefaultSettings(providerId, model) {
     defaultProviderId: providerId,
     defaultModel: model,
     defaultModels: modelDrafts,
+    experimentalSpeechEnabled: experimentalSpeechEnabledInput.checked,
   });
   savedDefaultProviderId = providerId;
   if (refreshModelsAfterKeyChange) {
     await refreshDefaultModels(providerId, model);
   }
 }
+
+experimentalSpeechEnabledInput.addEventListener("change", async () => {
+  const enabled = experimentalSpeechEnabledInput.checked;
+  experimentalSpeechEnabledInput.disabled = true;
+  experimentalSpeechStatus.textContent = "Saving…";
+  experimentalSpeechStatus.className = "status";
+  try {
+    await saveSettings({ experimentalSpeechEnabled: enabled });
+    experimentalSpeechStatus.textContent = enabled
+      ? "Experimental speech methods enabled."
+      : "Experimental speech methods disabled.";
+    experimentalSpeechStatus.className = "status ok";
+  } catch (err) {
+    experimentalSpeechEnabledInput.checked = !enabled;
+    experimentalSpeechStatus.textContent =
+      err instanceof Error ? err.message : "Failed to save speech setting.";
+    experimentalSpeechStatus.className = "status err";
+  } finally {
+    experimentalSpeechEnabledInput.disabled = false;
+  }
+});
 
 saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;

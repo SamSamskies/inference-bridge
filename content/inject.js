@@ -21,6 +21,10 @@
   const streamHandlers = new Map();
   /** One-shot deprecation notice for experimental.request (alias of request). */
   let warnedExperimentalRequest = false;
+  /** One-shot notice for non-normative speech methods. */
+  let warnedExperimentalSpeech = false;
+  /** Fail-closed cache populated by the isolated content script. */
+  let experimentalSpeechEnabled = false;
   /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
   let warnedExperimentalRunTools = false;
 
@@ -31,6 +35,15 @@
       "[Inference Bridge] window.inference.experimental.request is deprecated; " +
         "prefer window.inference.request(). Images, tools, and hosted " +
         "web_search are on the stable surface (see getFeatures)."
+    );
+  }
+
+  function warnExperimentalSpeechOnce() {
+    if (warnedExperimentalSpeech) return;
+    warnedExperimentalSpeech = true;
+    console.warn(
+      "[Inference Bridge] Transcription and speech synthesis are experimental, " +
+        "non-normative Bridge methods and may change before IPA standardization."
     );
   }
 
@@ -232,6 +245,12 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
 
+    if (data.type === "feature-state") {
+      experimentalSpeechEnabled =
+        data.experimentalSpeechEnabled === true;
+      return;
+    }
+
     if (typeof data.id === "string" && pending.has(data.id)) {
       const settle = pending.get(data.id);
       pending.delete(data.id);
@@ -288,14 +307,11 @@
   /**
    * Lazy AsyncIterable — the extension call starts when iteration begins.
    * @param {any} request
-   * @param {{ experimental?: boolean }} [options]
+   * @param {{ experimental?: boolean, preflight?: () => void }} [options]
    */
   function createStream(request, options = {}) {
     const experimental = options.experimental === true;
     const signal = request && typeof request === "object" ? request.signal : undefined;
-    if (experimental) {
-      warnExperimentalRequestOnce();
-    }
 
     return {
       [Symbol.asyncIterator]() {
@@ -379,6 +395,8 @@
         }
 
         async function start() {
+          options.preflight?.();
+
           if (!window.isSecureContext) {
             throw makeError(
               "unavailable",
@@ -411,6 +429,7 @@
           const started = await sendToExtension({
             type: "start",
             request: serializable,
+            ...(experimental ? { experimental: true } : {}),
           });
 
           streamId = started.streamId;
@@ -688,6 +707,173 @@
     );
   }
 
+  const EXPERIMENTAL_CHAT_FIELDS = new Set([
+    "method",
+    "messages",
+    "tools",
+    "toolChoice",
+    "options",
+    "output",
+    "signal",
+  ]);
+  const EXPERIMENTAL_TRANSCRIBE_FIELDS = new Set([
+    "method",
+    "audio",
+    "language",
+    "signal",
+  ]);
+  const EXPERIMENTAL_SYNTHESIZE_FIELDS = new Set([
+    "method",
+    "text",
+    "output",
+    "signal",
+  ]);
+  const EXPERIMENTAL_AUDIO_FIELDS = new Set(["data", "url", "mediaType"]);
+
+  /**
+   * @param {any} request
+   * @param {Set<string>} fields
+   */
+  function assertClosedRequest(request, fields) {
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      throw makeError("invalid_request", "Request must be an object.");
+    }
+    const unknown = Object.keys(request).find((key) => !fields.has(key));
+    if (unknown) {
+      throw makeError(
+        "invalid_request",
+        `Field "${unknown}" is not valid for method "${request.method}".`
+      );
+    }
+  }
+
+  /**
+   * Page-side shape checks run lazily before any extension/provider work.
+   * Bounds and MIME normalization are repeated by the worker from src/speech.js.
+   * @param {any} request
+   */
+  function preflightExperimentalSpeechRequest(request) {
+    if (!experimentalSpeechEnabled) {
+      throw makeError(
+        "invalid_request",
+        "Experimental speech methods are disabled in Inference Bridge Options."
+      );
+    }
+
+    if (request.method === "transcribe") {
+      assertClosedRequest(request, EXPERIMENTAL_TRANSCRIBE_FIELDS);
+      const audio = request.audio;
+      if (!audio || typeof audio !== "object" || Array.isArray(audio)) {
+        throw makeError("invalid_request", "audio must be an object.");
+      }
+      const unknown = Object.keys(audio).find(
+        (key) => !EXPERIMENTAL_AUDIO_FIELDS.has(key)
+      );
+      if (unknown) {
+        throw makeError(
+          "invalid_request",
+          `Field "audio.${unknown}" is not valid for transcription.`
+        );
+      }
+      const hasData =
+        (typeof audio.data === "string" && audio.data.length > 0) ||
+        (typeof Blob !== "undefined" && audio.data instanceof Blob);
+      const hasUrl = typeof audio.url === "string" && audio.url.trim().length > 0;
+      if (hasData === hasUrl) {
+        throw makeError(
+          "invalid_request",
+          "audio must include exactly one of data or url."
+        );
+      }
+      if (
+        audio.mediaType !== undefined &&
+        typeof audio.mediaType !== "string"
+      ) {
+        throw makeError("invalid_request", "audio.mediaType must be a string.");
+      }
+      if (
+        request.language !== undefined &&
+        typeof request.language !== "string"
+      ) {
+        throw makeError("invalid_request", "language must be a BCP 47 string.");
+      }
+    } else {
+      assertClosedRequest(request, EXPERIMENTAL_SYNTHESIZE_FIELDS);
+      if (typeof request.text !== "string" || !request.text.trim()) {
+        throw makeError("invalid_request", "text must be a non-empty string.");
+      }
+      if (request.output !== undefined) {
+        if (
+          !request.output ||
+          typeof request.output !== "object" ||
+          Array.isArray(request.output)
+        ) {
+          throw makeError("invalid_request", "output must be an object.");
+        }
+        const unknown = Object.keys(request.output).find(
+          (key) => key !== "mediaType"
+        );
+        if (unknown) {
+          throw makeError(
+            "invalid_request",
+            `Field "output.${unknown}" is not valid for synthesis.`
+          );
+        }
+        if (
+          request.output.mediaType !== undefined &&
+          request.output.mediaType !== "audio/mpeg"
+        ) {
+          throw makeError(
+            "invalid_request",
+            'output.mediaType must be "audio/mpeg".'
+          );
+        }
+      }
+    }
+
+    // The surface is visible before providers land, but must fail before
+    // approval or network I/O instead of falling through to chat.
+    throw makeError(
+      "unavailable",
+      `No provider implementing experimental ${request.method} is configured.`
+    );
+  }
+
+  /**
+   * @param {any} request
+   */
+  function createExperimentalStream(request) {
+    const method =
+      request && typeof request === "object" ? request.method : undefined;
+    if (method === "chat") {
+      warnExperimentalRequestOnce();
+      return createStream(request, {
+        experimental: true,
+        preflight() {
+          assertClosedRequest(request, EXPERIMENTAL_CHAT_FIELDS);
+        },
+      });
+    }
+    if (method === "transcribe" || method === "synthesize") {
+      warnExperimentalSpeechOnce();
+      return createStream(request, {
+        experimental: true,
+        preflight() {
+          preflightExperimentalSpeechRequest(request);
+        },
+      });
+    }
+    return createStream(request, {
+      experimental: true,
+      preflight() {
+        throw makeError(
+          "invalid_request",
+          'method must be "chat", "transcribe", or "synthesize".'
+        );
+      },
+    });
+  }
+
   Object.defineProperty(window, "inference", {
     value: Object.freeze({
       request(request) {
@@ -709,9 +895,17 @@
         };
       },
       experimental: Object.freeze({
-        /** @deprecated Alias of request(); prefer window.inference.request. */
         request(request) {
-          return createStream(request, { experimental: true });
+          return createExperimentalStream(request);
+        },
+        getFeatures() {
+          return {
+            methods: {
+              chat: true,
+              transcribe: experimentalSpeechEnabled,
+              synthesize: experimentalSpeechEnabled,
+            },
+          };
         },
         runTools,
       }),
