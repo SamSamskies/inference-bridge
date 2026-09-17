@@ -396,9 +396,27 @@ function allowUnknownFor(providerId) {
 /**
  * @param {string} providerId
  * @param {Array<{ id: string, label?: string }>} [models]
+ * @returns {boolean}
+ */
+function usesApprovalModelAutosuggest(providerId, models) {
+  // OpenRouter chat has a large live catalog, while operation-scoped speech
+  // catalogs are deliberately small and clearer as a regular select.
+  if (
+    requestMethod !== "chat" &&
+    Array.isArray(models) &&
+    models.length <= 20
+  ) {
+    return false;
+  }
+  return usesModelAutosuggest(providerId, models);
+}
+
+/**
+ * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} [models]
  */
 function setModelControlMode(providerId, models) {
-  const autosuggest = usesModelAutosuggest(providerId, models);
+  const autosuggest = usesApprovalModelAutosuggest(providerId, models);
   modelSelect.hidden = autosuggest;
   modelInputRow.hidden = !autosuggest;
   updateClearModelButton();
@@ -418,7 +436,7 @@ function updateClearModelButton() {
  */
 function readModelValue(providerId) {
   if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
-  if (usesModelAutosuggest(providerId, currentModels)) {
+  if (usesApprovalModelAutosuggest(providerId, currentModels)) {
     return modelInput.value.trim();
   }
   return modelSelect.value;
@@ -435,7 +453,7 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   const disabled = Boolean(opts.disabled);
   setModelControlMode(providerId, models);
 
-  if (usesModelAutosuggest(providerId, models)) {
+  if (usesApprovalModelAutosuggest(providerId, models)) {
     populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
     modelInput.disabled = disabled;
     modelSelect.disabled = true;
