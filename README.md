@@ -287,7 +287,7 @@ window.inference.request(...)               // IPA-stable chat + tools + images 
 window.inference.experimental.runTools(...) // optional page-side agent loop helper (DevTools / no-bundler)
 ```
 
-`experimental.request` remains a deprecated alias of `request` and logs a one-time `console.warn`. Prefer `request()` for new code.
+For `method: "chat"`, `experimental.request()` is a deprecated forwarding alias of stable `request()` and emits a one-time deprecation warning — prefer `request()` for new chat code. For `method: "transcribe"` and `"synthesize"`, it is the opt-in Bridge experimental surface (separate non-normative notice; no stable IPA equivalents yet).
 
 Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
@@ -569,7 +569,7 @@ Approval shows a Tools preview (function names and **Web search (provider-hosted
 
 ## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools, hosted web search, and images have graduated to stable `request`. `experimental.request` is a deprecated alias of `request` (one-time `console.warn`). `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
+Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools, hosted web search, and images have graduated to stable `request`. For `method: "chat"`, `experimental.request()` is a deprecated forwarding alias of stable `request()` (one-time deprecation warning). For `method: "transcribe"` and `"synthesize"`, it is the Bridge-only experimental surface and emits a separate non-normative notice; those methods do not yet have stable IPA equivalents. `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
 
 ### Bounded speech
 
