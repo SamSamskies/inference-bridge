@@ -87,7 +87,7 @@ describe("MAIN-world speech transport", () => {
     const iterator = inference.experimental
       .request({
         method: "transcribe",
-        audio: {
+        media: {
           mediaType: "audio/wav",
           data: new Blob([Uint8Array.from([1, 2, 3, 4, 5])], {
             type: "audio/wav",
@@ -100,12 +100,12 @@ describe("MAIN-world speech transport", () => {
       messages.find((message) => message.type === "start")
     );
     expect(start.experimental).toBe(true);
-    expect(start.request.audio).toMatchObject({
+    expect(start.request.media).toMatchObject({
       byteLength: 5,
       mediaType: "audio/wav",
       detectedMediaType: "audio/wav",
     });
-    expect(start.request.audio).not.toHaveProperty("data");
+    expect(start.request.media).not.toHaveProperty("data");
 
     port.postMessage({
       type: "binary-pull",
@@ -165,7 +165,7 @@ describe("MAIN-world speech transport", () => {
     const iterator = inference.experimental
       .request({
         method: "transcribe",
-        audio: { url: "https://media.example/audio.mp3" },
+        media: { url: "https://media.example/audio.mp3" },
       })
       [Symbol.asyncIterator]();
     const pendingNext = iterator.next();
@@ -178,11 +178,33 @@ describe("MAIN-world speech transport", () => {
     });
     await pendingNext.catch(() => {});
     expect(fetched).toEqual(["https://media.example/audio.mp3"]);
-    expect(start.request.audio).toMatchObject({
+    expect(start.request.media).toMatchObject({
       byteLength: 2,
       detectedMediaType: "audio/mpeg",
     });
-    expect(start.request.audio).not.toHaveProperty("url");
+    expect(start.request.media).not.toHaveProperty("url");
+  });
+
+  it("reports page-side URL fetch failures before contacting the extension", async () => {
+    const { inference, port } = loadInference(async () => {
+      throw new TypeError("CORS blocked");
+    });
+    await tick();
+    const messages = [];
+    port.onmessage = (event) => messages.push(event.data);
+
+    const iterator = inference.experimental
+      .request({
+        method: "transcribe",
+        media: { url: "https://media.example/private.wav" },
+      })
+      [Symbol.asyncIterator]();
+
+    await expect(iterator.next()).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("page must be allowed"),
+    });
+    expect(messages.some((message) => message.type === "start")).toBe(false);
   });
 
   it("acknowledges synthesis bytes only when yielded to the consumer", async () => {
@@ -218,6 +240,11 @@ describe("MAIN-world speech transport", () => {
       },
     });
     expect([...result.value.data]).toEqual([9, 10, 11]);
+    const audio = new Blob([result.value.data], {
+      type: result.value.mediaType,
+    });
+    expect(audio.type).toBe("audio/mpeg");
+    expect([...new Uint8Array(await audio.arrayBuffer())]).toEqual([9, 10, 11]);
     const ack = await waitFor(() =>
       messages.find((message) => message.type === "binary-ack")
     );
@@ -285,7 +312,7 @@ describe("MAIN-world speech transport", () => {
     const iterator = inference.experimental
       .request({
         method: "transcribe",
-        audio: {
+        media: {
           data: new Blob([Uint8Array.from([1, 2, 3])], {
             type: "audio/wav",
           }),

@@ -770,7 +770,7 @@ async function handleSpeechStart({
   const method = request.method;
   const capabilityRequest =
     method === "transcribe"
-      ? { mediaType: request.audio.mediaType }
+      ? { mediaType: request.media.mediaType }
       : { mediaType: "audio/mpeg" };
   const capable = filterProvidersForMethod(
     await listAllProviders(),
@@ -781,7 +781,7 @@ async function handleSpeechStart({
     throw inferenceError(
       "unavailable",
       method === "transcribe"
-        ? `No configured provider can transcribe ${request.audio.mediaType}.`
+        ? `No configured provider can transcribe ${request.media.mediaType}.`
         : "No configured provider supports MP3 speech synthesis."
     );
   }
@@ -815,8 +815,8 @@ async function handleSpeechStart({
     ...(preferredVoice ? { preferredVoice } : {}),
     ...(method === "transcribe"
       ? {
-          mediaType: request.audio.mediaType,
-          byteLength: request.audio.byteLength,
+          mediaType: request.media.mediaType,
+          byteLength: request.media.byteLength,
         }
       : { text: request.text }),
   });
@@ -882,15 +882,15 @@ async function handleSpeechStart({
       apiKey: settings.apiKeys[provider.id],
       signal: controller.signal,
     });
-    if (!mediaTypes.includes(request.audio.mediaType)) {
+    if (!mediaTypes.includes(request.media.mediaType)) {
       throw inferenceError(
         "unavailable",
-        `${provider.label} cannot transcribe ${request.audio.mediaType} without conversion; choose a compatible provider or file.`
+        `${provider.label} cannot transcribe ${request.media.mediaType} without conversion; choose a compatible provider or file.`
       );
     }
     if (
       provider.transcription.maxInputBytes &&
-      request.audio.byteLength > provider.transcription.maxInputBytes
+      request.media.byteLength > provider.transcription.maxInputBytes
     ) {
       throw inferenceError(
         "invalid_request",
@@ -922,8 +922,8 @@ async function handleSpeechStart({
 
   if (method === "transcribe") {
     const audio = await receiveTranscriptionBlob(streamId, {
-      byteLength: request.audio.byteLength,
-      mediaType: request.audio.mediaType,
+      byteLength: request.media.byteLength,
+      mediaType: request.media.mediaType,
     });
     let emitted = "";
     let emittedDelta = false;
@@ -932,8 +932,8 @@ async function handleSpeechStart({
       model,
       audio: {
         data: audio,
-        mediaType: request.audio.mediaType,
-        byteLength: request.audio.byteLength,
+        mediaType: request.media.mediaType,
+        byteLength: request.media.byteLength,
       },
       ...(request.language ? { language: request.language } : {}),
       signal: controller.signal,

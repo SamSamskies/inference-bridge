@@ -91,8 +91,6 @@ describe("window.inference.getFeatures", () => {
     expect(inference.experimental.getFeatures()).toEqual({
       methods: {
         chat: true,
-        transcribe: false,
-        synthesize: false,
       },
     });
 
@@ -101,15 +99,28 @@ describe("window.inference.getFeatures", () => {
     expect(enabled).toEqual({
       methods: {
         chat: true,
-        transcribe: true,
+        transcribe: {
+          acceptedMedia: [
+            { mediaType: "audio/mpeg" },
+            { mediaType: "audio/mp4" },
+            { mediaType: "audio/wav" },
+            { mediaType: "audio/webm" },
+            { mediaType: "video/mp4" },
+            { mediaType: "video/webm" },
+          ],
+        },
         synthesize: true,
       },
     });
-    enabled.methods.transcribe = false;
-    expect(inference.experimental.getFeatures().methods.transcribe).toBe(true);
+    enabled.methods.transcribe.acceptedMedia.length = 0;
+    expect(
+      inference.experimental.getFeatures().methods.transcribe.acceptedMedia
+    ).toHaveLength(6);
 
     setSpeechEnabled(false);
-    expect(inference.experimental.getFeatures().methods.synthesize).toBe(false);
+    expect(
+      inference.experimental.getFeatures().methods
+    ).toEqual({ chat: true });
   });
 });
 
@@ -189,7 +200,7 @@ describe("experimental.request deprecation", () => {
 
     const transcribe = inference.experimental.request({
       method: "transcribe",
-      audio: { mediaType: "audio/wav", data: "Zm9v" },
+      media: { mediaType: "audio/wav", data: "Zm9v" },
     })[Symbol.asyncIterator]();
     await expect(transcribe.next()).rejects.toMatchObject({
       code: "invalid_request",

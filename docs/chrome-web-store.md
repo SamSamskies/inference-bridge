@@ -64,6 +64,7 @@ Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-de
 • Function tools and hosted web search on window.inference.request (page-executed function tools; keys stay in the extension)
 • Hosted web search on OpenAI, Anthropic, OpenRouter, and Ollama (Ollama search runs through ollama.com with an optional account key)
 • Image input and output on window.inference.request (vision models / OpenAI & OpenRouter image generation; keys stay in the extension)
+• Optional, default-off experimental bounded transcription and MP3 speech synthesis with separate per-site approval
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model
 • OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
@@ -97,6 +98,7 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 - User credentials (API keys) stored locally
 - Website content (prompt/messages) sent to the user-selected provider
 - Experimental speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
+- Recordings can contain biometric voice data and sensitive bystander, location, health, background-conversation, or ambient information
 - Synthesis text sent to the selected provider and generated MP3 bytes returned directly to the requesting page
 - No storage of recordings, transcripts, or generated audio; no microphone/tab capture and no automatic playback
 - No sale of data; no remote Inference Bridge backend

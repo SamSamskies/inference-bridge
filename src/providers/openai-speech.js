@@ -398,15 +398,34 @@ async function mapOpenAIError(response, operation) {
     operation === "transcription" &&
     (normalized.includes("audio track") ||
       normalized.includes("decode") ||
-      normalized.includes("invalid file format"))
+      normalized.includes("invalid file format") ||
+      normalized.includes("corrupt") ||
+      normalized.includes("no speech") ||
+      normalized.includes("no audible speech") ||
+      normalized.includes("silence"))
   ) {
+    const noSpeech =
+      normalized.includes("no speech") ||
+      normalized.includes("no audible speech") ||
+      normalized.includes("silence");
     return inferenceError(
       "invalid_request",
-      "The media file has no decodable audio track."
+      noSpeech
+        ? "No audible speech was detected in the media file."
+        : "The media file has no decodable audio track."
     );
   }
+  const unavailable =
+    response.status === 401 ||
+    response.status === 403 ||
+    response.status === 404 ||
+    response.status === 429 ||
+    (normalized.includes("model") &&
+      (normalized.includes("not found") ||
+        normalized.includes("does not exist") ||
+        normalized.includes("not available")));
   return inferenceError(
-    "provider_error",
+    unavailable ? "unavailable" : "provider_error",
     `OpenAI ${operation} failed (${response.status})${message ? `: ${message}` : "."}`
   );
 }
