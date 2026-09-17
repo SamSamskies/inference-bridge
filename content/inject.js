@@ -12,7 +12,7 @@
 
   const CHANNEL = "__ipa_inference__";
   let nextId = 1;
-  let nextAudioSourceId = 1;
+  let nextMediaSourceId = 1;
 
   /** @type {MessagePort | null} */
   let bridgePort = null;
@@ -74,6 +74,14 @@
     "image/png",
     "image/webp",
     "image/gif",
+  ]);
+  const TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/wav",
+    "audio/webm",
+    "video/mp4",
+    "video/webm",
   ]);
 
   /**
@@ -137,7 +145,7 @@
         data
       )
     ) {
-      throw makeError("invalid_request", "audio.data must be valid raw base64.");
+      throw makeError("invalid_request", "media.data must be valid raw base64.");
     }
     const parts = [];
     // Keep slices quartet-aligned and temporary binary strings small.
@@ -152,7 +160,7 @@
         parts.push(bytes);
       }
     } catch {
-      throw makeError("invalid_request", "audio.data must be valid raw base64.");
+      throw makeError("invalid_request", "media.data must be valid raw base64.");
     }
     return new Blob(parts, { type: mediaType });
   }
@@ -188,16 +196,16 @@
    * @param {AbortSignal} [signal]
    */
   async function prepareTranscriptionSource(request, signal) {
-    const audio = request.audio;
+    const media = request.media;
     const declaredMediaType =
-      typeof audio.mediaType === "string" ? audio.mediaType : "";
+      typeof media.mediaType === "string" ? media.mediaType : "";
     let source;
 
-    if (typeof audio.url === "string" && audio.url.trim()) {
+    if (typeof media.url === "string" && media.url.trim()) {
       let response;
       try {
         response = await fetch(
-          audio.url.trim(),
+          media.url.trim(),
           signal ? { signal } : undefined
         );
       } catch (err) {
@@ -209,43 +217,43 @@
         }
         throw makeError(
           "invalid_request",
-          "Could not fetch audio url (network or CORS). The page must be allowed to read it."
+          "Could not fetch media URL (network or CORS). The page must be allowed to read it."
         );
       }
       if (!response.ok) {
         throw makeError(
           "invalid_request",
-          `Audio url returned HTTP ${response.status}.`
+          `Media URL returned HTTP ${response.status}.`
         );
       }
       source = await response.blob();
     } else if (
       typeof Blob !== "undefined" &&
-      audio.data instanceof Blob
+      media.data instanceof Blob
     ) {
-      source = audio.data;
-    } else if (typeof audio.data === "string") {
+      source = media.data;
+    } else if (typeof media.data === "string") {
       if (!declaredMediaType) {
         throw makeError(
           "invalid_request",
-          "audio.mediaType is required for raw base64 data."
+          "media.mediaType is required for raw base64 data."
         );
       }
-      source = rawBase64ToBlob(audio.data, declaredMediaType);
+      source = rawBase64ToBlob(media.data, declaredMediaType);
     } else {
       throw makeError(
         "invalid_request",
-        "audio must include exactly one of data or url."
+        "media must include exactly one of data or url."
       );
     }
 
-    const sourceId = `audio_${nextAudioSourceId++}_${Math.random()
+    const sourceId = `media_${nextMediaSourceId++}_${Math.random()
       .toString(36)
       .slice(2, 9)}`;
     return {
       request: {
         ...request,
-        audio: {
+        media: {
           sourceId,
           byteLength: source.size,
           ...(declaredMediaType ? { mediaType: declaredMediaType } : {}),
@@ -963,7 +971,7 @@
   ]);
   const EXPERIMENTAL_TRANSCRIBE_FIELDS = new Set([
     "method",
-    "audio",
+    "media",
     "language",
     "signal",
   ]);
@@ -973,7 +981,7 @@
     "output",
     "signal",
   ]);
-  const EXPERIMENTAL_AUDIO_FIELDS = new Set(["data", "url", "mediaType"]);
+  const EXPERIMENTAL_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
 
   /**
    * @param {any} request
@@ -1007,34 +1015,32 @@
 
     if (request.method === "transcribe") {
       assertClosedRequest(request, EXPERIMENTAL_TRANSCRIBE_FIELDS);
-      const audio = request.audio;
-      if (!audio || typeof audio !== "object" || Array.isArray(audio)) {
-        throw makeError("invalid_request", "audio must be an object.");
+      const media = request.media;
+      if (!media || typeof media !== "object" || Array.isArray(media)) {
+        throw makeError("invalid_request", "media must be an object.");
       }
-      const unknown = Object.keys(audio).find(
-        (key) => !EXPERIMENTAL_AUDIO_FIELDS.has(key)
+      const unknown = Object.keys(media).find(
+        (key) => !EXPERIMENTAL_MEDIA_FIELDS.has(key)
       );
       if (unknown) {
         throw makeError(
           "invalid_request",
-          `Field "audio.${unknown}" is not valid for transcription.`
+          `Field "media.${unknown}" is not valid for transcription.`
         );
       }
-      const hasData =
-        (typeof audio.data === "string" && audio.data.length > 0) ||
-        (typeof Blob !== "undefined" && audio.data instanceof Blob);
-      const hasUrl = typeof audio.url === "string" && audio.url.trim().length > 0;
+      const hasData = Object.prototype.hasOwnProperty.call(media, "data");
+      const hasUrl = Object.prototype.hasOwnProperty.call(media, "url");
       if (hasData === hasUrl) {
         throw makeError(
           "invalid_request",
-          "audio must include exactly one of data or url."
+          "media must include exactly one of data or url."
         );
       }
       if (
-        audio.mediaType !== undefined &&
-        typeof audio.mediaType !== "string"
+        media.mediaType !== undefined &&
+        typeof media.mediaType !== "string"
       ) {
-        throw makeError("invalid_request", "audio.mediaType must be a string.");
+        throw makeError("invalid_request", "media.mediaType must be a string.");
       }
       if (
         request.language !== undefined &&
@@ -1141,8 +1147,16 @@
           return {
             methods: {
               chat: true,
-              transcribe: experimentalSpeechEnabled,
-              synthesize: experimentalSpeechEnabled,
+              ...(experimentalSpeechEnabled
+                ? {
+                    transcribe: {
+                      acceptedMedia: TRANSCRIPTION_MEDIA_TYPES.map(
+                        (mediaType) => ({ mediaType })
+                      ),
+                    },
+                    synthesize: true,
+                  }
+                : {}),
             },
           };
         },

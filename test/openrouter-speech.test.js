@@ -136,8 +136,35 @@ describe("OpenRouter transcription", () => {
       "fetch",
       vi.fn(async () =>
         Response.json(
+          { error: { message: "silence detected; no speech found" } },
+          { status: 400 }
+        )
+      )
+    );
+    await expect(transcribeOpenRouter(request)).rejects.toMatchObject({
+      code: "invalid_request",
+      message: "No audible speech was detected in the media file.",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
           { error: { message: "no route available" } },
           { status: 503 }
+        )
+      )
+    );
+    await expect(transcribeOpenRouter(request)).rejects.toMatchObject({
+      code: "unavailable",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "invalid API key" } },
+          { status: 401 }
         )
       )
     );

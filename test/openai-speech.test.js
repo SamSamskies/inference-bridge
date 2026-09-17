@@ -159,6 +159,32 @@ describe("OpenAI transcription", () => {
       code: "invalid_request",
       message: "The media file has no decodable audio track.",
     });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "silence detected; no speech found" } },
+          { status: 400 }
+        )
+      )
+    );
+    await expect(
+      transcribeOpenAI({
+        apiKey: "sk-test",
+        model: "gpt-4o-transcribe",
+        audio: {
+          data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }),
+          mediaType: "audio/wav",
+          byteLength: 1,
+        },
+        signal: new AbortController().signal,
+        onDelta: vi.fn(),
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_request",
+      message: "No audible speech was detected in the media file.",
+    });
   });
 
   it("fails closed on unsupported media and malformed responses", async () => {
@@ -251,6 +277,35 @@ describe("OpenAI synthesis", () => {
     });
   });
 
+  it("adapts a complete upstream MP3 response into an audio delta", async () => {
+    const bytes = Uint8Array.from([0xff, 0xfb, 0x01, 0x02]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(bytes, {
+          headers: { "Content-Type": "audio/mpeg" },
+        })
+      )
+    );
+    const chunks = [];
+
+    const result = await synthesizeOpenAI({
+      apiKey: "sk-test",
+      model: "gpt-4o-mini-tts",
+      voice: "alloy",
+      text: "hello",
+      mediaType: "audio/mpeg",
+      signal: new AbortController().signal,
+      onAudioDelta: (chunk) => chunks.push(chunk.slice()),
+    });
+
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
+    expect([...new Uint8Array(await new Blob(chunks).arrayBuffer())]).toEqual([
+      ...bytes,
+    ]);
+    expect(result.audio.byteLength).toBe(bytes.byteLength);
+  });
+
   it("rejects unknown voices, malformed formats, and empty bodies", async () => {
     const common = {
       model: "gpt-4o-mini-tts",
@@ -303,6 +358,26 @@ describe("OpenAI synthesis", () => {
         onAudioDelta: vi.fn(),
       })
     ).rejects.toMatchObject({ code: "provider_error" });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "invalid API key" } },
+          { status: 401 }
+        )
+      )
+    );
+    await expect(
+      synthesizeOpenAI({
+        model: "gpt-4o-mini-tts",
+        voice: "alloy",
+        text: "hello",
+        mediaType: "audio/mpeg",
+        signal: new AbortController().signal,
+        onAudioDelta: vi.fn(),
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
 
     const controller = new AbortController();
     controller.abort();

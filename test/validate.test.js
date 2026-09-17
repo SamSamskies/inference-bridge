@@ -800,14 +800,14 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(
       validateExperimentalInferenceRequest({
         method: "transcribe",
-        audio: { mediaType: "audio/x-wav; codecs=1", data: "Zm9v" },
+        media: { mediaType: "audio/x-wav; codecs=1", data: "Zm9v" },
         language: "en-US",
       })
     ).toEqual({
       ok: true,
       value: {
         method: "transcribe",
-        audio: {
+        media: {
           mediaType: "audio/wav",
           data: "Zm9v",
           byteLength: 3,
@@ -819,21 +819,42 @@ describe("validateExperimentalInferenceRequest", () => {
     expect(
       validateExperimentalInferenceRequest({
         method: "transcribe",
-        audio: { url: " https://media.example/test.mp3 " },
+        media: {
+          sourceId: "media_blob",
+          byteLength: 3,
+          detectedMediaType: "audio/mpeg",
+        },
       })
     ).toEqual({
       ok: true,
       value: {
         method: "transcribe",
-        audio: { url: "https://media.example/test.mp3" },
+        media: {
+          sourceId: "media_blob",
+          byteLength: 3,
+          mediaType: "audio/mpeg",
+        },
       },
     });
 
     expect(
       validateExperimentalInferenceRequest({
         method: "transcribe",
-        audio: {
-          sourceId: "audio_1",
+        media: { url: " https://media.example/test.mp3 " },
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        method: "transcribe",
+        media: { url: "https://media.example/test.mp3" },
+      },
+    });
+
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "transcribe",
+        media: {
+          sourceId: "media_1",
           byteLength: 24_000_000,
           mediaType: "audio/x-wav",
           detectedMediaType: "audio/wav",
@@ -843,8 +864,8 @@ describe("validateExperimentalInferenceRequest", () => {
       ok: true,
       value: {
         method: "transcribe",
-        audio: {
-          sourceId: "audio_1",
+        media: {
+          sourceId: "media_1",
           byteLength: 24_000_000,
           mediaType: "audio/wav",
         },
@@ -854,36 +875,53 @@ describe("validateExperimentalInferenceRequest", () => {
 
   it("rejects malformed transcription sources, MIME types, and languages", () => {
     const cases = [
-      { method: "transcribe", audio: {} },
+      { method: "transcribe", media: {} },
       {
         method: "transcribe",
-        audio: { data: "Zm9v", url: "https://example.test/a.wav" },
+        media: { data: "Zm9v", url: "https://example.test/a.wav" },
       },
       {
         method: "transcribe",
-        audio: { data: "not base64", mediaType: "audio/wav" },
+        media: { data: "", url: "https://example.test/a.wav" },
       },
       {
         method: "transcribe",
-        audio: { data: "Zm9v", mediaType: "audio/ogg" },
+        media: { data: 123, url: "https://example.test/a.wav" },
+      },
+      { method: "transcribe", media: { url: 123 } },
+      {
+        method: "transcribe",
+        media: {
+          sourceId: "",
+          byteLength: 3,
+          detectedMediaType: "audio/wav",
+        },
       },
       {
         method: "transcribe",
-        audio: { data: "Zm9v", mediaType: "audio/wav" },
+        media: { data: "not base64", mediaType: "audio/wav" },
+      },
+      {
+        method: "transcribe",
+        media: { data: "Zm9v", mediaType: "audio/ogg" },
+      },
+      {
+        method: "transcribe",
+        media: { data: "Zm9v", mediaType: "audio/wav" },
         language: "en_US",
       },
       {
         method: "transcribe",
-        audio: {
-          sourceId: "audio_1",
+        media: {
+          sourceId: "media_1",
           byteLength: 24_000_001,
           mediaType: "audio/wav",
         },
       },
       {
         method: "transcribe",
-        audio: {
-          sourceId: "audio_1",
+        media: {
+          sourceId: "media_1",
           byteLength: 3,
           mediaType: "audio/wav",
           detectedMediaType: "audio/mpeg",
@@ -942,13 +980,13 @@ describe("validateExperimentalInferenceRequest", () => {
       validateExperimentalInferenceRequest({
         method: "chat",
         messages: [{ role: "user", content: "hi" }],
-        audio: { data: "Zm9v", mediaType: "audio/wav" },
+        media: { data: "Zm9v", mediaType: "audio/wav" },
       }).ok
     ).toBe(false);
     expect(
       validateExperimentalInferenceRequest({
         method: "transcribe",
-        audio: { data: "Zm9v", mediaType: "audio/wav" },
+        media: { data: "Zm9v", mediaType: "audio/wav" },
         messages: [],
       }).ok
     ).toBe(false);

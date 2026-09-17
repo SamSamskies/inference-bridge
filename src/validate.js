@@ -659,7 +659,7 @@ function firstUnknownField(value, allowed) {
 function validateExperimentalTranscribeRequest(req) {
   const unknown = firstUnknownField(req, [
     "method",
-    "audio",
+    "media",
     "language",
     "signal",
   ]);
@@ -669,11 +669,11 @@ function validateExperimentalTranscribeRequest(req) {
       message: `Field "${unknown}" is not valid for method "transcribe".`,
     };
   }
-  if (!req.audio || typeof req.audio !== "object" || Array.isArray(req.audio)) {
-    return { ok: false, message: "audio must be an object." };
+  if (!req.media || typeof req.media !== "object" || Array.isArray(req.media)) {
+    return { ok: false, message: "media must be an object." };
   }
-  const audio = /** @type {Record<string, unknown>} */ (req.audio);
-  const unknownAudio = firstUnknownField(audio, [
+  const media = /** @type {Record<string, unknown>} */ (req.media);
+  const unknownMedia = firstUnknownField(media, [
     "data",
     "url",
     "mediaType",
@@ -681,44 +681,55 @@ function validateExperimentalTranscribeRequest(req) {
     "byteLength",
     "sourceId",
   ]);
-  if (unknownAudio) {
+  if (unknownMedia) {
     return {
       ok: false,
-      message: `Field "audio.${unknownAudio}" is not valid for transcription.`,
+      message: `Field "media.${unknownMedia}" is not valid for transcription.`,
     };
   }
-  const hasData = typeof audio.data === "string" && audio.data.length > 0;
-  const hasUrl = typeof audio.url === "string" && audio.url.trim().length > 0;
-  const hasWireSource =
-    typeof audio.sourceId === "string" && audio.sourceId.length > 0;
+  const hasData = Object.prototype.hasOwnProperty.call(media, "data");
+  const hasUrl = Object.prototype.hasOwnProperty.call(media, "url");
+  const hasWireSource = Object.prototype.hasOwnProperty.call(media, "sourceId");
   if (
     [hasData, hasUrl, hasWireSource].filter(Boolean).length !== 1
   ) {
     return {
       ok: false,
-      message: "audio must include exactly one of data or url.",
+      message: "media must include exactly one of data or url.",
     };
+  }
+  if (
+    hasUrl &&
+    (typeof media.url !== "string" || media.url.trim().length === 0)
+  ) {
+    return { ok: false, message: "media.url must be a non-empty string." };
+  }
+  if (
+    hasWireSource &&
+    (typeof media.sourceId !== "string" || media.sourceId.length === 0)
+  ) {
+    return { ok: false, message: "media.sourceId must be a non-empty string." };
   }
 
   let mediaType;
-  if (audio.mediaType !== undefined) {
-    mediaType = normalizeTranscriptionMediaType(audio.mediaType);
+  if (media.mediaType !== undefined) {
+    mediaType = normalizeTranscriptionMediaType(media.mediaType);
     if (!mediaType) {
       return {
         ok: false,
-        message: `Unsupported transcription media type: ${String(audio.mediaType)}.`,
+        message: `Unsupported transcription media type: ${String(media.mediaType)}.`,
       };
     }
   }
   let detectedMediaType;
-  if (audio.detectedMediaType !== undefined) {
+  if (media.detectedMediaType !== undefined) {
     detectedMediaType = normalizeTranscriptionMediaType(
-      audio.detectedMediaType
+      media.detectedMediaType
     );
     if (!detectedMediaType) {
       return {
         ok: false,
-        message: `Unsupported transcription media type: ${String(audio.detectedMediaType)}.`,
+        message: `Unsupported transcription media type: ${String(media.detectedMediaType)}.`,
       };
     }
   }
@@ -732,23 +743,23 @@ function validateExperimentalTranscribeRequest(req) {
   if (hasData && !mediaType) {
     return {
       ok: false,
-      message: "audio.mediaType is required for raw base64 data.",
+      message: "media.mediaType is required for raw base64 data.",
     };
   }
 
   let byteLength;
   if (hasData) {
-    byteLength = rawBase64ByteLength(audio.data);
+    byteLength = rawBase64ByteLength(media.data);
     if (byteLength < 0) {
-      return { ok: false, message: "audio.data must be valid raw base64." };
+      return { ok: false, message: "media.data must be valid raw base64." };
     }
     if (byteLength === 0) {
-      return { ok: false, message: "audio.data must not be empty." };
+      return { ok: false, message: "media.data must not be empty." };
     }
     if (byteLength > TRANSCRIPTION_INPUT_MAX_BYTES) {
       return {
         ok: false,
-        message: `audio.data exceeds the ${TRANSCRIPTION_INPUT_MAX_BYTES}-byte transcription limit.`,
+        message: `media.data exceeds the ${TRANSCRIPTION_INPUT_MAX_BYTES}-byte transcription limit.`,
       };
     }
   }
@@ -759,13 +770,13 @@ function validateExperimentalTranscribeRequest(req) {
         message: "The transcription source has no supported media type.",
       };
     }
-    if (!isValidTranscriptionByteLength(audio.byteLength)) {
+    if (!isValidTranscriptionByteLength(media.byteLength)) {
       return {
         ok: false,
-        message: `audio.byteLength must be between 1 and ${TRANSCRIPTION_INPUT_MAX_BYTES}.`,
+        message: `media.byteLength must be between 1 and ${TRANSCRIPTION_INPUT_MAX_BYTES}.`,
       };
     }
-    byteLength = audio.byteLength;
+    byteLength = media.byteLength;
   }
 
   if (
@@ -782,12 +793,12 @@ function validateExperimentalTranscribeRequest(req) {
     ok: true,
     value: {
       method: "transcribe",
-      audio: {
+      media: {
         ...(hasWireSource
-          ? { sourceId: audio.sourceId, byteLength }
+          ? { sourceId: media.sourceId, byteLength }
           : hasData
-          ? { data: audio.data, byteLength }
-          : { url: /** @type {string} */ (audio.url).trim() }),
+          ? { data: media.data, byteLength }
+          : { url: /** @type {string} */ (media.url).trim() }),
         ...(mediaType ? { mediaType } : {}),
       },
       ...(req.language !== undefined ? { language: req.language } : {}),

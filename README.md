@@ -578,8 +578,10 @@ are disabled by default. Enable **Experimental speech** in Options, reload the
 page, and feature-detect before use:
 
 ```js
-const speech = window.inference.experimental.getFeatures().methods;
-console.log(speech); // { chat: true, transcribe: true, synthesize: true }
+const methods = window.inference.experimental.getFeatures().methods;
+console.log(methods.transcribe?.acceptedMedia);
+// [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
+console.log(Boolean(methods.synthesize)); // true when locally enabled
 ```
 
 Both methods are lazy `AsyncIterable` requests and retain the normal approval,
@@ -591,6 +593,8 @@ Current implementation limits:
 
 - Transcription accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64
   string, or page-fetched URL, up to 24,000,000 bytes.
+- The transcription source is `media`. Blob and URL media types can be inferred;
+  raw base64 requires an explicit `mediaType`.
 - URL input is fetched by the page under page CORS. The privileged extension
   never fetches an arbitrary page-supplied media URL.
 - Files are passed through unchanged. For MP4/WebM, the complete container,
@@ -641,10 +645,39 @@ const file = await handle.getFile();
 
 for await (const chunk of window.inference.experimental.request({
   method: "transcribe",
-  audio: { data: file, mediaType: file.type }
+  media: { data: file }
 })) {
   console.log(chunk);
   if (chunk.type === "done") console.log(chunk.transcript.text);
+}
+```
+
+Page-owned recording also stays bounded: record first, stop the microphone,
+then submit the completed `Blob`:
+
+```js
+const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+const recorder = new MediaRecorder(microphone);
+const parts = [];
+recorder.ondataavailable = ({ data }) => {
+  if (data.size) parts.push(data);
+};
+const stopped = new Promise((resolve) => {
+  recorder.onstop = resolve;
+});
+
+recorder.start();
+await new Promise((resolve) => setTimeout(resolve, 5_000));
+recorder.stop();
+await stopped;
+microphone.getTracks().forEach((track) => track.stop());
+
+const recording = new Blob(parts, { type: recorder.mimeType });
+for await (const chunk of window.inference.experimental.request({
+  method: "transcribe",
+  media: { data: recording }
+})) {
+  console.log(chunk);
 }
 ```
 
@@ -809,8 +842,8 @@ npm run package
 - [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the request-deprecation warn)
 - [ ] Stable `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 - [ ] Stable `output.images: true` on OpenAI / OpenRouter; approval lists image input/output separately
-- [ ] Experimental speech is absent from stable `getFeatures()` and defaults to disabled in `experimental.getFeatures().methods`
-- [ ] Enabling Experimental speech updates `experimental.getFeatures().methods` after page reload; disabling it makes both methods fail before approval
+- [ ] Experimental speech is absent from stable `getFeatures()` and defaults to absent from `experimental.getFeatures().methods`
+- [ ] Enabling Experimental speech exposes normalized `methods.transcribe.acceptedMedia` constraints plus `methods.synthesize`; disabling it removes both and makes either request fail before approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
 - [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
 - [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS

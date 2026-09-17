@@ -205,9 +205,20 @@ async function mapOllamaError(response) {
   }
   const normalized = message.toLowerCase();
   if (
+    normalized.includes("no speech") ||
+    normalized.includes("no audible speech") ||
+    normalized.includes("silence")
+  ) {
+    return inferenceError(
+      "invalid_request",
+      "No audible speech was detected in the media file."
+    );
+  }
+  if (
     normalized.includes("audio track") ||
     normalized.includes("decode") ||
     normalized.includes("invalid file format") ||
+    normalized.includes("corrupt") ||
     normalized.includes("unrecognized audio format")
   ) {
     return inferenceError(
