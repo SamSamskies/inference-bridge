@@ -7,7 +7,28 @@ const OLLAMA_TRANSCRIPTION_URL = `${OLLAMA_BASE_URL}/v1/audio/transcriptions`;
 
 /** Ollama's multipart parser allows 25 MiB; Bridge's lower cap is authoritative. */
 export const OLLAMA_MULTIPART_MAX_BYTES = 25 << 20;
-export const OLLAMA_TRANSCRIPTION_MEDIA_TYPES = Object.freeze(["audio/wav"]);
+export const OLLAMA_TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
+  "audio/wav",
+  "audio/mpeg",
+]);
+
+// Ollama exposes only a coarse `audio` capability, not accepted input formats.
+// Keep compressed formats fail-closed until a model/runtime combination has
+// been exercised against /v1/audio/transcriptions.
+export const OLLAMA_MP3_TRANSCRIPTION_MODELS = Object.freeze(["gemma4:e4b"]);
+
+/**
+ * Potential media support before the fresh `/api/show` audio-capability probe.
+ * @param {string} model
+ * @returns {string[]}
+ */
+export function ollamaTranscriptionMediaTypesForModel(model) {
+  const mediaTypes = ["audio/wav"];
+  if (OLLAMA_MP3_TRANSCRIPTION_MODELS.includes(model.trim().toLowerCase())) {
+    mediaTypes.push("audio/mpeg");
+  }
+  return mediaTypes;
+}
 
 /**
  * Fail-closed model probe. Calls are intentionally not cached: the worker
@@ -56,10 +77,14 @@ export async function ollamaModelHasAudio(model, { signal } = {}) {
  * }} args
  */
 export async function transcribeOllama(args) {
-  if (args.audio.mediaType !== "audio/wav") {
+  if (
+    !ollamaTranscriptionMediaTypesForModel(args.model).includes(
+      args.audio.mediaType
+    )
+  ) {
     throw inferenceError(
       "unavailable",
-      `Ollama cannot transcribe ${args.audio.mediaType} without conversion; choose a compatible provider or file.`
+      `Ollama model "${args.model}" cannot transcribe ${args.audio.mediaType} without conversion; WAV is the most compatible input.`
     );
   }
   if (
@@ -87,7 +112,11 @@ export async function transcribeOllama(args) {
   body.append("model", args.model);
   body.append("response_format", "json");
   if (args.language) body.append("language", args.language);
-  body.append("file", args.audio.data, "recording.wav");
+  body.append(
+    "file",
+    args.audio.data,
+    args.audio.mediaType === "audio/mpeg" ? "recording.mp3" : "recording.wav"
+  );
 
   let response;
   try {
@@ -178,7 +207,8 @@ async function mapOllamaError(response) {
   if (
     normalized.includes("audio track") ||
     normalized.includes("decode") ||
-    normalized.includes("invalid file format")
+    normalized.includes("invalid file format") ||
+    normalized.includes("unrecognized audio format")
   ) {
     return inferenceError(
       "invalid_request",

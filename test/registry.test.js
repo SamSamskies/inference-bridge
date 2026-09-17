@@ -271,4 +271,35 @@ describe("operation-scoped provider capabilities", () => {
       await resolveTranscriptionMediaTypes(provider, { model: "stt-model" })
     ).toEqual(["audio/wav"]);
   });
+
+  it("filters transcription model catalogs by the requested media type", async () => {
+    const provider = {
+      id: "model-gated",
+      streamChat,
+      transcribe,
+      transcription: {
+        defaultModel: "wav-only",
+        models: ["wav-only", "wav-and-mp3"],
+        acceptedMediaTypes: ["audio/wav", "audio/mpeg"],
+        async listAcceptedMediaTypesForModel({ model }) {
+          return model === "wav-and-mp3"
+            ? ["audio/wav", "audio/mpeg"]
+            : ["audio/wav"];
+        },
+      },
+    };
+
+    expect(
+      await resolveProviderModels(provider, {
+        method: "transcribe",
+        mediaType: "audio/mp3",
+      })
+    ).toEqual([{ id: "wav-and-mp3" }]);
+    expect(
+      await resolveProviderModels(provider, {
+        method: "transcribe",
+        mediaType: "audio/x-wav",
+      })
+    ).toEqual([{ id: "wav-only" }, { id: "wav-and-mp3" }]);
+  });
 });

@@ -364,6 +364,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           const models = await resolveProviderModels(provider, {
             apiKey: settings.apiKeys[provider.id],
             method,
+            ...(method === "transcribe" &&
+            typeof message.mediaType === "string"
+              ? { mediaType: message.mediaType }
+              : {}),
           });
           sendResponse({
             ok: true,

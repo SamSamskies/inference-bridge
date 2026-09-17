@@ -21,6 +21,7 @@ import { mapTemperatureForOllama } from "./temperature.js";
 import {
   OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
   ollamaModelHasAudio,
+  ollamaTranscriptionMediaTypesForModel,
   transcribeOllama,
 } from "./ollama-speech.js";
 import { TRANSCRIPTION_INPUT_MAX_BYTES } from "../speech.js";
@@ -627,7 +628,7 @@ export const ollamaProvider = {
     maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
     async listAcceptedMediaTypesForModel({ model, signal }) {
       return (await ollamaModelHasAudio(model, { signal }))
-        ? [...OLLAMA_TRANSCRIPTION_MEDIA_TYPES]
+        ? ollamaTranscriptionMediaTypesForModel(model)
         : [];
     },
   },

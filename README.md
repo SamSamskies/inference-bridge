@@ -600,10 +600,11 @@ Current implementation limits:
   (`audio/mpeg`), capped at 32,000,000 bytes.
 - OpenAI and OpenRouter are supported through their dedicated transcription
   and speech endpoints. Ollama transcription is opportunistically available
-  for installed models whose `/api/show` response reports `audio`, initially
-  for proven WAV input only. Anthropic, On-device, generic OpenAI-compatible
-  endpoints, and Ollama synthesis are unavailable rather than emulated through
-  chat.
+  for installed models whose `/api/show` response reports `audio`. WAV is the
+  most compatible Ollama input; MP3 is currently offered only for the verified
+  `gemma4:e4b` model because other model/runtime combinations may reject it.
+  Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
+  synthesis are unavailable rather than emulated through chat.
 
 Paste-ready synthesis example:
 
@@ -812,7 +813,7 @@ npm run package
 - [ ] Enabling Experimental speech updates `experimental.getFeatures().methods` after page reload; disabling it makes both methods fail before approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
 - [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
-- [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, and does not offer TTS
+- [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3

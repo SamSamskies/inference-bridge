@@ -4,8 +4,11 @@ import {
   OLLAMA_BASE_URL,
 } from "../src/providers/ollama.js";
 import {
+  OLLAMA_MP3_TRANSCRIPTION_MODELS,
   OLLAMA_MULTIPART_MAX_BYTES,
+  OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
   ollamaModelHasAudio,
+  ollamaTranscriptionMediaTypesForModel,
   transcribeOllama,
 } from "../src/providers/ollama-speech.js";
 import { resetOllamaOriginBypassMemoForTests } from "../src/ollama-origin-bypass.js";
@@ -66,6 +69,25 @@ describe("Ollama audio capability", () => {
       { id: "gemma4:e2b" },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("advertises MP3 only for the verified model while keeping WAV universal", () => {
+    expect(OLLAMA_TRANSCRIPTION_MEDIA_TYPES).toEqual([
+      "audio/wav",
+      "audio/mpeg",
+    ]);
+    expect(OLLAMA_MP3_TRANSCRIPTION_MODELS).toEqual(["gemma4:e4b"]);
+    expect(ollamaTranscriptionMediaTypesForModel("gemma4:e4b")).toEqual([
+      "audio/wav",
+      "audio/mpeg",
+    ]);
+    expect(ollamaTranscriptionMediaTypesForModel("GEMMA4:E4B")).toEqual([
+      "audio/wav",
+      "audio/mpeg",
+    ]);
+    expect(ollamaTranscriptionMediaTypesForModel("gemma4:e2b-mlx")).toEqual([
+      "audio/wav",
+    ]);
   });
 });
 
@@ -129,6 +151,28 @@ describe("Ollama transcription", () => {
     });
   });
 
+  it("uploads MP3 for the verified model with an MP3 filename", async () => {
+    const mp3 = request();
+    mp3.model = "gemma4:e4b";
+    mp3.audio = {
+      data: new Blob([Uint8Array.from([4, 5, 6])], { type: "audio/mpeg" }),
+      mediaType: "audio/mpeg",
+      byteLength: 3,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+      .mockResolvedValueOnce(jsonResponse({ text: "MP3 transcript" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transcribeOllama(mp3)).resolves.toMatchObject({
+      transcript: { text: "MP3 transcript" },
+    });
+    const file = fetchMock.mock.calls[1][1].body.get("file");
+    expect(file.name).toBe("recording.mp3");
+    expect(file.type).toBe("audio/mpeg");
+  });
+
   it("refuses upload when capability cannot be established", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ capabilities: ["completion"] })
@@ -141,7 +185,7 @@ describe("Ollama transcription", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps WAV-only and lower Bridge limits authoritative", async () => {
+  it("keeps model-gated media support and lower Bridge limits authoritative", async () => {
     expect(OLLAMA_MULTIPART_MAX_BYTES).toBe(25 << 20);
     const badFormat = request();
     badFormat.audio.mediaType = "audio/mpeg";
@@ -163,7 +207,7 @@ describe("Ollama transcription", () => {
         .fn()
         .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
         .mockResolvedValueOnce(
-          jsonResponse({ error: "failed to decode audio track" }, 400)
+          jsonResponse({ error: "unrecognized audio format" }, 400)
         )
     );
     await expect(transcribeOllama(request())).rejects.toMatchObject({

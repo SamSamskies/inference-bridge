@@ -734,6 +734,9 @@ async function loadModelsForProvider(providerId, preferredModel) {
       type: "list-models",
       providerId,
       method: requestMethod,
+      ...(requestMethod === "transcribe" && requestMediaType
+        ? { mediaType: requestMediaType }
+        : {}),
     });
 
     // Ignore stale responses after the user switches providers mid-flight.
@@ -764,13 +767,23 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
     if (models.length === 0) {
       setModelHint(
-        providerId.startsWith("compat:")
+        providerId === "ollama" &&
+          requestMethod === "transcribe" &&
+          requestMediaType === "audio/mpeg"
+          ? "No installed Ollama audio model has verified MP3 support. WAV is more compatible."
+          : providerId.startsWith("compat:")
           ? "Could not list models from /v1/models. Type a model id manually."
           : "No models available for this provider."
       );
       modelsReady = allowUnknown;
     } else {
-      setModelHint("");
+      setModelHint(
+        providerId === "ollama" &&
+          requestMethod === "transcribe" &&
+          requestMediaType === "audio/mpeg"
+          ? "Ollama MP3 support is model-specific. WAV is more compatible."
+          : ""
+      );
       modelsReady = true;
     }
     updateAllowEnabled();

@@ -178,7 +178,12 @@ function toVoiceInfo(entry) {
  * Resolve models for a provider (static catalog or async discovery).
  * Always returns ModelInfo[] so UI callers share one shape.
  * @param {Provider} provider
- * @param {{ method?: InferenceMethod, signal?: AbortSignal, apiKey?: string }} [args]
+ * @param {{
+ *   method?: InferenceMethod,
+ *   mediaType?: string,
+ *   signal?: AbortSignal,
+ *   apiKey?: string,
+ * }} [args]
  * @returns {Promise<ModelInfo[]>}
  */
 export async function resolveProviderModels(provider, args = {}) {
@@ -194,10 +199,29 @@ export async function resolveProviderModels(provider, args = {}) {
     ...(args.signal ? { signal: args.signal } : {}),
     ...("apiKey" in args ? { apiKey: args.apiKey } : {}),
   };
-  if (typeof catalog.listModels === "function") {
-    return catalog.listModels(catalogArgs);
+  const models =
+    typeof catalog.listModels === "function"
+      ? await catalog.listModels(catalogArgs)
+      : catalog.models
+        ? catalog.models.map(toModelInfo)
+        : [];
+  if (method !== "transcribe" || args.mediaType === undefined) {
+    return models;
   }
-  return catalog.models ? catalog.models.map(toModelInfo) : [];
+  const mediaType = normalizeTranscriptionMediaType(args.mediaType);
+  if (!mediaType) return [];
+  const support = await Promise.all(
+    models.map(async (model) => ({
+      model,
+      mediaTypes: await resolveTranscriptionMediaTypes(provider, {
+        model: model.id,
+        ...catalogArgs,
+      }),
+    }))
+  );
+  return support
+    .filter((entry) => entry.mediaTypes.includes(mediaType))
+    .map((entry) => entry.model);
 }
 
 /**
