@@ -1184,6 +1184,22 @@ modelInput.addEventListener("input", () => {
   updateClearModelButton();
   updateAllowEnabled();
   void refreshVisionCapability();
+  if (requestMethod === "synthesize") {
+    const model = readModelValue(providerSelect.value);
+    if (currentModels.some((candidate) => candidate.id === model)) {
+      void loadVoicesForProvider(providerSelect.value);
+    } else {
+      // Invalidate the prior model's voice while the searchable model value
+      // is incomplete or unknown. A stale voice must never enable Allow.
+      voicesLoadId += 1;
+      voicesReady = false;
+      voiceSelect.replaceChildren();
+      voiceSelect.disabled = true;
+      voiceHint.hidden = false;
+      voiceHint.textContent = "Choose a listed model to load its voices.";
+      updateAllowEnabled();
+    }
+  }
 });
 voiceSelect.addEventListener("change", updateAllowEnabled);
 clearModelButton.addEventListener("click", () => {
@@ -1192,6 +1208,14 @@ clearModelButton.addEventListener("click", () => {
   updateAllowEnabled();
   modelInput.focus();
   void refreshVisionCapability();
+  if (requestMethod === "synthesize") {
+    voicesLoadId += 1;
+    voicesReady = false;
+    voiceSelect.replaceChildren();
+    voiceSelect.disabled = true;
+    voiceHint.hidden = false;
+    voiceHint.textContent = "Choose a listed model to load its voices.";
+  }
 });
 
 rememberInput.addEventListener("change", updateRememberHint);
