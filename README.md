@@ -10,6 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - `window.inference.request()` for streaming text chat, function tools, hosted `{ type: "web_search" }`, and images (`ImagePart` / `output.images`)
 - `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `imageInput`, `imageOutput`, `options.reasoningEffort`, `options.temperature`)
+- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()`
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
@@ -236,7 +237,7 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: true, webSearch: true, imageInput: true, imageOutput: true, options: { reasoningEffort: true, temperature: true } }` |
 | Request options | Implemented; `options.reasoningEffort` / `options.temperature` on stable `request` (best-effort provider mapping) |
 | Tools | Implemented on stable `request` (`getFeatures().toolCalling` / `webSearch`) |
-| Vision / audio / embeddings | Vision on stable `request` (`getFeatures().imageInput` / `imageOutput`); audio / embeddings are future candidates |
+| Vision / audio / embeddings | Vision on stable `request`; bounded speech is opt-in and experimental; embeddings remain a future candidate |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
@@ -570,6 +571,101 @@ Approval shows a Tools preview (function names and **Web search (provider-hosted
 
 Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so the opt-in is visible in source. Tools, hosted web search, and images have graduated to stable `request`. `experimental.request` is a deprecated alias of `request` (one-time `console.warn`). `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
 
+### Bounded speech
+
+Bounded transcription and synthesis are non-standard incubation methods. They
+are disabled by default. Enable **Experimental speech** in Options, reload the
+page, and feature-detect before use:
+
+```js
+const speech = window.inference.experimental.getFeatures().methods;
+console.log(speech); // { chat: true, transcribe: true, synthesize: true }
+```
+
+Both methods are lazy `AsyncIterable` requests and retain the normal approval,
+abort, and `accepted` lifecycle. Provider, model, and synthesis voice are
+user-owned choices. A page cannot supply those IDs. Persistent speech grants
+are isolated by origin and operation and can be revoked separately in Options.
+
+Current implementation limits:
+
+- Transcription accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64
+  string, or page-fetched URL, up to 24,000,000 bytes.
+- URL input is fetched by the page under page CORS. The privileged extension
+  never fetches an arbitrary page-supplied media URL.
+- Files are passed through unchanged. For MP4/WebM, the complete container,
+  including visual bytes, can be uploaded to the selected provider; only its
+  audio track has transcription semantics.
+- Synthesis accepts up to 4,096 Unicode code points and returns only MP3
+  (`audio/mpeg`), capped at 32,000,000 bytes.
+- OpenAI and OpenRouter are supported through their dedicated transcription
+  and speech endpoints. Ollama transcription is opportunistically available
+  for installed models whose `/api/show` response reports `audio`. WAV is the
+  most compatible Ollama input; MP3 is currently offered only for the verified
+  `gemma4:e4b` model because other model/runtime combinations may reject it.
+  Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
+  synthesis are unavailable rather than emulated through chat.
+
+Paste-ready synthesis example:
+
+```js
+const parts = [];
+for await (const chunk of window.inference.experimental.request({
+  method: "synthesize",
+  text: "Hello from Inference Bridge."
+})) {
+  console.log(chunk);
+  if (chunk.type === "audio_delta") parts.push(chunk.data);
+}
+
+const audio = document.createElement("audio");
+audio.controls = true;
+audio.src = URL.createObjectURL(new Blob(parts, { type: "audio/mpeg" }));
+document.body.append(audio); // Playback remains an explicit user action.
+```
+
+Paste-ready transcription example:
+
+```js
+const [handle] = await window.showOpenFilePicker({
+  multiple: false,
+  types: [{
+    description: "Audio or video",
+    accept: {
+      "audio/*": [".mp3", ".wav", ".m4a", ".mp4", ".webm"],
+      "video/*": [".mp4", ".webm"]
+    }
+  }]
+});
+const file = await handle.getFile();
+
+for await (const chunk of window.inference.experimental.request({
+  method: "transcribe",
+  audio: { data: file, mediaType: file.type }
+})) {
+  console.log(chunk);
+  if (chunk.type === "done") console.log(chunk.transcript.text);
+}
+```
+
+Cancellation uses the same page-owned signal:
+
+```js
+const controller = new AbortController();
+const stream = window.inference.experimental.request({
+  method: "synthesize",
+  text: "Cancel this bounded request.",
+  signal: controller.signal
+});
+controller.abort();
+
+try {
+  for await (const chunk of stream) console.log(chunk);
+} catch (error) {
+  console.log(error.code); // "aborted"
+}
+```
+
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
 ## Images
@@ -644,7 +740,20 @@ npm install
 npm test
 ```
 
-Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses / Ollama Bridge-executed ollama.com loop) (no full MV3 e2e).
+Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, bounded binary transfer and cancellation, OpenAI speech multipart/streaming adapters, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses / Ollama Bridge-executed ollama.com loop) (no full MV3 e2e).
+
+Optional local Ollama transcription integration uses the checked-in 16 kHz
+mono WAV fixture and never pulls a model automatically:
+
+```bash
+OLLAMA_SPEECH_INTEGRATION=1 \
+OLLAMA_SPEECH_MODEL=gemma4:e2b \
+npx vitest run test/ollama-speech.integration.test.js
+```
+
+The test skips when the daemon/model is absent or `/api/show` does not report
+`audio`. Once capability is advertised, endpoint or transcript failures fail
+the test.
 
 Package a release ZIP (runtime files only):
 
@@ -700,11 +809,27 @@ npm run package
 - [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the request-deprecation warn)
 - [ ] Stable `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 - [ ] Stable `output.images: true` on OpenAI / OpenRouter; approval lists image input/output separately
+- [ ] Experimental speech is absent from stable `getFeatures()` and defaults to disabled in `experimental.getFeatures().methods`
+- [ ] Enabling Experimental speech updates `experimental.getFeatures().methods` after page reload; disabling it makes both methods fail before approval
+- [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
+- [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
+- [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS
+- [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
+- [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
+- [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
+- [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s reviewed catalog
+- [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
+- [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
+- [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis
+- [ ] AbortSignal and iterator `return()` during upload/download throw `aborted`, stop provider transfer, and yield no `done`
+- [ ] Navigating or closing the tab during approval, upload, or synthesis aborts without a stale approval or retained transfer
+- [ ] Empty/over-24,000,000-byte transcription and over-4,096-code-point synthesis fail before provider upload
+- [ ] Unsupported MIME, missing audio track, silent/no-speech input, and malformed provider output return actionable errors
 
 ### Current limitations
 
 - Built-in providers are OpenAI, Anthropic, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are user-configured
-- Function tools, hosted web search, and images are on stable `request`; `experimental.request` is a deprecated alias
+- Function tools, hosted web search, and images are on stable `request`; speech remains opt-in on `experimental.request`
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property

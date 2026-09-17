@@ -119,6 +119,53 @@
       </dialog>
 
       <section class="panel stack">
+        <h2>Experimental speech</h2>
+        <label class="field">
+          <span>
+            <input id="experimentalSpeechEnabled" type="checkbox" />
+            Enable experimental speech methods
+          </span>
+        </label>
+        <p class="hint">
+          Exposes non-standard bounded transcription and speech synthesis
+          methods to pages. This incubation surface is default-off and may
+          change before any IPA proposal is accepted.
+        </p>
+        <div class="speech-defaults">
+          <h3>Transcription default</h3>
+          <label class="field">
+            <span>Provider</span>
+            <select id="transcriptionProvider"></select>
+          </label>
+          <label class="field">
+            <span>Model</span>
+            <select id="transcriptionModel"></select>
+          </label>
+        </div>
+        <div class="speech-defaults">
+          <h3>Synthesis default</h3>
+          <label class="field">
+            <span>Provider</span>
+            <select id="synthesisProvider"></select>
+          </label>
+          <label class="field">
+            <span>Model</span>
+            <select id="synthesisModel"></select>
+          </label>
+          <label class="field">
+            <span>Voice</span>
+            <select id="synthesisVoice"></select>
+          </label>
+        </div>
+        <div
+          class="status"
+          id="experimentalSpeechStatus"
+          role="status"
+          aria-live="polite"
+        ></div>
+      </section>
+
+      <section class="panel stack">
         <h2>OpenAI-compatible servers</h2>
         <p class="hint">
           Add LM Studio, llama.cpp, vLLM, LocalAI, or other OpenAI-compatible
@@ -174,11 +221,23 @@
       <section class="panel stack">
         <h2>Always-allowed origins</h2>
         <p class="hint">
-          Origins granted with “Always allow”. Change the provider and model
-          anytime, or revoke to require a fresh prompt.
+          Chat origins granted with “Always allow”. Change the provider and
+          model anytime, or revoke to require a fresh prompt.
         </p>
         <ul class="list" id="origins"></ul>
-        <p class="hint" id="originsEmpty">No persistent grants yet.</p>
+        <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>
+      </section>
+
+      <section class="panel stack">
+        <h2>Always-allowed speech origins</h2>
+        <p class="hint">
+          Speech grants are separate by origin and operation. Revoke one to
+          require fresh approval without changing chat access.
+        </p>
+        <ul class="list" id="speechOrigins"></ul>
+        <p class="hint" id="speechOriginsEmpty">
+          No persistent speech grants yet.
+        </p>
       </section>
 
       <section class="panel stack">

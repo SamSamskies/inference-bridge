@@ -14,6 +14,13 @@ import {
   listAllowedOrigins,
   clearOriginToolsScope,
   clearOriginImageScope,
+  getOriginOperationGrant,
+  getOriginOperationLastUsed,
+  grantOriginOperationAlways,
+  listOriginOperationGrants,
+  revokeOriginOperation,
+  setOriginOperationRoute,
+  setOriginOperationLastUsed,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -58,6 +65,10 @@ describe("getSettings", () => {
       allowedOrigins: {},
       blockedOrigins: {},
       originLastUsed: {},
+      experimentalSpeechEnabled: false,
+      operationDefaults: {},
+      operationGrants: {},
+      operationLastUsed: {},
     });
   });
 
@@ -185,6 +196,265 @@ describe("getSettings", () => {
         usedAt: 7,
       },
     });
+  });
+});
+
+describe("operation-scoped speech storage", () => {
+  it("keeps legacy and existing origin grants chat-only", async () => {
+    chromeMock.store.set("allowedOrigins", {
+      "https://app.example": {
+        allowedAt: 1,
+        providerId: "openai",
+        model: "gpt-5.6-luna",
+      },
+    });
+
+    const settings = await getSettings();
+    expect(settings.allowedOrigins["https://app.example"]).toBeDefined();
+    expect(settings.operationGrants).toEqual({});
+    expect(
+      await getOriginOperationGrant("https://app.example", "transcribe")
+    ).toBeNull();
+  });
+
+  it("saves the opt-in and independent operation defaults", async () => {
+    await saveSettings({
+      experimentalSpeechEnabled: true,
+      operationDefaults: {
+        transcribe: {
+          providerId: "openai",
+          model: "gpt-4o-transcribe",
+        },
+        synthesize: {
+          providerId: "openai",
+          model: "gpt-4o-mini-tts",
+          voice: "coral",
+        },
+      },
+    });
+
+    const settings = await getSettings();
+    expect(settings.experimentalSpeechEnabled).toBe(true);
+    expect(settings.operationDefaults).toEqual({
+      transcribe: {
+        providerId: "openai",
+        model: "gpt-4o-transcribe",
+      },
+      synthesize: {
+        providerId: "openai",
+        model: "gpt-4o-mini-tts",
+        voice: "coral",
+      },
+    });
+  });
+
+  it("requires synthesis voices and permits clearing one default", async () => {
+    await saveSettings({
+      operationDefaults: {
+        transcribe: { providerId: "openai", model: "stt" },
+        synthesize: {
+          providerId: "openai",
+          model: "tts",
+          voice: "alloy",
+        },
+      },
+    });
+    await saveSettings({
+      operationDefaults: {
+        transcribe: null,
+        synthesize: { providerId: "openai", model: "tts", voice: " " },
+      },
+    });
+
+    expect((await getSettings()).operationDefaults).toEqual({
+      synthesize: {
+        providerId: "openai",
+        model: "tts",
+        voice: "alloy",
+      },
+    });
+  });
+
+  it("isolates transcribe and synthesize grants and last-used routes", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    expect(
+      await grantOriginOperationAlways(
+        "https://app.example",
+        "transcribe",
+        { providerId: "openai", model: "stt" }
+      )
+    ).toBe(true);
+    expect(
+      await grantOriginOperationAlways(
+        "https://app.example",
+        "synthesize",
+        { providerId: "openrouter", model: "tts", voice: "nova" }
+      )
+    ).toBe(true);
+    await setOriginOperationLastUsed("https://app.example", "synthesize", {
+      providerId: "openai",
+      model: "tts-2",
+      voice: "coral",
+    });
+
+    const settings = await getSettings();
+    expect(settings.allowedOrigins["https://app.example"].providerId).toBe(
+      "anthropic"
+    );
+    expect(
+      await getOriginOperationGrant("https://app.example", "transcribe")
+    ).toMatchObject({ providerId: "openai", model: "stt" });
+    expect(
+      await getOriginOperationGrant("https://app.example", "synthesize")
+    ).toMatchObject({
+      providerId: "openrouter",
+      model: "tts",
+      voice: "nova",
+    });
+    expect(
+      await getOriginOperationLastUsed("https://app.example", "synthesize")
+    ).toMatchObject({
+      providerId: "openai",
+      model: "tts-2",
+      voice: "coral",
+    });
+    expect(await listOriginOperationGrants()).toEqual([
+      expect.objectContaining({
+        origin: "https://app.example",
+        operation: "synthesize",
+        providerId: "openrouter",
+        voice: "nova",
+      }),
+      expect.objectContaining({
+        origin: "https://app.example",
+        operation: "transcribe",
+        providerId: "openai",
+      }),
+    ]);
+  });
+
+  it("updates only an existing exact operation binding", async () => {
+    await grantOriginOperationAlways("https://app.example", "synthesize", {
+      providerId: "openai",
+      model: "tts",
+      voice: "alloy",
+    });
+    const before = await getOriginOperationGrant(
+      "https://app.example",
+      "synthesize"
+    );
+
+    expect(
+      await setOriginOperationRoute("https://app.example", "synthesize", {
+        providerId: "openrouter",
+        model: "tts-2",
+        voice: "coral",
+      })
+    ).toBe(true);
+    expect(
+      await setOriginOperationRoute("https://missing.example", "transcribe", {
+        providerId: "openai",
+        model: "stt",
+      })
+    ).toBe(false);
+    expect(
+      await getOriginOperationGrant("https://app.example", "synthesize")
+    ).toEqual({
+      providerId: "openrouter",
+      model: "tts-2",
+      voice: "coral",
+      allowedAt: before.allowedAt,
+    });
+  });
+
+  it("revokes one operation without affecting chat or the other operation", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-5.6-luna",
+    });
+    await grantOriginOperationAlways("https://app.example", "transcribe", {
+      providerId: "openai",
+      model: "stt",
+    });
+    await grantOriginOperationAlways("https://app.example", "synthesize", {
+      providerId: "openai",
+      model: "tts",
+      voice: "alloy",
+    });
+
+    expect(
+      await revokeOriginOperation("https://app.example", "transcribe")
+    ).toBe(true);
+    const settings = await getSettings();
+    expect(settings.allowedOrigins["https://app.example"]).toBeDefined();
+    expect(settings.operationGrants["https://app.example"].transcribe).toBeUndefined();
+    expect(settings.operationGrants["https://app.example"].synthesize).toBeDefined();
+  });
+
+  it("treats blocked origins as all-method blocks", async () => {
+    await grantOriginOperationAlways("https://app.example", "transcribe", {
+      providerId: "openai",
+      model: "stt",
+    });
+    await setOriginOperationLastUsed("https://app.example", "transcribe", {
+      providerId: "openai",
+      model: "stt",
+    });
+
+    await blockOrigin("https://app.example");
+    const settings = await getSettings();
+    expect(settings.blockedOrigins["https://app.example"]).toBeDefined();
+    expect(settings.operationGrants["https://app.example"]).toBeUndefined();
+    expect(settings.operationLastUsed["https://app.example"]).toBeUndefined();
+  });
+
+  it("scrubs malformed operation state without widening access", async () => {
+    chromeMock.store.set("experimentalSpeechEnabled", "yes");
+    chromeMock.store.set("operationGrants", {
+      "https://ok.example": {
+        transcribe: {
+          providerId: " openai ",
+          model: " stt ",
+          allowedAt: 3,
+          voice: "ignored",
+        },
+        synthesize: {
+          providerId: "openai",
+          model: "tts",
+          allowedAt: 4,
+        },
+        chat: {
+          providerId: "openai",
+          model: "chat",
+          allowedAt: 5,
+        },
+      },
+      null: {
+        transcribe: {
+          providerId: "openai",
+          model: "stt",
+          allowedAt: 6,
+        },
+      },
+    });
+
+    const settings = await getSettings();
+    expect(settings.experimentalSpeechEnabled).toBe(false);
+    expect(settings.operationGrants).toEqual({
+      "https://ok.example": {
+        transcribe: {
+          providerId: "openai",
+          model: "stt",
+          allowedAt: 3,
+        },
+      },
+    });
+    expect(chromeMock.store.get("operationGrants")).toEqual(
+      settings.operationGrants
+    );
   });
 });
 
@@ -334,6 +604,9 @@ describe("compatEndpoints", () => {
         "compat:keep": "a",
         "compat:drop": "b",
       },
+      operationDefaults: {
+        transcribe: { providerId: "compat:drop", model: "stt" },
+      },
     });
     await grantOriginAlways("https://app.example", {
       providerId: "compat:drop",
@@ -343,6 +616,16 @@ describe("compatEndpoints", () => {
       providerId: "compat:drop",
       model: "b",
     });
+    await grantOriginOperationAlways(
+      "https://speech.example",
+      "transcribe",
+      { providerId: "compat:drop", model: "stt" }
+    );
+    await setOriginOperationLastUsed(
+      "https://speech.example",
+      "transcribe",
+      { providerId: "compat:drop", model: "stt" }
+    );
 
     await saveCompatEndpoints([
       { id: "compat:keep", name: "Keep", baseUrl: "http://127.0.0.1:1111/v1" },
@@ -356,6 +639,11 @@ describe("compatEndpoints", () => {
     expect(settings.defaultProviderId).toBe("openai");
     expect(settings.allowedOrigins["https://app.example"]).toBeUndefined();
     expect(settings.originLastUsed["https://other.example"]).toBeUndefined();
+    expect(settings.operationDefaults.transcribe).toBeUndefined();
+    expect(settings.operationGrants["https://speech.example"]).toBeUndefined();
+    expect(
+      settings.operationLastUsed["https://speech.example"]
+    ).toBeUndefined();
   });
 
   it("drops invalid endpoint entries on read", async () => {

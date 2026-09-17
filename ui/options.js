@@ -3,8 +3,10 @@ import {
   saveSettings,
   saveCompatEndpoints,
   listAllowedOrigins,
+  listOriginOperationGrants,
   listBlockedOrigins,
   revokeOrigin,
+  revokeOriginOperation,
   clearOriginToolsScope,
   clearOriginImageScope,
   setOriginProviderModel,
@@ -54,8 +56,23 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
+const experimentalSpeechEnabledInput = document.getElementById(
+  "experimentalSpeechEnabled"
+);
+const experimentalSpeechStatus = document.getElementById(
+  "experimentalSpeechStatus"
+);
+const transcriptionProviderSelect = document.getElementById(
+  "transcriptionProvider"
+);
+const transcriptionModelSelect = document.getElementById("transcriptionModel");
+const synthesisProviderSelect = document.getElementById("synthesisProvider");
+const synthesisModelSelect = document.getElementById("synthesisModel");
+const synthesisVoiceSelect = document.getElementById("synthesisVoice");
 const originsEl = document.getElementById("origins");
 const originsEmpty = document.getElementById("originsEmpty");
+const speechOriginsEl = document.getElementById("speechOrigins");
+const speechOriginsEmpty = document.getElementById("speechOriginsEmpty");
 const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
 const compatEndpointsEl = document.getElementById("compatEndpoints");
@@ -69,6 +86,8 @@ const compatStatusEl = document.getElementById("compatStatus");
 
 /** @type {Array<{ id: string, label: string, requiresApiKey: boolean, optionalApiKey?: boolean, defaultModel: string, models?: Array<{ id: string, label?: string }> }>} */
 let providers = [];
+/** @type {Record<"transcribe" | "synthesize", any[]>} */
+let speechProviders = { transcribe: [], synthesize: [] };
 
 /** @type {Array<{ id: string, name: string, baseUrl: string }>} */
 let compatEndpoints = [];
@@ -1375,6 +1394,155 @@ async function renderOrigins() {
   }
 }
 
+async function renderSpeechOrigins() {
+  const grants = await listOriginOperationGrants();
+  speechOriginsEl.replaceChildren();
+  speechOriginsEmpty.hidden = grants.length > 0;
+
+  for (const grant of grants) {
+    const li = document.createElement("li");
+    const meta = document.createElement("div");
+    meta.className = "origin-meta";
+    const origin = document.createElement("code");
+    origin.textContent = grant.origin;
+    const operation = grant.operation === "transcribe" ? "Transcription" : "Synthesis";
+    const provider =
+      providers.find((candidate) => candidate.id === grant.providerId)?.label ||
+      grant.providerId;
+    const details = document.createElement("p");
+    details.className = "origin-scope-labels";
+    details.textContent = [
+      operation,
+      provider,
+      grant.model,
+      ...(grant.voice ? [`Voice: ${grant.voice}`] : []),
+    ].join(" · ");
+    meta.append(origin, details);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "danger";
+    button.textContent = "Revoke";
+    button.addEventListener("click", async () => {
+      const ok = await revokeOriginOperation(grant.origin, grant.operation);
+      await renderSpeechOrigins();
+      setStatus(
+        ok
+          ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
+          : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
+        ok ? "ok" : "err"
+      );
+    });
+    li.append(meta, button);
+    speechOriginsEl.append(li);
+  }
+}
+
+function fillSimpleSelect(select, entries, preferred) {
+  select.replaceChildren();
+  for (const entry of entries) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.label || entry.id;
+    if (entry.id === preferred) option.selected = true;
+    select.append(option);
+  }
+  select.disabled = entries.length === 0;
+  return select.value;
+}
+
+async function loadSpeechModels(operation, providerId, preferredModel) {
+  const modelSelect =
+    operation === "transcribe"
+      ? transcriptionModelSelect
+      : synthesisModelSelect;
+  modelSelect.disabled = true;
+  const response = await chrome.runtime.sendMessage({
+    type: "list-models",
+    providerId,
+    method: operation,
+  });
+  const models = response?.ok ? normalizeModels(response.models) : [];
+  return fillSimpleSelect(modelSelect, models, preferredModel);
+}
+
+async function loadSynthesisVoices(providerId, model, preferredVoice) {
+  synthesisVoiceSelect.disabled = true;
+  const response = await chrome.runtime.sendMessage({
+    type: "list-voices",
+    providerId,
+    model,
+  });
+  const voices = response?.ok ? normalizeModels(response.voices) : [];
+  return fillSimpleSelect(synthesisVoiceSelect, voices, preferredVoice);
+}
+
+async function persistSpeechDefault(operation) {
+  const providerId =
+    operation === "transcribe"
+      ? transcriptionProviderSelect.value
+      : synthesisProviderSelect.value;
+  const model =
+    operation === "transcribe"
+      ? transcriptionModelSelect.value
+      : synthesisModelSelect.value;
+  const voice =
+    operation === "synthesize" ? synthesisVoiceSelect.value : undefined;
+  if (!providerId || !model || (operation === "synthesize" && !voice)) return;
+  await saveSettings({
+    operationDefaults: {
+      [operation]: {
+        providerId,
+        model,
+        ...(voice ? { voice } : {}),
+      },
+    },
+  });
+  experimentalSpeechStatus.textContent =
+    `${operation === "transcribe" ? "Transcription" : "Synthesis"} default saved.`;
+  experimentalSpeechStatus.className = "status ok";
+}
+
+async function loadSpeechDefaultControls(settings) {
+  for (const operation of /** @type {const} */ ([
+    "transcribe",
+    "synthesize",
+  ])) {
+    const response = await chrome.runtime.sendMessage({
+      type: "list-providers",
+      method: operation,
+    });
+    speechProviders[operation] = Array.isArray(response?.providers)
+      ? response.providers
+      : [];
+    const providerSelect =
+      operation === "transcribe"
+        ? transcriptionProviderSelect
+        : synthesisProviderSelect;
+    const stored = settings.operationDefaults[operation];
+    const providerId = fillSimpleSelect(
+      providerSelect,
+      speechProviders[operation],
+      stored?.providerId
+    );
+    const provider = speechProviders[operation].find(
+      (candidate) => candidate.id === providerId
+    );
+    const model = await loadSpeechModels(
+      operation,
+      providerId,
+      stored?.providerId === providerId ? stored.model : provider?.defaultModel
+    );
+    if (operation === "synthesize") {
+      await loadSynthesisVoices(
+        providerId,
+        model,
+        stored?.providerId === providerId ? stored.voice : provider?.defaultVoice
+      );
+    }
+  }
+}
+
 /**
  * Populate a per-origin provider select. Same availability rules as
  * populateProviderSelect: keep a current Ollama grant selected even if
@@ -1634,6 +1802,8 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
+  experimentalSpeechEnabledInput.checked =
+    settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
   savedDefaultProviderId = settings.defaultProviderId;
   modelDrafts = { ...settings.defaultModels };
@@ -1661,8 +1831,10 @@ async function load() {
   modelBoundProviderId = effectiveProvider;
   updateProviderChrome(effectiveProvider);
   await refreshDefaultModels(effectiveProvider, preferredDefaultModel(effectiveProvider));
+  await loadSpeechDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
+  await renderSpeechOrigins();
   await renderBlocked();
 }
 
@@ -1699,12 +1871,90 @@ async function persistDefaultSettings(providerId, model) {
     defaultProviderId: providerId,
     defaultModel: model,
     defaultModels: modelDrafts,
+    experimentalSpeechEnabled: experimentalSpeechEnabledInput.checked,
   });
   savedDefaultProviderId = providerId;
   if (refreshModelsAfterKeyChange) {
     await refreshDefaultModels(providerId, model);
   }
 }
+
+async function updateSpeechControl(operation, update) {
+  experimentalSpeechStatus.textContent = "Saving speech default…";
+  experimentalSpeechStatus.className = "status";
+  try {
+    await update();
+    await persistSpeechDefault(operation);
+  } catch (err) {
+    experimentalSpeechStatus.textContent =
+      err instanceof Error ? err.message : "Failed to save speech default.";
+    experimentalSpeechStatus.className = "status err";
+  }
+}
+
+transcriptionProviderSelect.addEventListener("change", () => {
+  void updateSpeechControl("transcribe", async () => {
+    const providerId = transcriptionProviderSelect.value;
+    const provider = speechProviders.transcribe.find(
+      (candidate) => candidate.id === providerId
+    );
+    await loadSpeechModels(
+      "transcribe",
+      providerId,
+      provider?.defaultModel
+    );
+  });
+});
+transcriptionModelSelect.addEventListener("change", () => {
+  void updateSpeechControl("transcribe", async () => {});
+});
+synthesisProviderSelect.addEventListener("change", () => {
+  void updateSpeechControl("synthesize", async () => {
+    const providerId = synthesisProviderSelect.value;
+    const provider = speechProviders.synthesize.find(
+      (candidate) => candidate.id === providerId
+    );
+    const model = await loadSpeechModels(
+      "synthesize",
+      providerId,
+      provider?.defaultModel
+    );
+    await loadSynthesisVoices(providerId, model, provider?.defaultVoice);
+  });
+});
+synthesisModelSelect.addEventListener("change", () => {
+  void updateSpeechControl("synthesize", async () => {
+    await loadSynthesisVoices(
+      synthesisProviderSelect.value,
+      synthesisModelSelect.value,
+      undefined
+    );
+  });
+});
+synthesisVoiceSelect.addEventListener("change", () => {
+  void updateSpeechControl("synthesize", async () => {});
+});
+
+experimentalSpeechEnabledInput.addEventListener("change", async () => {
+  const enabled = experimentalSpeechEnabledInput.checked;
+  experimentalSpeechEnabledInput.disabled = true;
+  experimentalSpeechStatus.textContent = "Saving…";
+  experimentalSpeechStatus.className = "status";
+  try {
+    await saveSettings({ experimentalSpeechEnabled: enabled });
+    experimentalSpeechStatus.textContent = enabled
+      ? "Experimental speech methods enabled."
+      : "Experimental speech methods disabled.";
+    experimentalSpeechStatus.className = "status ok";
+  } catch (err) {
+    experimentalSpeechEnabledInput.checked = !enabled;
+    experimentalSpeechStatus.textContent =
+      err instanceof Error ? err.message : "Failed to save speech setting.";
+    experimentalSpeechStatus.className = "status err";
+  } finally {
+    experimentalSpeechEnabledInput.disabled = false;
+  }
+});
 
 saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;

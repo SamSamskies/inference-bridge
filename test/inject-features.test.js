@@ -31,6 +31,48 @@ function loadInference() {
   return window.inference;
 }
 
+function loadInferenceWithFeatureBridge() {
+  const filename = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../content/inject.js"
+  );
+  let initListener;
+  const window = {
+    addEventListener(type, listener) {
+      if (type === "message") initListener = listener;
+    },
+    removeEventListener() {},
+  };
+  window.top = window;
+  const pagePort = {};
+  vm.runInNewContext(readFileSync(filename, "utf8"), {
+    window,
+    Object,
+    Math,
+    Map,
+    Set,
+    Promise,
+    Error,
+    Symbol,
+  }, { filename });
+  initListener({
+    source: window,
+    data: { channel: "__ipa_inference__", direction: "init" },
+    ports: [pagePort],
+  });
+  return {
+    inference: window.inference,
+    setSpeechEnabled(enabled) {
+      pagePort.onmessage({
+        data: {
+          type: "feature-state",
+          experimentalSpeechEnabled: enabled,
+        },
+      });
+    },
+  };
+}
+
 describe("window.inference.getFeatures", () => {
   it("returns a snapshot with tools, images, and options flags", () => {
     const inference = loadInference();
@@ -42,6 +84,32 @@ describe("window.inference.getFeatures", () => {
       imageOutput: true,
       options: { reasoningEffort: true, temperature: true },
     });
+  });
+
+  it("returns a synchronous fail-closed experimental method snapshot", () => {
+    const { inference, setSpeechEnabled } = loadInferenceWithFeatureBridge();
+    expect(inference.experimental.getFeatures()).toEqual({
+      methods: {
+        chat: true,
+        transcribe: false,
+        synthesize: false,
+      },
+    });
+
+    setSpeechEnabled(true);
+    const enabled = inference.experimental.getFeatures();
+    expect(enabled).toEqual({
+      methods: {
+        chat: true,
+        transcribe: true,
+        synthesize: true,
+      },
+    });
+    enabled.methods.transcribe = false;
+    expect(inference.experimental.getFeatures().methods.transcribe).toBe(true);
+
+    setSpeechEnabled(false);
+    expect(inference.experimental.getFeatures().methods.synthesize).toBe(false);
   });
 });
 
@@ -79,7 +147,7 @@ describe("experimental.request deprecation", () => {
     return window.inference;
   }
 
-  it("warns once for any experimental.request call", async () => {
+  it("warns once for experimental chat requests", async () => {
     const warnings = [];
     const inference = loadInferenceWithWarn({
       consoleWarn: (...args) => warnings.push(args.join(" ")),
@@ -111,6 +179,45 @@ describe("experimental.request deprecation", () => {
     })[Symbol.asyncIterator]();
     await expect(iter2.next()).rejects.toThrow();
     expect(warnings).toHaveLength(1);
+  });
+
+  it("uses a separate one-time notice for speech requests", async () => {
+    const warnings = [];
+    const inference = loadInferenceWithWarn({
+      consoleWarn: (...args) => warnings.push(args.join(" ")),
+    });
+
+    const transcribe = inference.experimental.request({
+      method: "transcribe",
+      audio: { mediaType: "audio/wav", data: "Zm9v" },
+    })[Symbol.asyncIterator]();
+    await expect(transcribe.next()).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    const synthesize = inference.experimental.request({
+      method: "synthesize",
+      text: "hello",
+    })[Symbol.asyncIterator]();
+    await expect(synthesize.next()).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/experimental, non-normative/);
+    expect(warnings[0]).not.toMatch(/deprecated/);
+  });
+
+  it("rejects unknown methods lazily without falling through to chat", async () => {
+    const warnings = [];
+    const inference = loadInferenceWithWarn({
+      consoleWarn: (...args) => warnings.push(args.join(" ")),
+    });
+    const iterable = inference.experimental.request({ method: "embeddings" });
+    expect(warnings).toHaveLength(0);
+    await expect(iterable[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    expect(warnings).toHaveLength(0);
   });
 
   it("does not warn for stable request", async () => {

@@ -50,6 +50,7 @@ try {
 }
 
 const originEl = document.getElementById("origin");
+const requestDescription = document.getElementById("requestDescription");
 const providerSelect = document.getElementById("provider");
 const providerHint = document.getElementById("providerHint");
 const modelField = document.getElementById("modelField");
@@ -59,6 +60,9 @@ const modelInput = document.getElementById("modelInput");
 const clearModelButton = document.getElementById("clearModel");
 const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
+const voiceField = document.getElementById("voiceField");
+const voiceSelect = document.getElementById("voice");
+const voiceHint = document.getElementById("voiceHint");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
@@ -82,6 +86,13 @@ const denyBtn = document.getElementById("deny");
  *   hostedTools?: string[],
  * }>} */
 let providers = [];
+/** @type {"chat" | "transcribe" | "synthesize"} */
+let requestMethod = "chat";
+let requestMediaType = "";
+let voicesReady = true;
+let requestPreferredProviderId = "";
+let requestPreferredVoice = "";
+let voicesLoadId = 0;
 
 /** Whether the current provider has a usable model selection. */
 let modelsReady = false;
@@ -375,7 +386,29 @@ function renderTools(tools, providerId = providerSelect.value) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
+  return (
+    requestMethod === "chat" &&
+    providerId !== "ollama" &&
+    providerId !== ON_DEVICE_PROVIDER_ID
+  );
+}
+
+/**
+ * @param {string} providerId
+ * @param {Array<{ id: string, label?: string }>} [models]
+ * @returns {boolean}
+ */
+function usesApprovalModelAutosuggest(providerId, models) {
+  // OpenRouter chat has a large live catalog, while operation-scoped speech
+  // catalogs are deliberately small and clearer as a regular select.
+  if (
+    requestMethod !== "chat" &&
+    Array.isArray(models) &&
+    models.length <= 20
+  ) {
+    return false;
+  }
+  return usesModelAutosuggest(providerId, models);
 }
 
 /**
@@ -383,7 +416,7 @@ function allowUnknownFor(providerId) {
  * @param {Array<{ id: string, label?: string }>} [models]
  */
 function setModelControlMode(providerId, models) {
-  const autosuggest = usesModelAutosuggest(providerId, models);
+  const autosuggest = usesApprovalModelAutosuggest(providerId, models);
   modelSelect.hidden = autosuggest;
   modelInputRow.hidden = !autosuggest;
   updateClearModelButton();
@@ -403,7 +436,7 @@ function updateClearModelButton() {
  */
 function readModelValue(providerId) {
   if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
-  if (usesModelAutosuggest(providerId, currentModels)) {
+  if (usesApprovalModelAutosuggest(providerId, currentModels)) {
     return modelInput.value.trim();
   }
   return modelSelect.value;
@@ -420,7 +453,7 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   const disabled = Boolean(opts.disabled);
   setModelControlMode(providerId, models);
 
-  if (usesModelAutosuggest(providerId, models)) {
+  if (usesApprovalModelAutosuggest(providerId, models)) {
     populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
     modelInput.disabled = disabled;
     modelSelect.disabled = true;
@@ -458,6 +491,8 @@ function updateAllowEnabled() {
   allowBtn.disabled =
     !providerReady ||
     !modelsReady ||
+    !voicesReady ||
+    (requestMethod === "synthesize" && !voiceSelect.value) ||
     !valid ||
     toolsBlocked ||
     imagesBlockAllow(provider);
@@ -656,7 +691,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   }
 
   try {
-    if (providerId === "ollama") {
+    if (requestMethod === "chat" && providerId === "ollama") {
       if (!isCurrentLoad()) return;
       if (!ollamaStatus.available) {
         setModelHint("");
@@ -677,7 +712,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
       return;
     }
 
-    if (providerId === ON_DEVICE_PROVIDER_ID) {
+    if (requestMethod === "chat" && providerId === ON_DEVICE_PROVIDER_ID) {
       if (!isCurrentLoad()) return;
       modelField.hidden = true;
       currentModels = [
@@ -698,6 +733,10 @@ async function loadModelsForProvider(providerId, preferredModel) {
     const response = await chrome.runtime.sendMessage({
       type: "list-models",
       providerId,
+      method: requestMethod,
+      ...(requestMethod === "transcribe" && requestMediaType
+        ? { mediaType: requestMediaType }
+        : {}),
     });
 
     // Ignore stale responses after the user switches providers mid-flight.
@@ -728,13 +767,23 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
     if (models.length === 0) {
       setModelHint(
-        providerId.startsWith("compat:")
+        providerId === "ollama" &&
+          requestMethod === "transcribe" &&
+          requestMediaType === "audio/mpeg"
+          ? "No installed Ollama audio model has verified MP3 support. WAV is more compatible."
+          : providerId.startsWith("compat:")
           ? "Could not list models from /v1/models. Type a model id manually."
           : "No models available for this provider."
       );
       modelsReady = allowUnknown;
     } else {
-      setModelHint("");
+      setModelHint(
+        providerId === "ollama" &&
+          requestMethod === "transcribe" &&
+          requestMediaType === "audio/mpeg"
+          ? "Ollama MP3 support is model-specific. WAV is more compatible."
+          : ""
+      );
       modelsReady = true;
     }
     updateAllowEnabled();
@@ -743,7 +792,72 @@ async function loadModelsForProvider(providerId, preferredModel) {
     // control does not fire `change`, so re-check vision after every load.
     if (isCurrentLoad()) {
       void refreshVisionCapability();
+      void loadVoicesForProvider(providerId);
     }
+  }
+}
+
+async function loadVoicesForProvider(providerId, preferredVoice) {
+  const loadId = ++voicesLoadId;
+  if (requestMethod !== "synthesize") {
+    voiceField.hidden = true;
+    voicesReady = true;
+    updateAllowEnabled();
+    return;
+  }
+  voiceField.hidden = false;
+  voiceSelect.replaceChildren();
+  voiceSelect.disabled = true;
+  voiceHint.hidden = false;
+  voiceHint.textContent = "Loading voices…";
+  voicesReady = false;
+  updateAllowEnabled();
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "list-voices",
+      providerId,
+      model: readModelValue(providerId),
+    });
+    if (loadId !== voicesLoadId || providerSelect.value !== providerId) return;
+    if (!response?.ok || !Array.isArray(response.voices)) {
+      voiceHint.textContent =
+        response?.error?.message || "Failed to list voices.";
+      return;
+    }
+    const selected =
+      preferredVoice ||
+      (providerId === requestPreferredProviderId
+        ? requestPreferredVoice
+        : "") ||
+      providers.find((provider) => provider.id === providerId)?.defaultVoice ||
+      response.defaultVoice;
+    for (const entry of response.voices) {
+      const id =
+        typeof entry === "string"
+          ? entry
+          : entry && typeof entry.id === "string"
+            ? entry.id
+            : "";
+      if (!id) continue;
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent =
+        entry && typeof entry === "object" && typeof entry.label === "string"
+          ? entry.label
+          : id;
+      if (id === selected) option.selected = true;
+      voiceSelect.append(option);
+    }
+    voicesReady = voiceSelect.options.length > 0;
+    voiceSelect.disabled = !voicesReady;
+    voiceHint.hidden = voicesReady;
+    voiceHint.textContent = voicesReady ? "" : "No voices available.";
+  } catch (err) {
+    if (loadId !== voicesLoadId || providerSelect.value !== providerId) return;
+    voiceHint.textContent =
+      err instanceof Error ? err.message : "Failed to list voices.";
+  } finally {
+    updateAllowEnabled();
   }
 }
 
@@ -881,6 +995,7 @@ async function decide(action) {
   const remember = Boolean(rememberInput.checked);
   const providerId = providerSelect.value;
   const model = readModelValue(providerId);
+  const voice = requestMethod === "synthesize" ? voiceSelect.value : "";
 
   if (action === "allow") {
     const provider = providers.find((p) => p.id === providerId);
@@ -895,6 +1010,12 @@ async function decide(action) {
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
+      updateAllowEnabled();
+      return;
+    }
+    if (requestMethod === "synthesize" && (!voicesReady || !voice)) {
+      voiceHint.hidden = false;
+      voiceHint.textContent = "Choose a voice before allowing.";
       updateAllowEnabled();
       return;
     }
@@ -930,6 +1051,7 @@ async function decide(action) {
       decision,
       providerId,
       model,
+      ...(voice ? { voice } : {}),
     });
     if (!response?.ok) {
       showError("This permission request is no longer active.");
@@ -949,6 +1071,8 @@ async function decide(action) {
 async function refreshProviders() {
   const providersResponse = await chrome.runtime.sendMessage({
     type: "list-providers",
+    method: requestMethod,
+    ...(requestMediaType ? { mediaType: requestMediaType } : {}),
   });
   const next = Array.isArray(providersResponse?.providers)
     ? providersResponse.providers
@@ -964,13 +1088,6 @@ async function load() {
     return;
   }
 
-  if (!(await refreshProviders())) {
-    showError("No inference providers are available.");
-    return;
-  }
-
-  await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
-
   const response = await chrome.runtime.sendMessage({
     type: "get-approval",
     requestId,
@@ -981,8 +1098,40 @@ async function load() {
     return;
   }
 
+  requestMethod =
+    request.method === "transcribe" || request.method === "synthesize"
+      ? request.method
+      : "chat";
+  requestMediaType =
+    typeof request.mediaType === "string" ? request.mediaType : "";
+  requestPreferredProviderId =
+    typeof request.providerId === "string" ? request.providerId : "";
+  requestPreferredVoice =
+    typeof request.voice === "string" ? request.voice : "";
+
+  if (!(await refreshProviders())) {
+    showError(
+      requestMethod === "chat"
+        ? "No inference providers are available."
+        : `No provider can ${requestMethod} this request.`
+    );
+    return;
+  }
+
+  if (requestMethod === "chat") {
+    await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
+  } else if (providers.some((provider) => provider.id === "ollama")) {
+    await refreshOllamaStatus();
+  }
+
   originEl.textContent = request.origin;
   originEl.title = request.origin;
+  requestDescription.textContent =
+    requestMethod === "transcribe"
+      ? "This site wants to send a complete media file to a provider for transcription."
+      : requestMethod === "synthesize"
+        ? "This site wants a provider to generate synthetic speech from text. This may incur provider charges."
+        : "This site wants to send a chat request through Inference Bridge.";
   const requestedId =
     typeof request.providerId === "string" &&
     providers.some((p) => p.id === request.providerId)
@@ -990,15 +1139,37 @@ async function load() {
       : providers[0].id;
   const providerId = fillProviders(requestedId);
   updateProviderHint(providerId);
-  requestTools = Array.isArray(request.tools) ? request.tools : undefined;
+  requestTools =
+    requestMethod === "chat" && Array.isArray(request.tools)
+      ? request.tools
+      : undefined;
   requestToolChoice =
     request.toolChoice !== undefined ? request.toolChoice : undefined;
-  requestImageInput = messagesHaveImageParts(request.messages);
-  requestImageOutput = requestWantsImageOutput(request.output);
+  requestImageInput =
+    requestMethod === "chat" && messagesHaveImageParts(request.messages);
+  requestImageOutput =
+    requestMethod === "chat" && requestWantsImageOutput(request.output);
   renderTools(requestTools);
   renderImages();
   updateCapabilityWarning(providerId);
-  renderPreview(request.messages || []);
+  if (requestMethod === "chat") {
+    renderPreview(request.messages || []);
+  } else {
+    previewEl.replaceChildren();
+    const preview = document.createElement("div");
+    preview.className = "preview-msg";
+    if (requestMethod === "transcribe") {
+      const size =
+        Number.isSafeInteger(request.byteLength) && request.byteLength > 0
+          ? `${request.byteLength.toLocaleString()} bytes`
+          : "unknown size";
+      preview.textContent = `${request.mediaType || "Media file"} · ${size}. The complete file will be uploaded; video containers may include visual bytes that the provider ignores.`;
+    } else {
+      preview.textContent =
+        typeof request.text === "string" ? request.text : "";
+    }
+    previewEl.append(preview);
+  }
   updateRememberHint();
 
   // Prefer the pending request's model (global default, last-used, or preferred)
@@ -1038,18 +1209,46 @@ providerSelect.addEventListener("change", () => {
 modelSelect.addEventListener("change", () => {
   updateAllowEnabled();
   void refreshVisionCapability();
+  if (requestMethod === "synthesize") {
+    void loadVoicesForProvider(providerSelect.value);
+  }
 });
 modelInput.addEventListener("input", () => {
   updateClearModelButton();
   updateAllowEnabled();
   void refreshVisionCapability();
+  if (requestMethod === "synthesize") {
+    const model = readModelValue(providerSelect.value);
+    if (currentModels.some((candidate) => candidate.id === model)) {
+      void loadVoicesForProvider(providerSelect.value);
+    } else {
+      // Invalidate the prior model's voice while the searchable model value
+      // is incomplete or unknown. A stale voice must never enable Allow.
+      voicesLoadId += 1;
+      voicesReady = false;
+      voiceSelect.replaceChildren();
+      voiceSelect.disabled = true;
+      voiceHint.hidden = false;
+      voiceHint.textContent = "Choose a listed model to load its voices.";
+      updateAllowEnabled();
+    }
+  }
 });
+voiceSelect.addEventListener("change", updateAllowEnabled);
 clearModelButton.addEventListener("click", () => {
   modelInput.value = "";
   updateClearModelButton();
   updateAllowEnabled();
   modelInput.focus();
   void refreshVisionCapability();
+  if (requestMethod === "synthesize") {
+    voicesLoadId += 1;
+    voicesReady = false;
+    voiceSelect.replaceChildren();
+    voiceSelect.disabled = true;
+    voiceHint.hidden = false;
+    voiceHint.textContent = "Choose a listed model to load its voices.";
+  }
 });
 
 rememberInput.addEventListener("change", updateRememberHint);

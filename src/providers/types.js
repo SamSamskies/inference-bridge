@@ -13,6 +13,46 @@
  */
 
 /**
+ * @typedef {{
+ *   id: string,
+ *   label?: string,
+ * }} VoiceInfo
+ */
+
+/**
+ * Operation-scoped catalogs deliberately do not reuse the provider's chat
+ * defaultModel/models fields.
+ * @typedef {{
+ *   defaultModel: string,
+ *   models?: readonly (string | ModelInfo)[],
+ *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   acceptedMediaTypes: readonly string[],
+ *   maxInputBytes?: number,
+ *   listAcceptedMediaTypesForModel?: (args: {
+ *     model: string,
+ *     signal?: AbortSignal,
+ *     apiKey?: string,
+ *   }) => Promise<string[]>,
+ * }} TranscriptionDescriptor
+ *
+ * @typedef {{
+ *   defaultModel: string,
+ *   defaultVoice: string,
+ *   models?: readonly (string | ModelInfo)[],
+ *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   voices?: readonly (string | VoiceInfo)[],
+ *   listVoices?: (args?: {
+ *     model?: string,
+ *     signal?: AbortSignal,
+ *     apiKey?: string,
+ *   }) => Promise<VoiceInfo[]>,
+ *   outputMediaTypes: readonly string[],
+ *   maxTextCodePoints?: number,
+ *   maxOutputBytes?: number,
+ * }} SynthesisDescriptor
+ */
+
+/**
  * OpenAI-style function tool call (arguments are a JSON string).
  * @typedef {{
  *   id: string,
@@ -82,7 +122,41 @@
  *   hostedTools?: readonly string[],
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   transcription?: TranscriptionDescriptor,
+ *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
+ *   transcribe?: (args: {
+ *     apiKey?: string,
+ *     model: string,
+ *     audio: {
+ *       data: Blob,
+ *       mediaType: string,
+ *       byteLength: number,
+ *     },
+ *     language?: string,
+ *     signal: AbortSignal,
+ *     onDelta: (content: string) => void | Promise<void>,
+ *   }) => Promise<{
+ *     model: string,
+ *     transcript: { text: string, language?: string },
+ *     usage?: { inputSeconds?: number },
+ *   }>,
+ *   synthesize?: (args: {
+ *     apiKey?: string,
+ *     model: string,
+ *     voice: string,
+ *     text: string,
+ *     mediaType: "audio/mpeg",
+ *     signal: AbortSignal,
+ *     onAudioDelta: (data: Uint8Array) => void | Promise<void>,
+ *   }) => Promise<{
+ *     model: string,
+ *     audio: {
+ *       mediaType: "audio/mpeg",
+ *       byteLength: number,
+ *     },
+ *     usage?: { inputCharacters?: number, outputSeconds?: number },
+ *   }>,
  *   streamChat: (args: {
  *     apiKey?: string,
  *     model: string,

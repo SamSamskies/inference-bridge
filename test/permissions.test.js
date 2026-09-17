@@ -4,6 +4,7 @@ import {
   cancelApproval,
   clearToolEpisodes,
   ensurePermission,
+  ensureSpeechPermission,
   getPendingApproval,
   handleApprovalWindowClosed,
   onAllowedOriginsStorageChanged,
@@ -21,6 +22,9 @@ import {
   setOriginProviderModel,
   clearOriginToolsScope,
   clearOriginImageScope,
+  getOriginOperationGrant,
+  getOriginOperationLastUsed,
+  grantOriginOperationAlways,
 } from "../src/storage.js";
 
 const chromeMock = installChromeMock();
@@ -61,6 +65,176 @@ beforeEach(() => {
   clearToolEpisodes();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("speech permissions", () => {
+  it("fails without an operation route instead of borrowing chat defaults", async () => {
+    await saveSettings({
+      defaultProviderId: "openai",
+      defaultModel: "gpt-5.6-luna",
+    });
+    const result = await ensureSpeechPermission({
+      requestId: "speech_missing",
+      origin: "https://app.example",
+      method: "transcribe",
+      mediaType: "audio/wav",
+      byteLength: 100,
+    });
+    expect(result).toMatchObject({
+      allowed: false,
+      code: "unavailable",
+      providerId: "",
+      model: "",
+    });
+    expect(getPendingApproval("speech_missing")).toBeNull();
+  });
+
+  it("prompts independently of an existing chat grant and remembers allow-once", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    await saveSettings({
+      operationDefaults: {
+        synthesize: {
+          providerId: "openai",
+          model: "tts-1",
+          voice: "alloy",
+        },
+      },
+    });
+
+    const pending = ensureSpeechPermission({
+      requestId: "speech_once",
+      origin: "https://app.example",
+      method: "synthesize",
+      text: "Hello",
+    });
+    await waitForPending("speech_once");
+    expect(getPendingApproval("speech_once")).toMatchObject({
+      method: "synthesize",
+      providerId: "openai",
+      model: "tts-1",
+      voice: "alloy",
+      text: "Hello",
+    });
+    resolveApproval("speech_once", {
+      decision: "allow_once",
+      providerId: "openrouter",
+      model: "tts-2",
+      voice: "coral",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: true,
+      providerId: "openrouter",
+      model: "tts-2",
+      voice: "coral",
+      once: true,
+    });
+    expect(
+      await getOriginOperationLastUsed("https://app.example", "synthesize")
+    ).toMatchObject({
+      providerId: "openrouter",
+      model: "tts-2",
+      voice: "coral",
+    });
+    expect(
+      await getOriginOperationGrant("https://app.example", "synthesize")
+    ).toBeNull();
+    expect((await getOriginGrant("https://app.example")).providerId).toBe(
+      "anthropic"
+    );
+  });
+
+  it("persists and reuses an exact operation Always-allow grant", async () => {
+    await saveSettings({
+      operationDefaults: {
+        transcribe: { providerId: "openai", model: "stt-1" },
+      },
+    });
+    const pending = ensureSpeechPermission({
+      requestId: "speech_always",
+      origin: "https://app.example",
+      method: "transcribe",
+      mediaType: "audio/wav",
+      byteLength: 3,
+    });
+    await waitForPending("speech_always");
+    resolveApproval("speech_always", {
+      decision: "always",
+      providerId: "openai",
+      model: "stt-1",
+    });
+    await expect(pending).resolves.toMatchObject({
+      allowed: true,
+      providerId: "openai",
+      model: "stt-1",
+      once: false,
+    });
+
+    const reused = await ensureSpeechPermission({
+      requestId: "speech_reuse",
+      origin: "https://app.example",
+      method: "transcribe",
+      mediaType: "audio/wav",
+      byteLength: 4,
+    });
+    expect(reused).toMatchObject({
+      allowed: true,
+      providerId: "openai",
+      model: "stt-1",
+      once: false,
+    });
+    expect(getPendingApproval("speech_reuse")).toBeNull();
+  });
+
+  it("keeps transcription and synthesis grants isolated", async () => {
+    await grantOriginOperationAlways(
+      "https://app.example",
+      "transcribe",
+      { providerId: "openai", model: "stt-1" }
+    );
+    await saveSettings({
+      operationDefaults: {
+        synthesize: {
+          providerId: "openai",
+          model: "tts-1",
+          voice: "nova",
+        },
+      },
+    });
+
+    const pending = ensureSpeechPermission({
+      requestId: "speech_isolated",
+      origin: "https://app.example",
+      method: "synthesize",
+      text: "Hello",
+    });
+    await waitForPending("speech_isolated");
+    expect(getPendingApproval("speech_isolated")?.method).toBe("synthesize");
+    resolveApproval("speech_isolated", {
+      decision: "deny",
+      providerId: "openai",
+      model: "tts-1",
+      voice: "nova",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("applies an origin block to every speech operation", async () => {
+    await blockOrigin("https://app.example");
+    const result = await ensureSpeechPermission({
+      requestId: "speech_blocked",
+      origin: "https://app.example",
+      method: "synthesize",
+      preferredProviderId: "openai",
+      preferredModel: "tts-1",
+      preferredVoice: "alloy",
+      text: "Hello",
+    });
+    expect(result).toMatchObject({ allowed: false, once: false });
+    expect(getPendingApproval("speech_blocked")).toBeNull();
+  });
 });
 
 /**

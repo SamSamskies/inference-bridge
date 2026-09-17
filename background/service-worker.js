@@ -4,12 +4,14 @@
 
 import { serializeInferenceError } from "../src/errors.js";
 import {
+  validateExperimentalInferenceRequest,
   validateInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
 import { getSettings, hasStoredApiKey } from "../src/storage.js";
 import {
   ensurePermission,
+  ensureSpeechPermission,
   resolveApproval,
   getPendingApproval,
   handleApprovalWindowClosed,
@@ -18,13 +20,27 @@ import {
 } from "../src/permissions.js";
 import {
   getProviderAsync,
+  filterProvidersForMethod,
   listAllProviders,
   listProviders,
   resolveProviderModels,
+  resolveProviderVoices,
+  providerSupportsMethod,
+  resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
 import { ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import { messagesHaveImageParts } from "../src/image-parts.js";
+import {
+  BinaryChunkReceiver,
+  BinaryChunkSender,
+  decodeRuntimeBase64,
+  encodeRuntimeBase64,
+} from "../src/binary-transfer.js";
+import {
+  SYNTHESIS_OUTPUT_MAX_BYTES,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+} from "../src/speech.js";
 import {
   getOnDeviceAvailability,
   installOnDeviceModel,
@@ -52,10 +68,13 @@ chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 /** @type {Map<string, {
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
+ *   streamId: string,
  *   tabId?: number,
  *   phase: StreamPhase,
  *   portDisconnected?: boolean,
  *   announced?: boolean,
+ *   uploadTransfer?: any,
+ *   downloadTransfer?: any,
  * }>} */
 const activeStreams = new Map();
 
@@ -139,6 +158,18 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === "abort") {
       const id = typeof msg.streamId === "string" ? msg.streamId : boundStreamId;
       if (id) abortStream(id, "Request aborted");
+      return;
+    }
+    if (msg.type === "binary-chunk") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry?.port === port) handleBinaryChunk(id, entry, msg);
+      return;
+    }
+    if (msg.type === "binary-ack") {
+      const id = typeof msg.streamId === "string" ? msg.streamId : "";
+      const entry = id ? activeStreams.get(id) : undefined;
+      if (entry?.port === port) handleBinaryAck(entry, msg);
     }
   });
 
@@ -176,6 +207,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         decision: message.decision,
         providerId: message.providerId,
         model: message.model,
+        voice: message.voice,
       }),
     });
     return false;
@@ -217,6 +249,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
+    const method =
+      message.method === "transcribe" || message.method === "synthesize"
+        ? message.method
+        : "chat";
+    const request =
+      typeof message.mediaType === "string"
+        ? { mediaType: message.mediaType }
+        : {};
     /**
      * @param {import("../src/providers/types.js").Provider[]} all
      * @param {Record<string, string> | null | undefined} [apiKeys]
@@ -224,6 +264,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
      */
     const serializeProviders = (all, apiKeys) =>
       all.map((p) => ({
+        operation: method,
         id: p.id,
         label: p.label,
         requiresApiKey: Boolean(p.requiresApiKey),
@@ -233,13 +274,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ...(apiKeys
           ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) }
           : {}),
-        defaultModel: p.defaultModel,
+        defaultModel:
+          method === "transcribe"
+            ? p.transcription?.defaultModel
+            : method === "synthesize"
+              ? p.synthesis?.defaultModel
+              : p.defaultModel,
+        ...(method === "synthesize" && p.synthesis?.defaultVoice
+          ? { defaultVoice: p.synthesis.defaultVoice }
+          : {}),
         supportsFunctionTools: Boolean(p.supportsFunctionTools),
         hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
         // Static catalogs only; dynamic providers omit models here.
         // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
-        models: p.models
-          ? p.models.map((entry) =>
+        models: (
+          method === "transcribe"
+            ? p.transcription?.models
+            : method === "synthesize"
+              ? p.synthesis?.models
+              : p.models
+        )
+          ? (
+              method === "transcribe"
+                ? p.transcription.models
+                : method === "synthesize"
+                  ? p.synthesis.models
+                  : p.models
+            ).map((entry) =>
               typeof entry === "string" ? { id: entry } : entry
             )
           : undefined,
@@ -254,12 +315,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         } catch {
           // Keep listing; omit hasApiKey so Allow is not falsely disabled.
         }
-        sendResponse({ providers: serializeProviders(all, apiKeys) });
+        sendResponse({
+          providers: serializeProviders(
+            filterProvidersForMethod(all, method, request),
+            apiKeys
+          ),
+        });
       })
       .catch((err) => {
         // Built-ins do not depend on settings/compat; keep them available.
         sendResponse({
-          providers: serializeProviders(listProviders()),
+          providers: serializeProviders(
+            filterProvidersForMethod(listProviders(), method, request)
+          ),
           error: {
             code: "unavailable",
             message:
@@ -289,14 +357,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         try {
           const settings = await getSettings();
+          const method =
+            message.method === "transcribe" || message.method === "synthesize"
+              ? message.method
+              : "chat";
           const models = await resolveProviderModels(provider, {
             apiKey: settings.apiKeys[provider.id],
+            method,
+            ...(method === "transcribe" &&
+            typeof message.mediaType === "string"
+              ? { mediaType: message.mediaType }
+              : {}),
           });
           sendResponse({
             ok: true,
             providerId: provider.id,
             models,
-            defaultModel: provider.defaultModel,
+            defaultModel:
+              method === "transcribe"
+                ? provider.transcription?.defaultModel
+                : method === "synthesize"
+                  ? provider.synthesis?.defaultModel
+                  : provider.defaultModel,
           });
         } catch (err) {
           sendResponse({
@@ -339,6 +421,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "list-voices") {
+    const providerId =
+      typeof message.providerId === "string" ? message.providerId : "";
+    void getProviderAsync(providerId)
+      .then(async (provider) => {
+        if (!provider?.synthesis) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: "invalid_request",
+              message: `Provider does not support synthesis: ${providerId}`,
+            },
+          });
+          return;
+        }
+        const settings = await getSettings();
+        sendResponse({
+          ok: true,
+          providerId,
+          voices: await resolveProviderVoices(provider, {
+            model:
+              typeof message.model === "string" ? message.model : undefined,
+            apiKey: settings.apiKeys[provider.id],
+          }),
+          defaultVoice: provider.synthesis.defaultVoice,
+        });
+      })
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          error: {
+            code: /** @type {any} */ (err)?.code || "unavailable",
+            message:
+              err instanceof Error ? err.message : "Failed to list voices",
+          },
+        });
+      });
+    return true;
+  }
+
   return false;
 });
 
@@ -371,6 +493,525 @@ chrome.action.onClicked.addListener(() => {
 });
 
 /**
+ * Pull a validated transcription source from the page with one chunk in
+ * flight. Called only after approval/provider preflight in speech routing.
+ * @param {string} streamId
+ * @param {{ byteLength: number, mediaType: string }} metadata
+ * @returns {Promise<Blob>}
+ */
+function receiveTranscriptionBlob(streamId, metadata) {
+  const entry = activeStreams.get(streamId);
+  if (!entry || entry.controller.signal.aborted) {
+    return Promise.reject(inferenceError("aborted", "Request aborted"));
+  }
+  if (entry.uploadTransfer) {
+    return Promise.reject(
+      inferenceError("provider_error", "A binary upload is already active.")
+    );
+  }
+  let receiver;
+  try {
+    receiver = new BinaryChunkReceiver({
+      maxBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
+      expectedBytes: metadata.byteLength,
+    });
+  } catch (err) {
+    return Promise.reject(
+      inferenceError(
+        "invalid_request",
+        err instanceof Error ? err.message : "Invalid binary upload metadata."
+      )
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    entry.uploadTransfer = {
+      receiver,
+      chunks: [],
+      mediaType: metadata.mediaType,
+      resolve,
+      reject,
+    };
+    requestNextUploadChunk(entry);
+  });
+}
+
+/**
+ * @param {any} entry
+ */
+function requestNextUploadChunk(entry) {
+  try {
+    const request = entry.uploadTransfer.receiver.requestChunk();
+    entry.port.postMessage({
+      type: "binary-pull",
+      streamId: entry.streamId,
+      ...request,
+    });
+  } catch (err) {
+    failUpload(
+      entry,
+      inferenceError(
+        "aborted",
+        err instanceof Error ? err.message : "Binary upload failed."
+      )
+    );
+  }
+}
+
+/**
+ * @param {string} streamId
+ * @param {any} entry
+ * @param {any} message
+ */
+function handleBinaryChunk(streamId, entry, message) {
+  const transfer = entry.uploadTransfer;
+  if (!transfer) {
+    abortStream(streamId, "Unexpected binary upload chunk");
+    return;
+  }
+  try {
+    const bytes = decodeRuntimeBase64(message.data);
+    if (message.byteLength !== bytes.byteLength) {
+      throw new Error("Binary upload chunk length does not match its metadata.");
+    }
+    const state = transfer.receiver.receiveChunk({
+      sequence: message.sequence,
+      byteLength: bytes.byteLength,
+      done: message.done === true,
+    });
+    transfer.chunks.push(bytes);
+    if (state.complete) {
+      const blob = new Blob(transfer.chunks, { type: transfer.mediaType });
+      const resolve = transfer.resolve;
+      transfer.chunks.length = 0;
+      delete entry.uploadTransfer;
+      resolve(blob);
+      return;
+    }
+    requestNextUploadChunk(entry);
+  } catch (err) {
+    failUpload(
+      entry,
+      inferenceError(
+        "invalid_request",
+        err instanceof Error ? err.message : "Malformed binary upload."
+      )
+    );
+  }
+}
+
+/**
+ * Initialize flow-controlled worker-to-page audio output.
+ * @param {string} streamId
+ */
+function beginSynthesisTransfer(streamId) {
+  const entry = activeStreams.get(streamId);
+  if (!entry || entry.controller.signal.aborted) {
+    throw inferenceError("aborted", "Request aborted");
+  }
+  if (entry.downloadTransfer) {
+    throw inferenceError(
+      "provider_error",
+      "A binary download is already active."
+    );
+  }
+  entry.downloadTransfer = {
+    sender: new BinaryChunkSender({ maxBytes: SYNTHESIS_OUTPUT_MAX_BYTES }),
+    pendingAck: null,
+  };
+}
+
+/**
+ * Send bytes and wait until the page consumes/acknowledges every public
+ * audio_delta. Callers mark the final non-empty bytes with done: true.
+ * @param {string} streamId
+ * @param {Uint8Array} bytes
+ * @param {{ done?: boolean }} [options]
+ */
+async function sendSynthesisBytes(streamId, bytes, options = {}) {
+  const entry = activeStreams.get(streamId);
+  const transfer = entry?.downloadTransfer;
+  if (!entry || !transfer || entry.controller.signal.aborted) {
+    throw inferenceError("aborted", "Request aborted");
+  }
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw inferenceError(
+      "provider_error",
+      "Synthesis returned an empty binary chunk."
+    );
+  }
+
+  for (let offset = 0; offset < bytes.byteLength; ) {
+    const end = Math.min(
+      bytes.byteLength,
+      offset + transfer.sender.chunkBytes
+    );
+    const final = end === bytes.byteLength && options.done === true;
+    const part = bytes.subarray(offset, end);
+    let packet;
+    try {
+      packet = transfer.sender.beginChunk(part.byteLength, { done: final });
+    } catch (err) {
+      throw inferenceError(
+        "provider_error",
+        err instanceof Error ? err.message : "Binary output limit exceeded."
+      );
+    }
+    await new Promise((resolve, reject) => {
+      transfer.pendingAck = {
+        sequence: packet.sequence,
+        resolve,
+        reject,
+      };
+      try {
+        entry.port.postMessage({
+          type: "binary-data",
+          streamId,
+          sequence: packet.sequence,
+          data: encodeRuntimeBase64(part),
+        });
+      } catch {
+        transfer.pendingAck = null;
+        reject(inferenceError("aborted", "Binary output disconnected."));
+      }
+    });
+    offset = end;
+  }
+}
+
+/**
+ * @param {any} entry
+ * @param {any} message
+ */
+function handleBinaryAck(entry, message) {
+  const transfer = entry.downloadTransfer;
+  const pending = transfer?.pendingAck;
+  if (!transfer || !pending || message.sequence !== pending.sequence) {
+    const streamId = entry.streamId;
+    if (streamId) abortStream(streamId, "Invalid binary acknowledgement");
+    return;
+  }
+  try {
+    transfer.sender.acknowledge(message.sequence);
+    transfer.pendingAck = null;
+    pending.resolve();
+  } catch {
+    const streamId = entry.streamId;
+    if (streamId) abortStream(streamId, "Invalid binary acknowledgement");
+  }
+}
+
+/**
+ * @param {any} entry
+ * @param {Error} error
+ */
+function failUpload(entry, error) {
+  const transfer = entry.uploadTransfer;
+  if (!transfer) return;
+  transfer.receiver.abort();
+  transfer.chunks.length = 0;
+  delete entry.uploadTransfer;
+  transfer.reject(error);
+}
+
+/**
+ * @param {any} entry
+ * @param {string} reason
+ */
+function cleanupBinaryTransfers(entry, reason) {
+  if (entry.uploadTransfer) {
+    failUpload(entry, inferenceError("aborted", reason));
+  }
+  if (entry.downloadTransfer) {
+    const transfer = entry.downloadTransfer;
+    transfer.sender.abort();
+    const pending = transfer.pendingAck;
+    transfer.pendingAck = null;
+    delete entry.downloadTransfer;
+    pending?.reject(inferenceError("aborted", reason));
+  }
+}
+
+/**
+ * @param {string} code
+ * @param {string} message
+ */
+function inferenceError(code, message) {
+  const error = new Error(message);
+  error.name = "InferenceError";
+  /** @type {any} */ (error).code = code;
+  return error;
+}
+
+/**
+ * @param {{
+ *   streamId: string,
+ *   port: chrome.runtime.Port,
+ *   origin: string,
+ *   request: any,
+ *   controller: AbortController,
+ * }} args
+ */
+async function handleSpeechStart({
+  streamId,
+  port,
+  origin,
+  request,
+  controller,
+}) {
+  let settings = await getSettings();
+  if (!settings.experimentalSpeechEnabled) {
+    throw inferenceError(
+      "invalid_request",
+      "Experimental speech methods are disabled in Inference Bridge Options."
+    );
+  }
+
+  const method = request.method;
+  const capabilityRequest =
+    method === "transcribe"
+      ? { mediaType: request.audio.mediaType }
+      : { mediaType: "audio/mpeg" };
+  const capable = filterProvidersForMethod(
+    await listAllProviders(),
+    method,
+    capabilityRequest
+  );
+  if (capable.length === 0) {
+    throw inferenceError(
+      "unavailable",
+      method === "transcribe"
+        ? `No configured provider can transcribe ${request.audio.mediaType}.`
+        : "No configured provider supports MP3 speech synthesis."
+    );
+  }
+
+  const storedDefault = settings.operationDefaults[method];
+  const preferred =
+    capable.find((provider) => provider.id === storedDefault?.providerId) ||
+    capable[0];
+  const descriptor =
+    method === "transcribe" ? preferred.transcription : preferred.synthesis;
+  const preferredModel =
+    storedDefault?.providerId === preferred.id
+      ? storedDefault.model
+      : descriptor.defaultModel;
+  const preferredVoice =
+    method === "synthesize"
+      ? storedDefault?.providerId === preferred.id
+        ? storedDefault.voice
+        : descriptor.defaultVoice
+      : undefined;
+
+  // Source bytes remain in the page. Announce the stream before opening UI so
+  // the injector can bind its source and survive approval-phase rebind.
+  port.postMessage({ type: "started", streamId });
+  const permission = await ensureSpeechPermission({
+    requestId: streamId,
+    origin,
+    method,
+    preferredProviderId: preferred.id,
+    preferredModel,
+    ...(preferredVoice ? { preferredVoice } : {}),
+    ...(method === "transcribe"
+      ? {
+          mediaType: request.audio.mediaType,
+          byteLength: request.audio.byteLength,
+        }
+      : { text: request.text }),
+  });
+
+  let entry = activeStreams.get(streamId);
+  if (!entry || controller.signal.aborted) return streamId;
+  if (entry.portDisconnected) {
+    entry = await waitForPortRebind(streamId, Infinity);
+    if (!entry || controller.signal.aborted) {
+      activeStreams.delete(streamId);
+      return streamId;
+    }
+  }
+  if (!permission.allowed) {
+    throw inferenceError(
+      permission.code || "permission_denied",
+      permission.message || "Permission denied by user."
+    );
+  }
+
+  entry.phase = "streaming";
+  settings = await getSettings();
+  const provider = await getProviderAsync(permission.providerId);
+  if (
+    !provider ||
+    !providerSupportsMethod(provider, method, capabilityRequest)
+  ) {
+    throw inferenceError(
+      "unavailable",
+      `The selected provider no longer supports ${method}.`
+    );
+  }
+  if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+    throw inferenceError(
+      "unavailable",
+      `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
+    );
+  }
+  const model = permission.model;
+  if (!model) {
+    throw inferenceError(
+      "unavailable",
+      `No model is selected for ${provider.label} ${method}.`
+    );
+  }
+  const operationModels = await resolveProviderModels(provider, {
+    method,
+    apiKey: settings.apiKeys[provider.id],
+    signal: controller.signal,
+  });
+  if (
+    operationModels.length > 0 &&
+    !operationModels.some((candidate) => candidate.id === model)
+  ) {
+    throw inferenceError(
+      "unavailable",
+      `${provider.label} ${method} model is unavailable: ${model}.`
+    );
+  }
+  if (method === "transcribe") {
+    const mediaTypes = await resolveTranscriptionMediaTypes(provider, {
+      model,
+      apiKey: settings.apiKeys[provider.id],
+      signal: controller.signal,
+    });
+    if (!mediaTypes.includes(request.audio.mediaType)) {
+      throw inferenceError(
+        "unavailable",
+        `${provider.label} cannot transcribe ${request.audio.mediaType} without conversion; choose a compatible provider or file.`
+      );
+    }
+    if (
+      provider.transcription.maxInputBytes &&
+      request.audio.byteLength > provider.transcription.maxInputBytes
+    ) {
+      throw inferenceError(
+        "invalid_request",
+        `${provider.label} transcription input exceeds its byte limit.`
+      );
+    }
+  } else {
+    const voices = await resolveProviderVoices(provider, {
+      model,
+      apiKey: settings.apiKeys[provider.id],
+      signal: controller.signal,
+    });
+    if (
+      !permission.voice ||
+      !provider.synthesis.outputMediaTypes.includes("audio/mpeg") ||
+      !voices.some((candidate) => candidate.id === permission.voice)
+    ) {
+      throw inferenceError(
+        "unavailable",
+        `${provider.label} has no compatible synthesis voice or output format.`
+      );
+    }
+  }
+
+  entry.port.postMessage({
+    type: "chunk",
+    chunk: { type: "accepted" },
+  });
+
+  if (method === "transcribe") {
+    const audio = await receiveTranscriptionBlob(streamId, {
+      byteLength: request.audio.byteLength,
+      mediaType: request.audio.mediaType,
+    });
+    let emitted = "";
+    let emittedDelta = false;
+    const result = await provider.transcribe({
+      apiKey: settings.apiKeys[provider.id],
+      model,
+      audio: {
+        data: audio,
+        mediaType: request.audio.mediaType,
+        byteLength: request.audio.byteLength,
+      },
+      ...(request.language ? { language: request.language } : {}),
+      signal: controller.signal,
+      onDelta: async (content) => {
+        if (typeof content !== "string" || !content) return;
+        emittedDelta = true;
+        emitted += content;
+        entry.port.postMessage({
+          type: "chunk",
+          chunk: { type: "delta", content },
+        });
+      },
+    });
+    if (emittedDelta && emitted !== result.transcript.text) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} transcription deltas did not match the final transcript.`
+      );
+    }
+    entry.port.postMessage({
+      type: "chunk",
+      chunk: {
+        type: "done",
+        model: result.model,
+        transcript: result.transcript,
+        ...(result.usage ? { usage: result.usage } : {}),
+      },
+    });
+  } else {
+    beginSynthesisTransfer(streamId);
+    let pendingAudio = null;
+    const result = await provider.synthesize({
+      apiKey: settings.apiKeys[provider.id],
+      model,
+      voice: permission.voice,
+      text: request.text,
+      mediaType: "audio/mpeg",
+      signal: controller.signal,
+      onAudioDelta: async (data) => {
+        if (!(data instanceof Uint8Array) || data.byteLength === 0) return;
+        if (pendingAudio) {
+          await sendSynthesisBytes(streamId, pendingAudio);
+        }
+        // Copy because ReadableStream implementations may reuse backing memory.
+        pendingAudio = data.slice();
+      },
+    });
+    if (!pendingAudio) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} returned no synthesis audio.`
+      );
+    }
+    await sendSynthesisBytes(streamId, pendingAudio, { done: true });
+    const sentBytes = entry.downloadTransfer.sender.totalBytes;
+    if (sentBytes !== result.audio.byteLength) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} synthesis byte length did not match streamed audio.`
+      );
+    }
+    entry.port.postMessage({
+      type: "chunk",
+      chunk: {
+        type: "done",
+        model: result.model,
+        audio: result.audio,
+        ...(result.usage ? { usage: result.usage } : {}),
+      },
+    });
+  }
+
+  cleanupBinaryTransfers(entry, "Request finished");
+  activeStreams.delete(streamId);
+  return streamId;
+}
+
+/**
  * @param {chrome.runtime.Port} port
  * @param {any} msg
  * @param {(id: string) => void} onStreamId
@@ -384,6 +1025,7 @@ async function handleStart(port, msg, onStreamId) {
   activeStreams.set(streamId, {
     port,
     controller,
+    streamId,
     tabId,
     phase: "awaiting_permission",
     announced: false,
@@ -425,11 +1067,23 @@ async function handleStart(port, msg, onStreamId) {
       return null;
     }
 
-    const validated = validateInferenceRequest(msg.request);
+    const validated =
+      msg.experimental === true
+        ? validateExperimentalInferenceRequest(msg.request)
+        : validateInferenceRequest(msg.request);
     if (!validated.ok) {
       sendError("invalid_request", validated.message);
       activeStreams.delete(streamId);
       return null;
+    }
+    if (validated.value.method !== "chat") {
+      return await handleSpeechStart({
+        streamId,
+        port,
+        origin,
+        request: validated.value,
+        controller,
+      });
     }
 
     // Acknowledge so the page can attach stream listeners before permission UI.
@@ -597,6 +1251,7 @@ async function handleStart(port, msg, onStreamId) {
         usage: result.usage,
       },
     });
+    cleanupBinaryTransfers(entry, "Request finished");
     activeStreams.delete(streamId);
     return streamId;
   } catch (err) {
@@ -606,6 +1261,8 @@ async function handleStart(port, msg, onStreamId) {
       sendError(code, message);
     }
     cancelApproval(streamId);
+    const entry = activeStreams.get(streamId);
+    if (entry) cleanupBinaryTransfers(entry, message);
     activeStreams.delete(streamId);
     return streamId;
   }
@@ -620,6 +1277,7 @@ function abortStream(streamId, reason) {
   cancelApproval(streamId);
   if (!entry) return;
 
+  cleanupBinaryTransfers(entry, reason);
   activeStreams.delete(streamId);
   try {
     entry.controller.abort();

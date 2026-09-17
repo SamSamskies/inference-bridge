@@ -17,6 +17,17 @@
 
   const { port1: bridgePort, port2 } = new MessageChannel();
 
+  function postFeatureState(enabled) {
+    try {
+      bridgePort.postMessage({
+        type: "feature-state",
+        experimentalSpeechEnabled: enabled === true,
+      });
+    } catch {
+      // ignore — page may have navigated away
+    }
+  }
+
   bridgePort.onmessage = (event) => {
     const data = event.data;
     if (!data || typeof data !== "object") return;
@@ -35,11 +46,71 @@
           // ignore
         }
       }
+      return;
+    }
+
+    if (data.type === "binary-chunk" || data.type === "binary-ack") {
+      const port = ports.get(data.streamId);
+      if (!port) return;
+      try {
+        if (data.type === "binary-ack") {
+          port.postMessage({
+            type: "binary-ack",
+            streamId: data.streamId,
+            sequence: data.sequence,
+          });
+          return;
+        }
+        if (!(data.data instanceof ArrayBuffer) || data.data.byteLength === 0) {
+          throw new Error("Invalid binary chunk");
+        }
+        const bytes = new Uint8Array(data.data);
+        let binary = "";
+        const batchBytes = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += batchBytes) {
+          binary += String.fromCharCode(
+            ...bytes.subarray(offset, offset + batchBytes)
+          );
+        }
+        port.postMessage({
+          type: "binary-chunk",
+          streamId: data.streamId,
+          sequence: data.sequence,
+          byteLength: bytes.byteLength,
+          done: data.done === true,
+          data: btoa(binary),
+        });
+      } catch {
+        try {
+          port.postMessage({ type: "abort", streamId: data.streamId });
+        } catch {
+          // disconnect cleanup will abort the stream
+        }
+      }
     }
   };
 
   // inject.js is listed first in the manifest so its init listener is ready.
   window.postMessage({ channel: CHANNEL, direction: "init" }, "*", [port2]);
+
+  // MAIN-world feature discovery must remain synchronous. Prime its private
+  // cache asynchronously and keep it current without exposing storage to pages.
+  chrome.storage.local
+    .get("experimentalSpeechEnabled")
+    .then((stored) =>
+      postFeatureState(stored.experimentalSpeechEnabled === true)
+    )
+    .catch(() => postFeatureState(false));
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (
+      areaName === "local" &&
+      changes.experimentalSpeechEnabled
+    ) {
+      postFeatureState(
+        changes.experimentalSpeechEnabled.newValue === true
+      );
+    }
+  });
 
   /**
    * @param {any} data
@@ -159,6 +230,18 @@
           if (msg.chunk?.type === "done") {
             cleanup();
           }
+          return;
+        }
+
+        if (msg.type === "binary-pull" || msg.type === "binary-data") {
+          postToPage({
+            streamId,
+            type: msg.type,
+            sequence: msg.sequence,
+            ...(msg.type === "binary-pull"
+              ? { maxBytes: msg.maxBytes }
+              : { data: msg.data }),
+          });
           return;
         }
 

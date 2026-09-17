@@ -795,6 +795,171 @@ describe("validateExperimentalInferenceRequest", () => {
       reasoning: "why",
     });
   });
+
+  it("validates and normalizes transcription requests", () => {
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "transcribe",
+        audio: { mediaType: "audio/x-wav; codecs=1", data: "Zm9v" },
+        language: "en-US",
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        method: "transcribe",
+        audio: {
+          mediaType: "audio/wav",
+          data: "Zm9v",
+          byteLength: 3,
+        },
+        language: "en-US",
+      },
+    });
+
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "transcribe",
+        audio: { url: " https://media.example/test.mp3 " },
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        method: "transcribe",
+        audio: { url: "https://media.example/test.mp3" },
+      },
+    });
+
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "transcribe",
+        audio: {
+          sourceId: "audio_1",
+          byteLength: 24_000_000,
+          mediaType: "audio/x-wav",
+          detectedMediaType: "audio/wav",
+        },
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        method: "transcribe",
+        audio: {
+          sourceId: "audio_1",
+          byteLength: 24_000_000,
+          mediaType: "audio/wav",
+        },
+      },
+    });
+  });
+
+  it("rejects malformed transcription sources, MIME types, and languages", () => {
+    const cases = [
+      { method: "transcribe", audio: {} },
+      {
+        method: "transcribe",
+        audio: { data: "Zm9v", url: "https://example.test/a.wav" },
+      },
+      {
+        method: "transcribe",
+        audio: { data: "not base64", mediaType: "audio/wav" },
+      },
+      {
+        method: "transcribe",
+        audio: { data: "Zm9v", mediaType: "audio/ogg" },
+      },
+      {
+        method: "transcribe",
+        audio: { data: "Zm9v", mediaType: "audio/wav" },
+        language: "en_US",
+      },
+      {
+        method: "transcribe",
+        audio: {
+          sourceId: "audio_1",
+          byteLength: 24_000_001,
+          mediaType: "audio/wav",
+        },
+      },
+      {
+        method: "transcribe",
+        audio: {
+          sourceId: "audio_1",
+          byteLength: 3,
+          mediaType: "audio/wav",
+          detectedMediaType: "audio/mpeg",
+        },
+      },
+    ];
+    for (const request of cases) {
+      expect(validateExperimentalInferenceRequest(request).ok).toBe(false);
+    }
+  });
+
+  it("validates MP3-only synthesis and Unicode code-point bounds", () => {
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "synthesize",
+        text: "Hello",
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        method: "synthesize",
+        text: "Hello",
+        output: { mediaType: "audio/mpeg" },
+      },
+    });
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "synthesize",
+        text: "😀".repeat(4096),
+        output: { mediaType: "audio/mpeg" },
+      }).ok
+    ).toBe(true);
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "synthesize",
+        text: "😀".repeat(4097),
+      }).ok
+    ).toBe(false);
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "synthesize",
+        text: "hello",
+        output: { mediaType: "audio/wav" },
+      }).ok
+    ).toBe(false);
+  });
+
+  it("rejects unknown methods and cross-method fields", () => {
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "unknown",
+        messages: [],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "chat",
+        messages: [{ role: "user", content: "hi" }],
+        audio: { data: "Zm9v", mediaType: "audio/wav" },
+      }).ok
+    ).toBe(false);
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "transcribe",
+        audio: { data: "Zm9v", mediaType: "audio/wav" },
+        messages: [],
+      }).ok
+    ).toBe(false);
+    expect(
+      validateExperimentalInferenceRequest({
+        method: "synthesize",
+        text: "hello",
+        tools: [],
+      }).ok
+    ).toBe(false);
+  });
 });
 
 describe("isValidOrigin", () => {

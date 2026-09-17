@@ -18,6 +18,13 @@ import { normalizeCompatBaseUrl } from "./host-permissions.js";
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  * @typedef {{ id: string, name: string, baseUrl: string }} CompatEndpoint
+ * @typedef {"transcribe" | "synthesize"} SpeechOperation
+ * @typedef {{ providerId: string, model: string, voice?: string }} OperationRoute
+ * @typedef {OperationRoute & { allowedAt: number }} OperationGrant
+ * @typedef {OperationRoute & { usedAt: number }} OperationLastUsed
+ * @typedef {Partial<Record<SpeechOperation, OperationRoute>>} OperationDefaults
+ * @typedef {Record<string, Partial<Record<SpeechOperation, OperationGrant>>>} OperationGrants
+ * @typedef {Record<string, Partial<Record<SpeechOperation, OperationLastUsed>>>} OperationLastUsedByOrigin
  */
 
 const DEFAULTS = Object.freeze({
@@ -43,6 +50,13 @@ const DEFAULTS = Object.freeze({
    * @type {Record<string, OriginLastUsed>}
    */
   originLastUsed: {},
+  experimentalSpeechEnabled: false,
+  /** @type {Readonly<OperationDefaults>} */
+  operationDefaults: Object.freeze({}),
+  /** @type {Readonly<OperationGrants>} */
+  operationGrants: Object.freeze({}),
+  /** @type {Readonly<OperationLastUsedByOrigin>} */
+  operationLastUsed: Object.freeze({}),
 });
 
 const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
@@ -153,6 +167,96 @@ function normalizeOriginLastUsed(value) {
 
 /**
  * @param {unknown} value
+ * @returns {value is SpeechOperation}
+ */
+export function isSpeechOperation(value) {
+  return value === "transcribe" || value === "synthesize";
+}
+
+/**
+ * Speech models are operation-scoped and must not be checked against chat
+ * catalogs. A synthesis route is incomplete until it includes a voice.
+ * @param {unknown} value
+ * @param {SpeechOperation} operation
+ * @returns {OperationRoute | null}
+ */
+function normalizeOperationRoute(value, operation) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entry = /** @type {{ providerId?: unknown, model?: unknown, voice?: unknown }} */ (
+    value
+  );
+  const providerId =
+    typeof entry.providerId === "string" ? entry.providerId.trim() : "";
+  const model = typeof entry.model === "string" ? entry.model.trim() : "";
+  const voice = typeof entry.voice === "string" ? entry.voice.trim() : "";
+  if (!providerId || !model || (operation === "synthesize" && !voice)) {
+    return null;
+  }
+  return {
+    providerId,
+    model,
+    ...(operation === "synthesize" ? { voice } : {}),
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {OperationDefaults}
+ */
+function normalizeOperationDefaults(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  /** @type {OperationDefaults} */
+  const out = {};
+  for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
+    const route = normalizeOperationRoute(
+      /** @type {Record<string, unknown>} */ (value)[operation],
+      operation
+    );
+    if (route) out[operation] = route;
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} value
+ * @param {"allowedAt" | "usedAt"} timestampKey
+ * @returns {OperationGrants | OperationLastUsedByOrigin}
+ */
+function normalizeOperationOriginMap(value, timestampKey) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  /** @type {Record<string, Record<string, unknown>>} */
+  const out = {};
+  for (const [origin, operations] of Object.entries(value)) {
+    if (
+      !isPersistableOriginKey(origin) ||
+      !operations ||
+      typeof operations !== "object" ||
+      Array.isArray(operations)
+    ) {
+      continue;
+    }
+    /** @type {Record<string, unknown>} */
+    const normalized = {};
+    for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
+      const raw = /** @type {Record<string, unknown>} */ (operations)[operation];
+      const route = normalizeOperationRoute(raw, operation);
+      if (!route || !raw || typeof raw !== "object") continue;
+      const timestamp = /** @type {Record<string, unknown>} */ (raw)[timestampKey];
+      normalized[operation] = {
+        ...route,
+        [timestampKey]:
+          typeof timestamp === "number" && Number.isFinite(timestamp)
+            ? timestamp
+            : 0,
+      };
+    }
+    if (Object.keys(normalized).length > 0) out[origin] = normalized;
+  }
+  return /** @type {OperationGrants | OperationLastUsedByOrigin} */ (out);
+}
+
+/**
+ * @param {unknown} value
  * @returns {CompatEndpoint[]}
  */
 export function normalizeCompatEndpoints(value) {
@@ -185,7 +289,11 @@ export function normalizeCompatEndpoints(value) {
  *   compatEndpoints: CompatEndpoint[],
  *   allowedOrigins: Record<string, OriginGrant>,
  *   blockedOrigins: Record<string, OriginBlock>,
- *   originLastUsed: Record<string, OriginLastUsed>
+ *   originLastUsed: Record<string, OriginLastUsed>,
+ *   experimentalSpeechEnabled: boolean,
+ *   operationDefaults: OperationDefaults,
+ *   operationGrants: OperationGrants,
+ *   operationLastUsed: OperationLastUsedByOrigin,
  * }>}
  */
 export async function getSettings() {
@@ -206,6 +314,14 @@ export async function getSettings() {
       ? /** @type {Record<string, OriginBlock>} */ ({ ...stored.blockedOrigins })
       : {};
   const originLastUsed = normalizeOriginLastUsed(stored.originLastUsed);
+  const experimentalSpeechEnabled = stored.experimentalSpeechEnabled === true;
+  const operationDefaults = normalizeOperationDefaults(stored.operationDefaults);
+  const operationGrants = /** @type {OperationGrants} */ (
+    normalizeOperationOriginMap(stored.operationGrants, "allowedAt")
+  );
+  const operationLastUsed = /** @type {OperationLastUsedByOrigin} */ (
+    normalizeOperationOriginMap(stored.operationLastUsed, "usedAt")
+  );
   const compatEndpoints = normalizeCompatEndpoints(stored.compatEndpoints);
   const compatIds = new Set(compatEndpoints.map((e) => e.id));
 
@@ -227,6 +343,24 @@ export async function getSettings() {
   for (const key of Object.keys(originLastUsed)) {
     if (key === "null" || key === "file://" || key.startsWith("file:")) {
       delete originLastUsed[key];
+      scrubbed = true;
+    }
+  }
+  if (
+    stored.experimentalSpeechEnabled !== undefined &&
+    typeof stored.experimentalSpeechEnabled !== "boolean"
+  ) {
+    scrubbed = true;
+  }
+  for (const [raw, normalized] of [
+    [stored.operationDefaults, operationDefaults],
+    [stored.operationGrants, operationGrants],
+    [stored.operationLastUsed, operationLastUsed],
+  ]) {
+    if (
+      raw !== undefined &&
+      JSON.stringify(raw) !== JSON.stringify(normalized)
+    ) {
       scrubbed = true;
     }
   }
@@ -325,6 +459,38 @@ export async function getSettings() {
       scrubbed = true;
     }
   }
+  for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
+    const route = operationDefaults[operation];
+    if (
+      route &&
+      isCompatProviderId(route.providerId) &&
+      !compatIds.has(route.providerId)
+    ) {
+      delete operationDefaults[operation];
+      scrubbed = true;
+    }
+  }
+  for (const operationMap of [operationGrants, operationLastUsed]) {
+    for (const [origin, operations] of Object.entries(operationMap)) {
+      for (const operation of /** @type {const} */ ([
+        "transcribe",
+        "synthesize",
+      ])) {
+        const route = operations[operation];
+        if (
+          route &&
+          isCompatProviderId(route.providerId) &&
+          !compatIds.has(route.providerId)
+        ) {
+          delete operations[operation];
+          scrubbed = true;
+        }
+      }
+      if (Object.keys(operations).length === 0) {
+        delete operationMap[origin];
+      }
+    }
+  }
 
   // Persist normalized compat list when stored data was dirty.
   const storedCompatRaw = stored.compatEndpoints;
@@ -345,6 +511,10 @@ export async function getSettings() {
       defaultModels,
       defaultProviderId,
       compatEndpoints,
+      operationDefaults,
+      operationGrants,
+      operationLastUsed,
+      experimentalSpeechEnabled,
     };
     await chrome.storage.local.set(patch);
     /** @type {string[]} */
@@ -365,6 +535,10 @@ export async function getSettings() {
     allowedOrigins,
     blockedOrigins,
     originLastUsed,
+    experimentalSpeechEnabled,
+    operationDefaults,
+    operationGrants,
+    operationLastUsed,
   };
 }
 
@@ -374,7 +548,12 @@ export async function getSettings() {
  * @returns {boolean}
  */
 function isPersistableOriginKey(origin) {
-  return typeof origin === "string" && origin.length > 0 && origin !== "null";
+  return (
+    typeof origin === "string" &&
+    origin.length > 0 &&
+    origin !== "null" &&
+    !origin.startsWith("file:")
+  );
 }
 
 /**
@@ -382,7 +561,9 @@ function isPersistableOriginKey(origin) {
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
  *   defaultModel: string,
- *   defaultModels: Record<string, string>
+ *   defaultModels: Record<string, string>,
+ *   experimentalSpeechEnabled: boolean,
+ *   operationDefaults: Partial<Record<SpeechOperation, OperationRoute | null>>,
  * }>} patch
  */
 export async function saveSettings(patch) {
@@ -444,6 +625,34 @@ export async function saveSettings(patch) {
 
   if (modelsTouched || next.defaultProviderId) {
     next.defaultModels = nextDefaultModels;
+  }
+
+  if (typeof patch.experimentalSpeechEnabled === "boolean") {
+    next.experimentalSpeechEnabled = patch.experimentalSpeechEnabled;
+  }
+
+  if (
+    patch.operationDefaults &&
+    typeof patch.operationDefaults === "object" &&
+    !Array.isArray(patch.operationDefaults)
+  ) {
+    const merged = { ...current.operationDefaults };
+    for (const operation of /** @type {const} */ ([
+      "transcribe",
+      "synthesize",
+    ])) {
+      if (!Object.prototype.hasOwnProperty.call(patch.operationDefaults, operation)) {
+        continue;
+      }
+      const candidate = patch.operationDefaults[operation];
+      if (candidate == null) {
+        delete merged[operation];
+        continue;
+      }
+      const route = normalizeOperationRoute(candidate, operation);
+      if (route) merged[operation] = route;
+    }
+    next.operationDefaults = merged;
   }
 
   if (Object.keys(next).length > 0) {
@@ -532,19 +741,145 @@ export async function grantOriginAlways(
 }
 
 /**
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @returns {Promise<OperationGrant | null>}
+ */
+export async function getOriginOperationGrant(origin, operation) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return null;
+  }
+  const { operationGrants } = await getSettings();
+  return operationGrants[origin]?.[operation] ?? null;
+}
+
+/**
+ * Persist an operation-specific Always-allow binding. Chat grants remain in
+ * allowedOrigins and can neither authorize nor be overwritten by this call.
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @param {OperationRoute} options
+ * @returns {Promise<boolean>}
+ */
+export async function grantOriginOperationAlways(origin, operation, options) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return false;
+  }
+  const route = normalizeOperationRoute(options, operation);
+  if (!route) return false;
+  const { operationGrants, blockedOrigins } = await getSettings();
+  delete blockedOrigins[origin];
+  operationGrants[origin] = {
+    ...(operationGrants[origin] || {}),
+    [operation]: { ...route, allowedAt: Date.now() },
+  };
+  await chrome.storage.local.set({ operationGrants, blockedOrigins });
+  return true;
+}
+
+/**
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @returns {Promise<OperationLastUsed | null>}
+ */
+export async function getOriginOperationLastUsed(origin, operation) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return null;
+  }
+  const { operationLastUsed } = await getSettings();
+  return operationLastUsed[origin]?.[operation] ?? null;
+}
+
+/**
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @param {OperationRoute} options
+ * @returns {Promise<boolean>}
+ */
+export async function setOriginOperationLastUsed(origin, operation, options) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return false;
+  }
+  const route = normalizeOperationRoute(options, operation);
+  if (!route) return false;
+  const { operationLastUsed } = await getSettings();
+  operationLastUsed[origin] = {
+    ...(operationLastUsed[origin] || {}),
+    [operation]: { ...route, usedAt: Date.now() },
+  };
+  await chrome.storage.local.set({ operationLastUsed });
+  return true;
+}
+
+/**
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @returns {Promise<boolean>}
+ */
+export async function revokeOriginOperation(origin, operation) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return false;
+  }
+  const { operationGrants } = await getSettings();
+  if (!operationGrants[origin]?.[operation]) return false;
+  delete operationGrants[origin][operation];
+  if (Object.keys(operationGrants[origin]).length === 0) {
+    delete operationGrants[origin];
+  }
+  await chrome.storage.local.set({ operationGrants });
+  return true;
+}
+
+/**
+ * Update an existing operation grant while preserving when it was approved.
+ * Changing provider/model/voice changes the exact binding checked by the
+ * permission layer; it never falls back to a chat route.
+ * @param {string} origin
+ * @param {SpeechOperation} operation
+ * @param {OperationRoute} options
+ * @returns {Promise<boolean>}
+ */
+export async function setOriginOperationRoute(origin, operation, options) {
+  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+    return false;
+  }
+  const route = normalizeOperationRoute(options, operation);
+  if (!route) return false;
+  const { operationGrants } = await getSettings();
+  const grant = operationGrants[origin]?.[operation];
+  if (!grant) return false;
+  operationGrants[origin][operation] = {
+    ...route,
+    allowedAt: grant.allowedAt,
+  };
+  await chrome.storage.local.set({ operationGrants });
+  return true;
+}
+
+/**
  * Persist a never-allow decision for an origin.
  * @param {string} origin
  */
 export async function blockOrigin(origin) {
   if (!isPersistableOriginKey(origin)) return;
-  const { allowedOrigins, blockedOrigins, originLastUsed } = await getSettings();
+  const {
+    allowedOrigins,
+    blockedOrigins,
+    originLastUsed,
+    operationGrants,
+    operationLastUsed,
+  } = await getSettings();
   delete allowedOrigins[origin];
   delete originLastUsed[origin];
+  delete operationGrants[origin];
+  delete operationLastUsed[origin];
   blockedOrigins[origin] = { blockedAt: Date.now() };
   await chrome.storage.local.set({
     allowedOrigins,
     blockedOrigins,
     originLastUsed,
+    operationGrants,
+    operationLastUsed,
   });
 }
 
@@ -734,6 +1069,32 @@ export async function listAllowedOrigins() {
       return row;
     })
     .sort((a, b) => a.origin.localeCompare(b.origin));
+}
+
+/**
+ * @returns {Promise<Array<OperationGrant & {
+ *   origin: string,
+ *   operation: SpeechOperation,
+ * }>>}
+ */
+export async function listOriginOperationGrants() {
+  const { operationGrants } = await getSettings();
+  const rows = [];
+  for (const [origin, operations] of Object.entries(operationGrants)) {
+    for (const operation of /** @type {const} */ ([
+      "transcribe",
+      "synthesize",
+    ])) {
+      const grant = operations[operation];
+      if (!grant) continue;
+      rows.push({ origin, operation, ...grant });
+    }
+  }
+  return rows.sort(
+    (a, b) =>
+      a.origin.localeCompare(b.origin) ||
+      a.operation.localeCompare(b.operation)
+  );
 }
 
 /**
