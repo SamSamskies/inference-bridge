@@ -599,9 +599,11 @@ Current implementation limits:
 - Synthesis accepts up to 4,096 Unicode code points and returns only MP3
   (`audio/mpeg`), capped at 32,000,000 bytes.
 - OpenAI and OpenRouter are supported through their dedicated transcription
-  and speech endpoints. Anthropic, On-device, generic OpenAI-compatible
-  endpoints, and Ollama synthesis are unavailable rather than emulated
-  through chat.
+  and speech endpoints. Ollama transcription is opportunistically available
+  for installed models whose `/api/show` response reports `audio`, initially
+  for proven WAV input only. Anthropic, On-device, generic OpenAI-compatible
+  endpoints, and Ollama synthesis are unavailable rather than emulated through
+  chat.
 
 Paste-ready synthesis example:
 
@@ -739,6 +741,19 @@ npm test
 
 Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, bounded binary transfer and cancellation, OpenAI speech multipart/streaming adapters, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses / Ollama Bridge-executed ollama.com loop) (no full MV3 e2e).
 
+Optional local Ollama transcription integration uses the checked-in 16 kHz
+mono WAV fixture and never pulls a model automatically:
+
+```bash
+OLLAMA_SPEECH_INTEGRATION=1 \
+OLLAMA_SPEECH_MODEL=gemma4:e2b \
+npx vitest run test/ollama-speech.integration.test.js
+```
+
+The test skips when the daemon/model is absent or `/api/show` does not report
+`audio`. Once capability is advertised, endpoint or transcript failures fail
+the test.
+
 Package a release ZIP (runtime files only):
 
 ```bash
@@ -797,6 +812,7 @@ npm run package
 - [ ] Enabling Experimental speech updates `experimental.getFeatures().methods` after page reload; disabling it makes both methods fail before approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
 - [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
+- [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, and does not offer TTS
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3

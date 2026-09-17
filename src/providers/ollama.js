@@ -18,6 +18,12 @@ import {
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 import { mapTemperatureForOllama } from "./temperature.js";
+import {
+  OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
+  ollamaModelHasAudio,
+  transcribeOllama,
+} from "./ollama-speech.js";
+import { TRANSCRIPTION_INPUT_MAX_BYTES } from "../speech.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
 
@@ -129,6 +135,24 @@ export async function listOllamaModels({ signal } = {}) {
   }
   names.sort((a, b) => a.id.localeCompare(b.id));
   return names;
+}
+
+/**
+ * List only installed models whose fresh `/api/show` response advertises the
+ * `audio` capability. A plain installed/chat model is never offered for STT.
+ * @param {{ signal?: AbortSignal }} [args]
+ */
+export async function listOllamaTranscriptionModels({ signal } = {}) {
+  const installed = await listOllamaModels({ signal });
+  const support = await Promise.all(
+    installed.map(async (model) => ({
+      model,
+      supported: await ollamaModelHasAudio(model.id, { signal }),
+    }))
+  );
+  return support
+    .filter((entry) => entry.supported)
+    .map((entry) => entry.model);
 }
 
 /** @type {Map<string, boolean>} */
@@ -596,6 +620,18 @@ export const ollamaProvider = {
   defaultModel: "",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  transcription: {
+    defaultModel: "gemma4:e2b",
+    listModels: listOllamaTranscriptionModels,
+    acceptedMediaTypes: OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
+    maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
+    async listAcceptedMediaTypesForModel({ model, signal }) {
+      return (await ollamaModelHasAudio(model, { signal }))
+        ? [...OLLAMA_TRANSCRIPTION_MEDIA_TYPES]
+        : [];
+    },
+  },
+  transcribe: transcribeOllama,
 
   listModels: listOllamaModels,
 

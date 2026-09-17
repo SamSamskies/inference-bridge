@@ -1107,6 +1107,8 @@ async function load() {
 
   if (requestMethod === "chat") {
     await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
+  } else if (providers.some((provider) => provider.id === "ollama")) {
+    await refreshOllamaStatus();
   }
 
   originEl.textContent = request.origin;

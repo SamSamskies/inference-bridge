@@ -165,7 +165,7 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter"]);
+    ).toEqual(["openai", "openrouter", "ollama"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
