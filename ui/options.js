@@ -57,13 +57,13 @@ const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
 const experimentalSpeechEnabledInput = document.getElementById(
-  "experimentalSpeechEnabled"
+  "experimentalSpeechEnabled",
 );
 const experimentalSpeechStatus = document.getElementById(
-  "experimentalSpeechStatus"
+  "experimentalSpeechStatus",
 );
 const transcriptionProviderSelect = document.getElementById(
-  "transcriptionProvider"
+  "transcriptionProvider",
 );
 const transcriptionModelSelect = document.getElementById("transcriptionModel");
 const synthesisProviderSelect = document.getElementById("synthesisProvider");
@@ -83,6 +83,71 @@ const compatApiKeyInput = document.getElementById("compatApiKey");
 const compatSaveButton = document.getElementById("compatSave");
 const compatCancelButton = document.getElementById("compatCancel");
 const compatStatusEl = document.getElementById("compatStatus");
+const settingsTabs = Array.from(
+  document.querySelectorAll('[role="tab"][aria-controls]'),
+);
+
+/**
+ * @param {Element} tab
+ * @param {{ focus?: boolean, updateHash?: boolean }} [opts]
+ */
+function activateSettingsTab(tab, opts = {}) {
+  const panelId = tab.getAttribute("aria-controls");
+  if (!panelId) return;
+
+  for (const candidate of settingsTabs) {
+    const selected = candidate === tab;
+    candidate.setAttribute("aria-selected", String(selected));
+    candidate.setAttribute("tabindex", selected ? "0" : "-1");
+    const panel = document.getElementById(
+      candidate.getAttribute("aria-controls") || "",
+    );
+    if (panel) panel.hidden = !selected;
+  }
+
+  if (opts.updateHash && location.hash !== `#${panelId}`) {
+    history.replaceState(null, "", `#${panelId}`);
+  }
+  if (opts.focus && tab instanceof HTMLElement) tab.focus();
+}
+
+function tabForCurrentHash() {
+  const panelId = location.hash.slice(1);
+  return settingsTabs.find(
+    (tab) => tab.getAttribute("aria-controls") === panelId,
+  );
+}
+
+for (const [index, tab] of settingsTabs.entries()) {
+  tab.addEventListener("click", () => {
+    activateSettingsTab(tab, { updateHash: true });
+  });
+  tab.addEventListener("keydown", (event) => {
+    let nextIndex;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % settingsTabs.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + settingsTabs.length) % settingsTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = settingsTabs.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    activateSettingsTab(settingsTabs[nextIndex], {
+      focus: true,
+      updateHash: true,
+    });
+  });
+}
+
+activateSettingsTab(tabForCurrentHash() || settingsTabs[0]);
+window.addEventListener("hashchange", () => {
+  const tab = tabForCurrentHash();
+  if (tab) activateSettingsTab(tab);
+});
 
 /** @type {Array<{ id: string, label: string, requiresApiKey: boolean, optionalApiKey?: boolean, defaultModel: string, models?: Array<{ id: string, label?: string }> }>} */
 let providers = [];
@@ -201,7 +266,12 @@ function normalizeModels(models) {
       out.push({ id: entry });
       continue;
     }
-    if (entry && typeof entry === "object" && typeof entry.id === "string" && entry.id) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof entry.id === "string" &&
+      entry.id
+    ) {
       out.push({
         id: entry.id,
         ...(typeof entry.label === "string" && entry.label
@@ -399,7 +469,7 @@ function updateOnDevicePanel() {
       isDefault
         ? "Installed and ready to use. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build"
         : "Installed and ready. Click Save to make On-device your default. Runs Chrome's Gemini Nano on this device — Chrome chooses the exact build",
-      { internalsLink: true, manageLink: true }
+      { internalsLink: true, manageLink: true },
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = true;
@@ -413,7 +483,7 @@ function updateOnDevicePanel() {
   if (installing) {
     stopOnDeviceDownloadPoll();
     setOnDeviceHint(
-      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, On-device is saved as your default."
+      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, On-device is saved as your default.",
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = false;
@@ -427,7 +497,7 @@ function updateOnDevicePanel() {
     // (or after Options was closed mid-install).
     scheduleOnDeviceDownloadPoll();
     setOnDeviceHint(
-      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, you can save On-device as your default."
+      "Downloading the on-device model… This can take a while and the file may be large. When it finishes, you can save On-device as your default.",
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = true;
@@ -444,7 +514,7 @@ function updateOnDevicePanel() {
     typeof globalThis.LanguageModel?.create === "function";
   if (!canInstallInPage) {
     setOnDeviceHint(
-      "On-device model is downloadable, but Install needs the Prompt API in this Options page (for the required user gesture). It is not available here."
+      "On-device model is downloadable, but Install needs the Prompt API in this Options page (for the required user gesture). It is not available here.",
     );
     onDeviceInstallButton.hidden = true;
     onDeviceCancelButton.hidden = true;
@@ -455,7 +525,7 @@ function updateOnDevicePanel() {
 
   setOnDeviceHint(
     "Browser-chosen on-device model. Install may download a large file and take a while, then saves On-device as your default. The browser picks which model",
-    { internalsLink: true }
+    { internalsLink: true },
   );
   onDeviceInstallButton.hidden = false;
   onDeviceInstallButton.disabled = false;
@@ -481,7 +551,9 @@ function updateApiKeyField(providerId) {
   syncApiKeyDraftFromInput();
 
   const provider = providers.find((p) => p.id === providerId);
-  const needsKey = Boolean(provider?.requiresApiKey || provider?.optionalApiKey);
+  const needsKey = Boolean(
+    provider?.requiresApiKey || provider?.optionalApiKey,
+  );
   apiKeyField.hidden = !needsKey;
 
   if (!needsKey || !provider) {
@@ -637,10 +709,7 @@ function populateProviderSelect(select, selectedId) {
       (ollamaDown || onDeviceGone) && effectiveId !== provider.id;
     if (onDeviceGone) {
       option.textContent = `${provider.label} (unavailable)`;
-    } else if (
-      provider.id === ON_DEVICE_PROVIDER_ID &&
-      !isOnDeviceReady()
-    ) {
+    } else if (provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceReady()) {
       option.textContent = `${provider.label} (install required)`;
     } else if (ollamaDown) {
       option.textContent = `${provider.label} (unavailable)`;
@@ -706,7 +775,9 @@ function populateDefaultModelControl(providerId, models, selected, opts = {}) {
   setDefaultModelControlMode(providerId, models);
 
   if (usesModelAutosuggest(providerId, models)) {
-    populateModelInput(modelInput, modelList, models, selected, { allowUnknown });
+    populateModelInput(modelInput, modelList, models, selected, {
+      allowUnknown,
+    });
     modelInput.disabled = disabled;
     modelSelect.disabled = true;
     updateClearModelButton();
@@ -759,7 +830,7 @@ async function refreshDefaultModels(providerId, preferredModel) {
       providerId,
       preferredModel ? [{ id: preferredModel }] : [],
       preferredModel,
-      { allowUnknown: true, disabled: true }
+      { allowUnknown: true, disabled: true },
     );
     return;
   }
@@ -881,15 +952,17 @@ checkOllamaButton.addEventListener("click", async () => {
     // OpenAI, which would make Save overwrite the stored default.
     const nextId = populateProviderSelect(
       providerSelect,
-      wantedOllama && ollamaStatus.available ? "ollama" : providerSelect.value
+      wantedOllama && ollamaStatus.available ? "ollama" : providerSelect.value,
     );
     modelBoundProviderId = nextId;
     updateProviderChrome(nextId);
     await refreshDefaultModels(nextId, preferredDefaultModel(nextId));
     await renderOrigins();
     setStatus(
-      ollamaStatus.available ? "Ollama is available." : "Ollama is still unavailable.",
-      ollamaStatus.available ? "ok" : "err"
+      ollamaStatus.available
+        ? "Ollama is available."
+        : "Ollama is still unavailable.",
+      ollamaStatus.available ? "ok" : "err",
     );
   } finally {
     checkOllamaButton.disabled = false;
@@ -907,7 +980,7 @@ async function beginOnDeviceInstall() {
   if (typeof globalThis.LanguageModel?.create !== "function") {
     setStatus(
       "Prompt API is not available in this page, so Install cannot run with the required user gesture.",
-      "err"
+      "err",
     );
     return;
   }
@@ -925,7 +998,10 @@ async function beginOnDeviceInstall() {
       },
     });
     await refreshOnDeviceStatus();
-    const nextId = populateProviderSelect(providerSelect, ON_DEVICE_PROVIDER_ID);
+    const nextId = populateProviderSelect(
+      providerSelect,
+      ON_DEVICE_PROVIDER_ID,
+    );
     modelBoundProviderId = nextId;
     modelDrafts[ON_DEVICE_PROVIDER_ID] = ON_DEVICE_MODEL_ID;
     updateProviderChrome(nextId);
@@ -936,7 +1012,7 @@ async function beginOnDeviceInstall() {
       setStatus(
         onDeviceStatus.message ||
           "Model installed, but the on-device host is not ready. Reload the extension, then Save.",
-        "err"
+        "err",
       );
       return;
     }
@@ -944,7 +1020,7 @@ async function beginOnDeviceInstall() {
     onDeviceProgress.value = 1;
     setStatus(
       "Success — on-device model installed and ready to use. Saved as your default.",
-      "ok"
+      "ok",
     );
   } catch (err) {
     if (
@@ -953,10 +1029,7 @@ async function beginOnDeviceInstall() {
     ) {
       setStatus("Install canceled.", "");
     } else {
-      setStatus(
-        err instanceof Error ? err.message : "Install failed",
-        "err"
-      );
+      setStatus(err instanceof Error ? err.message : "Install failed", "err");
     }
     await refreshOnDeviceStatus();
     updateOnDevicePanel();
@@ -1025,7 +1098,7 @@ async function renderOrigins() {
     const originProviderSelect = document.createElement("select");
     originProviderSelect.setAttribute(
       "aria-label",
-      `Provider for ${grant.origin}`
+      `Provider for ${grant.origin}`,
     );
     // Keep an already-granted Ollama selection visible even if currently unavailable.
     // Unknown providerIds stay selected as "(unknown)" — never remapped to a
@@ -1056,7 +1129,7 @@ async function renderOrigins() {
       modelCaption,
       originModelSelect,
       originModelInput,
-      originModelList
+      originModelList,
     );
     meta.append(modelLabel);
 
@@ -1067,7 +1140,7 @@ async function renderOrigins() {
     const toolLabels = summarizeToolFingerprintLabels(
       grant.toolFingerprint,
       { id: grant.providerId },
-      { toolChoiceNone: grant.toolChoiceNone === true }
+      { toolChoiceNone: grant.toolChoiceNone === true },
     );
     /** @type {string[]} */
     const imageLabels = [];
@@ -1112,7 +1185,7 @@ async function renderOrigins() {
           ok
             ? `Revoked tools for ${grant.origin}`
             : `Could not revoke tools for ${grant.origin}`,
-          ok ? "ok" : "err"
+          ok ? "ok" : "err",
         );
       },
     });
@@ -1125,7 +1198,7 @@ async function renderOrigins() {
           ok
             ? `Revoked images for ${grant.origin}`
             : `Could not revoke images for ${grant.origin}`,
-          ok ? "ok" : "err"
+          ok ? "ok" : "err",
         );
       },
     });
@@ -1153,7 +1226,12 @@ async function renderOrigins() {
      * @param {string | undefined} selected
      * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
      */
-    function populateOriginModelControl(providerId, models, selected, opts = {}) {
+    function populateOriginModelControl(
+      providerId,
+      models,
+      selected,
+      opts = {},
+    ) {
       const allowUnknown = opts.allowUnknown !== false;
       const disabled = Boolean(opts.disabled);
       const autosuggest = usesModelAutosuggest(providerId, models);
@@ -1161,15 +1239,23 @@ async function renderOrigins() {
       originModelInput.hidden = !autosuggest;
 
       if (autosuggest) {
-        populateModelInput(originModelInput, originModelList, models, selected, {
-          allowUnknown,
-        });
+        populateModelInput(
+          originModelInput,
+          originModelList,
+          models,
+          selected,
+          {
+            allowUnknown,
+          },
+        );
         originModelInput.disabled = disabled;
         originModelSelect.disabled = true;
         return;
       }
 
-      populateModelSelect(originModelSelect, models, selected, { allowUnknown });
+      populateModelSelect(originModelSelect, models, selected, {
+        allowUnknown,
+      });
       originModelSelect.disabled = disabled;
       originModelInput.disabled = true;
     }
@@ -1186,10 +1272,15 @@ async function renderOrigins() {
         originModels = [
           { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
         ];
-        populateOriginModelControl(providerId, originModels, ON_DEVICE_MODEL_ID, {
-          allowUnknown: false,
-          disabled: true,
-        });
+        populateOriginModelControl(
+          providerId,
+          originModels,
+          ON_DEVICE_MODEL_ID,
+          {
+            allowUnknown: false,
+            disabled: true,
+          },
+        );
         if (!isOnDeviceOffered()) {
           modelStatus.textContent =
             "On-device AI is not available in this browser.";
@@ -1226,7 +1317,7 @@ async function renderOrigins() {
           providerId,
           selectedModel ? [{ id: selectedModel }] : [],
           selectedModel,
-          { allowUnknown: true, disabled: true }
+          { allowUnknown: true, disabled: true },
         );
         modelStatus.textContent =
           error ||
@@ -1252,7 +1343,8 @@ async function renderOrigins() {
 
     /** Last provider/model written for this row — skip no-op rewrites. */
     let persistedProviderId = grant.providerId;
-    let persistedModel = typeof grant.model === "string" ? grant.model.trim() : "";
+    let persistedModel =
+      typeof grant.model === "string" ? grant.model.trim() : "";
 
     /**
      * @returns {Promise<boolean>}
@@ -1265,7 +1357,7 @@ async function renderOrigins() {
       if (!providers.some((p) => p.id === providerId)) {
         setStatus(
           `Choose a registered provider for ${grant.origin} before updating.`,
-          "err"
+          "err",
         );
         return false;
       }
@@ -1329,7 +1421,7 @@ async function renderOrigins() {
           await renderOrigins();
           setStatus(
             `Could not switch ${grant.origin}: no models are available.`,
-            "err"
+            "err",
           );
           return;
         }
@@ -1385,7 +1477,7 @@ async function renderOrigins() {
         grant.providerId,
         grant.model ? [{ id: grant.model }] : [],
         grant.model,
-        { allowUnknown: true, disabled: true }
+        { allowUnknown: true, disabled: true },
       );
       modelStatus.textContent = `Unknown provider "${grant.providerId}". Choose a registered provider to update this grant. Requests for this origin fail until then.`;
     } else {
@@ -1405,7 +1497,8 @@ async function renderSpeechOrigins() {
     meta.className = "origin-meta";
     const origin = document.createElement("code");
     origin.textContent = grant.origin;
-    const operation = grant.operation === "transcribe" ? "Transcription" : "Synthesis";
+    const operation =
+      grant.operation === "transcribe" ? "Transcription" : "Synthesis";
     const provider =
       providers.find((candidate) => candidate.id === grant.providerId)?.label ||
       grant.providerId;
@@ -1430,7 +1523,7 @@ async function renderSpeechOrigins() {
         ok
           ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
           : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
-        ok ? "ok" : "err"
+        ok ? "ok" : "err",
       );
     });
     li.append(meta, button);
@@ -1498,16 +1591,12 @@ async function persistSpeechDefault(operation) {
       },
     },
   });
-  experimentalSpeechStatus.textContent =
-    `${operation === "transcribe" ? "Transcription" : "Synthesis"} default saved.`;
+  experimentalSpeechStatus.textContent = `${operation === "transcribe" ? "Transcription" : "Synthesis"} default saved.`;
   experimentalSpeechStatus.className = "status ok";
 }
 
 async function loadSpeechDefaultControls(settings) {
-  for (const operation of /** @type {const} */ ([
-    "transcribe",
-    "synthesize",
-  ])) {
+  for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
     const response = await chrome.runtime.sendMessage({
       type: "list-providers",
       method: operation,
@@ -1523,21 +1612,23 @@ async function loadSpeechDefaultControls(settings) {
     const providerId = fillSimpleSelect(
       providerSelect,
       speechProviders[operation],
-      stored?.providerId
+      stored?.providerId,
     );
     const provider = speechProviders[operation].find(
-      (candidate) => candidate.id === providerId
+      (candidate) => candidate.id === providerId,
     );
     const model = await loadSpeechModels(
       operation,
       providerId,
-      stored?.providerId === providerId ? stored.model : provider?.defaultModel
+      stored?.providerId === providerId ? stored.model : provider?.defaultModel,
     );
     if (operation === "synthesize") {
       await loadSynthesisVoices(
         providerId,
         model,
-        stored?.providerId === providerId ? stored.voice : provider?.defaultVoice
+        stored?.providerId === providerId
+          ? stored.voice
+          : provider?.defaultVoice,
       );
     }
   }
@@ -1702,13 +1793,13 @@ function renderCompatEndpoints() {
       savedDefaultProviderId = settings.defaultProviderId;
       const nextProvider = populateProviderSelect(
         providerSelect,
-        settings.defaultProviderId
+        settings.defaultProviderId,
       );
       modelBoundProviderId = nextProvider;
       updateProviderChrome(nextProvider);
       await refreshDefaultModels(
         nextProvider,
-        preferredDefaultModel(nextProvider)
+        preferredDefaultModel(nextProvider),
       );
       await renderOrigins();
       renderCompatEndpoints();
@@ -1739,7 +1830,7 @@ compatSaveButton.addEventListener("click", async () => {
     if (!baseUrl) {
       setCompatStatus(
         "Enter a valid http(s) URL (e.g. http://127.0.0.1:1234).",
-        "err"
+        "err",
       );
       return;
     }
@@ -1748,7 +1839,7 @@ compatSaveButton.addEventListener("click", async () => {
     if (!granted) {
       setCompatStatus(
         "Host permission was not granted. Chrome must allow access to this origin before the endpoint can be saved.",
-        "err"
+        "err",
       );
       return;
     }
@@ -1777,13 +1868,13 @@ compatSaveButton.addEventListener("click", async () => {
 
     const currentProvider = populateProviderSelect(
       providerSelect,
-      providerSelect.value || settings.defaultProviderId
+      providerSelect.value || settings.defaultProviderId,
     );
     modelBoundProviderId = currentProvider;
     updateProviderChrome(currentProvider);
     await refreshDefaultModels(
       currentProvider,
-      preferredDefaultModel(currentProvider)
+      preferredDefaultModel(currentProvider),
     );
     await renderOrigins();
     setCompatStatus(`Saved ${name}.`, "ok");
@@ -1791,7 +1882,7 @@ compatSaveButton.addEventListener("click", async () => {
   } catch (err) {
     setCompatStatus(
       err instanceof Error ? err.message : "Failed to save server",
-      "err"
+      "err",
     );
   } finally {
     compatSaveButton.disabled = false;
@@ -1815,7 +1906,10 @@ async function load() {
   if (
     settings.defaultProviderId &&
     settings.defaultModel &&
-    isPlausibleModelForProvider(settings.defaultProviderId, settings.defaultModel)
+    isPlausibleModelForProvider(
+      settings.defaultProviderId,
+      settings.defaultModel,
+    )
   ) {
     modelDrafts[settings.defaultProviderId] = settings.defaultModel;
   }
@@ -1826,11 +1920,14 @@ async function load() {
   apiKeyBoundProviderId = "";
   const effectiveProvider = populateProviderSelect(
     providerSelect,
-    settings.defaultProviderId
+    settings.defaultProviderId,
   );
   modelBoundProviderId = effectiveProvider;
   updateProviderChrome(effectiveProvider);
-  await refreshDefaultModels(effectiveProvider, preferredDefaultModel(effectiveProvider));
+  await refreshDefaultModels(
+    effectiveProvider,
+    preferredDefaultModel(effectiveProvider),
+  );
   await loadSpeechDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
@@ -1896,13 +1993,9 @@ transcriptionProviderSelect.addEventListener("change", () => {
   void updateSpeechControl("transcribe", async () => {
     const providerId = transcriptionProviderSelect.value;
     const provider = speechProviders.transcribe.find(
-      (candidate) => candidate.id === providerId
+      (candidate) => candidate.id === providerId,
     );
-    await loadSpeechModels(
-      "transcribe",
-      providerId,
-      provider?.defaultModel
-    );
+    await loadSpeechModels("transcribe", providerId, provider?.defaultModel);
   });
 });
 transcriptionModelSelect.addEventListener("change", () => {
@@ -1912,12 +2005,12 @@ synthesisProviderSelect.addEventListener("change", () => {
   void updateSpeechControl("synthesize", async () => {
     const providerId = synthesisProviderSelect.value;
     const provider = speechProviders.synthesize.find(
-      (candidate) => candidate.id === providerId
+      (candidate) => candidate.id === providerId,
     );
     const model = await loadSpeechModels(
       "synthesize",
       providerId,
-      provider?.defaultModel
+      provider?.defaultModel,
     );
     await loadSynthesisVoices(providerId, model, provider?.defaultVoice);
   });
@@ -1927,7 +2020,7 @@ synthesisModelSelect.addEventListener("change", () => {
     await loadSynthesisVoices(
       synthesisProviderSelect.value,
       synthesisModelSelect.value,
-      undefined
+      undefined,
     );
   });
 });
@@ -1966,13 +2059,16 @@ saveButton.addEventListener("click", async () => {
       return;
     }
     if (providerId === "ollama" && !ollamaStatus.available) {
-      setStatus("Ollama is unavailable. Choose another provider or click Check again.", "err");
+      setStatus(
+        "Ollama is unavailable. Choose another provider or click Check again.",
+        "err",
+      );
       return;
     }
     if (providerId === ON_DEVICE_PROVIDER_ID && !isOnDeviceReady()) {
       setStatus(
         "Install the on-device model before saving it as the default provider.",
-        "err"
+        "err",
       );
       return;
     }
@@ -1991,7 +2087,7 @@ saveButton.addEventListener("click", async () => {
           : providerId === "openai"
             ? "OpenAI model ids should not include a /."
             : "Choose a valid default model before saving.",
-        "err"
+        "err",
       );
       return;
     }

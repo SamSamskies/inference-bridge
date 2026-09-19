@@ -1,0 +1,84 @@
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.settings-tab {
+  min-width: 0;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.settings-tab:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.settings-tab[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+
+.settings-section {
+  max-width: none;
+}
+
+.settings-section:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+
+.settings-section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-section-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.panel > h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.speech-defaults {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.speech-defaults h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+@media (max-width: 420px) {
+  .settings-tab {
+    padding-inline: 6px;
+    font-size: 0.8rem;
+  }
+}

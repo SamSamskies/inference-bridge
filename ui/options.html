@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inference Bridge Settings</title>
     <link rel="stylesheet" href="shared.css" />
+    <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <main class="stack">
@@ -17,237 +18,344 @@
         </p>
       </header>
 
-      <section class="panel stack">
-        <h2>Provider</h2>
-        <label class="field">
-          <span>Default provider</span>
-          <select id="provider"></select>
-        </label>
-        <div class="hint-row" id="ollamaStatusRow" hidden>
-          <p class="hint" id="ollamaHint"></p>
-          <button type="button" class="ghost" id="checkOllama">Check again</button>
-        </div>
-        <div id="onDevicePanel" hidden>
-          <p class="hint" id="onDeviceHint"></p>
-          <progress
-            id="onDeviceProgress"
-            class="on-device-progress"
-            max="1"
-            value="0"
-            hidden
-          ></progress>
-        </div>
-        <label class="field" id="modelField">
-          <span>Default model</span>
-          <select id="modelSelect"></select>
-          <div class="model-input-row" id="modelInputRow" hidden>
-            <input
-              id="modelInput"
-              type="text"
-              list="modelList"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Type to search models…"
-            />
-            <button
-              type="button"
-              id="clearModel"
-              class="ghost"
-              hidden
-              aria-label="Clear model"
-            >
-              Clear
-            </button>
-          </div>
-          <datalist id="modelList"></datalist>
-        </label>
-        <p class="hint" id="modelHint" hidden></p>
-        <div class="field" id="apiKeyField" hidden>
-          <span id="apiKeyLabel">API key</span>
-          <div class="secret-input">
-            <input
-              id="apiKey"
-              type="password"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="sk-..."
-              aria-labelledby="apiKeyLabel"
-            />
-            <button
-              type="button"
-              id="toggleApiKey"
-              class="ghost"
-              aria-pressed="false"
-              aria-controls="apiKey"
-            >
-              Show
-            </button>
-          </div>
-          <p class="hint" id="apiKeyHint" hidden></p>
-        </div>
-        <div class="actions actions-end">
-          <button type="button" class="ghost" id="onDeviceCancel" hidden>
-            Cancel
-          </button>
-          <button type="button" class="primary" id="onDeviceInstall" hidden>
-            Install
-          </button>
-          <button type="button" class="primary" id="save">Save</button>
-        </div>
-        <div class="status status-end" id="status" role="status" aria-live="polite"></div>
-      </section>
+      <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+        <button
+          type="button"
+          class="settings-tab"
+          id="providers-tab"
+          role="tab"
+          aria-selected="true"
+          aria-controls="providers"
+        >
+          Providers
+        </button>
+        <button
+          type="button"
+          class="settings-tab"
+          id="speech-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="speech"
+          tabindex="-1"
+        >
+          Speech
+        </button>
+        <button
+          type="button"
+          class="settings-tab"
+          id="site-access-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="site-access"
+          tabindex="-1"
+        >
+          Site access
+        </button>
+      </div>
 
-      <dialog
-        id="onDeviceInstallDialog"
-        class="confirm-dialog"
-        aria-labelledby="onDeviceInstallTitle"
+      <section
+        class="settings-section stack"
+        id="providers"
+        role="tabpanel"
+        aria-labelledby="providers-tab"
+        tabindex="0"
       >
-        <form method="dialog" class="confirm-dialog-body stack">
-          <h2 id="onDeviceInstallTitle">Install on-device model?</h2>
+        <header class="settings-section-heading">
+          <h2 id="providers-heading">Providers</h2>
           <p class="hint">
-            The browser will download its built-in model onto this device. The
-            file may be large and the download can take a while. When it
-            finishes, On-device is saved as your default provider.
+            Choose the default provider and manage custom compatible servers.
           </p>
+        </header>
+
+        <section class="panel stack" aria-labelledby="default-provider-heading">
+          <h3 id="default-provider-heading">Default provider</h3>
+          <label class="field">
+            <span>Default provider</span>
+            <select id="provider"></select>
+          </label>
+          <div class="hint-row" id="ollamaStatusRow" hidden>
+            <p class="hint" id="ollamaHint"></p>
+            <button type="button" class="ghost" id="checkOllama">
+              Check again
+            </button>
+          </div>
+          <div id="onDevicePanel" hidden>
+            <p class="hint" id="onDeviceHint"></p>
+            <progress
+              id="onDeviceProgress"
+              class="on-device-progress"
+              max="1"
+              value="0"
+              hidden
+            ></progress>
+          </div>
+          <label class="field" id="modelField">
+            <span>Default model</span>
+            <select id="modelSelect"></select>
+            <div class="model-input-row" id="modelInputRow" hidden>
+              <input
+                id="modelInput"
+                type="text"
+                list="modelList"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Type to search models…"
+              />
+              <button
+                type="button"
+                id="clearModel"
+                class="ghost"
+                hidden
+                aria-label="Clear model"
+              >
+                Clear
+              </button>
+            </div>
+            <datalist id="modelList"></datalist>
+          </label>
+          <p class="hint" id="modelHint" hidden></p>
+          <div class="field" id="apiKeyField" hidden>
+            <span id="apiKeyLabel">API key</span>
+            <div class="secret-input">
+              <input
+                id="apiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="sk-..."
+                aria-labelledby="apiKeyLabel"
+              />
+              <button
+                type="button"
+                id="toggleApiKey"
+                class="ghost"
+                aria-pressed="false"
+                aria-controls="apiKey"
+              >
+                Show
+              </button>
+            </div>
+            <p class="hint" id="apiKeyHint" hidden></p>
+          </div>
           <div class="actions actions-end">
-            <button type="submit" value="cancel" class="ghost">Cancel</button>
-            <button type="submit" value="confirm" class="primary" id="onDeviceInstallConfirm">
+            <button type="button" class="ghost" id="onDeviceCancel" hidden>
+              Cancel
+            </button>
+            <button type="button" class="primary" id="onDeviceInstall" hidden>
               Install
             </button>
+            <button type="button" class="primary" id="save">Save</button>
           </div>
-        </form>
-      </dialog>
+          <div
+            class="status status-end"
+            id="status"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </section>
 
-      <section class="panel stack">
-        <h2>Experimental speech</h2>
-        <label class="field">
-          <span>
-            <input id="experimentalSpeechEnabled" type="checkbox" />
-            Enable experimental speech methods
-          </span>
-        </label>
-        <p class="hint">
-          Exposes non-standard bounded transcription and speech synthesis
-          methods to pages. This incubation surface is default-off and may
-          change before any IPA proposal is accepted.
-        </p>
-        <div class="speech-defaults">
-          <h3>Transcription default</h3>
-          <label class="field">
-            <span>Provider</span>
-            <select id="transcriptionProvider"></select>
-          </label>
-          <label class="field">
-            <span>Model</span>
-            <select id="transcriptionModel"></select>
-          </label>
-        </div>
-        <div class="speech-defaults">
-          <h3>Synthesis default</h3>
-          <label class="field">
-            <span>Provider</span>
-            <select id="synthesisProvider"></select>
-          </label>
-          <label class="field">
-            <span>Model</span>
-            <select id="synthesisModel"></select>
-          </label>
-          <label class="field">
-            <span>Voice</span>
-            <select id="synthesisVoice"></select>
-          </label>
-        </div>
-        <div
-          class="status"
-          id="experimentalSpeechStatus"
-          role="status"
-          aria-live="polite"
-        ></div>
-      </section>
+        <dialog
+          id="onDeviceInstallDialog"
+          class="confirm-dialog"
+          aria-labelledby="onDeviceInstallTitle"
+        >
+          <form method="dialog" class="confirm-dialog-body stack">
+            <h2 id="onDeviceInstallTitle">Install on-device model?</h2>
+            <p class="hint">
+              The browser will download its built-in model onto this device. The
+              file may be large and the download can take a while. When it
+              finishes, On-device is saved as your default provider.
+            </p>
+            <div class="actions actions-end">
+              <button type="submit" value="cancel" class="ghost">Cancel</button>
+              <button
+                type="submit"
+                value="confirm"
+                class="primary"
+                id="onDeviceInstallConfirm"
+              >
+                Install
+              </button>
+            </div>
+          </form>
+        </dialog>
 
-      <section class="panel stack">
-        <h2>OpenAI-compatible servers</h2>
-        <p class="hint">
-          Add LM Studio, llama.cpp, vLLM, LocalAI, or other OpenAI-compatible
-          servers. Enter the host (e.g. <code>http://127.0.0.1:1234</code>) —
-          <code>/v1</code> is added automatically if omitted. Chrome asks for
-          host access when you save each server (that origin only). Ollama
-          remains a separate built-in provider — you do not need to re-add it
-          here.
-        </p>
-        <ul class="list" id="compatEndpoints" hidden></ul>
-        <p class="hint" id="compatEndpointsEmpty">No custom servers yet.</p>
-        <label class="field">
-          <span>Name</span>
-          <input
-            id="compatName"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="LM Studio"
-          />
-        </label>
-        <label class="field">
-          <span>Base URL</span>
-          <input
-            id="compatBaseUrl"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="http://127.0.0.1:1234"
-          />
-        </label>
-        <div class="field">
-          <span>API key (optional)</span>
-          <div class="secret-input">
+        <section
+          class="panel stack"
+          aria-labelledby="compatible-servers-heading"
+        >
+          <h3 id="compatible-servers-heading">OpenAI-compatible servers</h3>
+          <p class="hint">
+            Add LM Studio, llama.cpp, vLLM, LocalAI, or other OpenAI-compatible
+            servers. Enter the host (e.g. <code>http://127.0.0.1:1234</code>) —
+            <code>/v1</code> is added automatically if omitted. Chrome asks for
+            host access when you save each server (that origin only). Ollama
+            remains a separate built-in provider — you do not need to re-add it
+            here.
+          </p>
+          <ul class="list" id="compatEndpoints" hidden></ul>
+          <p class="hint" id="compatEndpointsEmpty">No custom servers yet.</p>
+          <label class="field">
+            <span>Name</span>
             <input
-              id="compatApiKey"
-              type="password"
+              id="compatName"
+              type="text"
               autocomplete="off"
               spellcheck="false"
-              placeholder="Leave blank if the server does not need one"
+              placeholder="LM Studio"
             />
+          </label>
+          <label class="field">
+            <span>Base URL</span>
+            <input
+              id="compatBaseUrl"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="http://127.0.0.1:1234"
+            />
+          </label>
+          <div class="field">
+            <span>API key (optional)</span>
+            <div class="secret-input">
+              <input
+                id="compatApiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Leave blank if the server does not need one"
+              />
+            </div>
           </div>
-        </div>
-        <div class="actions actions-end">
-          <button type="button" class="primary" id="compatSave">Add server</button>
-          <button type="button" class="ghost" id="compatCancel" hidden>
-            Cancel edit
-          </button>
-        </div>
-        <div class="status" id="compatStatus" role="status" aria-live="polite"></div>
+          <div class="actions actions-end">
+            <button type="button" class="primary" id="compatSave">
+              Add server
+            </button>
+            <button type="button" class="ghost" id="compatCancel" hidden>
+              Cancel edit
+            </button>
+          </div>
+          <div
+            class="status"
+            id="compatStatus"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </section>
       </section>
 
-      <section class="panel stack">
-        <h2>Always-allowed origins</h2>
-        <p class="hint">
-          Chat origins granted with “Always allow”. Change the provider and
-          model anytime, or revoke to require a fresh prompt.
-        </p>
-        <ul class="list" id="origins"></ul>
-        <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>
+      <section
+        class="settings-section stack"
+        id="speech"
+        role="tabpanel"
+        aria-labelledby="speech-tab"
+        tabindex="0"
+        hidden
+      >
+        <header class="settings-section-heading">
+          <h2 id="speech-heading">Speech</h2>
+          <p class="hint">
+            Configure the experimental speech capability and its defaults.
+          </p>
+        </header>
+
+        <section
+          class="panel stack"
+          aria-labelledby="experimental-speech-heading"
+        >
+          <h3 id="experimental-speech-heading">Experimental speech</h3>
+          <label class="field">
+            <span>
+              <input id="experimentalSpeechEnabled" type="checkbox" />
+              Enable experimental speech methods
+            </span>
+          </label>
+          <p class="hint">
+            Exposes non-standard bounded transcription and speech synthesis
+            methods to pages. This incubation surface is default-off and may
+            change before any IPA proposal is accepted.
+          </p>
+          <div class="speech-defaults">
+            <h4>Transcription default</h4>
+            <label class="field">
+              <span>Provider</span>
+              <select id="transcriptionProvider"></select>
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <select id="transcriptionModel"></select>
+            </label>
+          </div>
+          <div class="speech-defaults">
+            <h4>Synthesis default</h4>
+            <label class="field">
+              <span>Provider</span>
+              <select id="synthesisProvider"></select>
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <select id="synthesisModel"></select>
+            </label>
+            <label class="field">
+              <span>Voice</span>
+              <select id="synthesisVoice"></select>
+            </label>
+          </div>
+          <div
+            class="status"
+            id="experimentalSpeechStatus"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </section>
       </section>
 
-      <section class="panel stack">
-        <h2>Always-allowed speech origins</h2>
-        <p class="hint">
-          Speech grants are separate by origin and operation. Revoke one to
-          require fresh approval without changing chat access.
-        </p>
-        <ul class="list" id="speechOrigins"></ul>
-        <p class="hint" id="speechOriginsEmpty">
-          No persistent speech grants yet.
-        </p>
-      </section>
+      <section
+        class="settings-section stack"
+        id="site-access"
+        role="tabpanel"
+        aria-labelledby="site-access-tab"
+        tabindex="0"
+        hidden
+      >
+        <header class="settings-section-heading">
+          <h2 id="site-access-heading">Site access</h2>
+          <p class="hint">
+            Review persistent permissions and blocks for individual sites.
+          </p>
+        </header>
 
-      <section class="panel stack">
-        <h2>Blocked origins</h2>
-        <p class="hint">
-          Origins blocked with “Never allow”. Unblock to show the permission prompt
-          again on the next request.
-        </p>
-        <ul class="list" id="blocked"></ul>
-        <p class="hint" id="blockedEmpty">No blocked origins yet.</p>
+        <section class="panel stack" aria-labelledby="chat-origins-heading">
+          <h3 id="chat-origins-heading">Always-allowed chat origins</h3>
+          <p class="hint">
+            Chat origins granted with “Always allow”. Change the provider and
+            model anytime, or revoke to require a fresh prompt.
+          </p>
+          <ul class="list" id="origins"></ul>
+          <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>
+        </section>
+
+        <section class="panel stack" aria-labelledby="speech-origins-heading">
+          <h3 id="speech-origins-heading">Always-allowed speech origins</h3>
+          <p class="hint">
+            Speech grants are separate by origin and operation. Revoke one to
+            require fresh approval without changing chat access.
+          </p>
+          <ul class="list" id="speechOrigins"></ul>
+          <p class="hint" id="speechOriginsEmpty">
+            No persistent speech grants yet.
+          </p>
+        </section>
+
+        <section class="panel stack" aria-labelledby="blocked-origins-heading">
+          <h3 id="blocked-origins-heading">Blocked origins</h3>
+          <p class="hint">
+            Origins blocked with “Never allow”. Unblock to show the permission
+            prompt again on the next request.
+          </p>
+          <ul class="list" id="blocked"></ul>
+          <p class="hint" id="blockedEmpty">No blocked origins yet.</p>
+        </section>
       </section>
     </main>
     <script type="module" src="options.js"></script>
