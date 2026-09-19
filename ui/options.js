@@ -1310,7 +1310,7 @@ async function renderOrigins() {
         }
         if (!isOnDeviceReady()) {
           modelStatus.textContent =
-            "Install the on-device model above before using it for this site.";
+            "Install the on-device model on the Providers tab before using it for this site.";
           return false;
         }
         modelStatus.textContent = "Browser-chosen on-device model.";
