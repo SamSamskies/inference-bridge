@@ -56,6 +56,7 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
+const siteAccessStatusEl = document.getElementById("siteAccessStatus");
 const experimentalSpeechEnabledInput = document.getElementById(
   "experimentalSpeechEnabled",
 );
@@ -212,6 +213,9 @@ let onDeviceDownloadPollTimer = 0;
 /** Clears success feedback after a short delay; errors stay until replaced. */
 let statusClearTimer = 0;
 
+/** Clears Site access success feedback after a short delay. */
+let siteAccessStatusClearTimer = 0;
+
 function stopOnDeviceDownloadPoll() {
   if (onDeviceDownloadPollTimer) {
     clearTimeout(onDeviceDownloadPollTimer);
@@ -250,6 +254,24 @@ function setStatus(message, kind) {
         statusEl.className = "status status-end";
       }
     }, clearAfterMs);
+  }
+}
+
+function setSiteAccessStatus(message, kind) {
+  if (siteAccessStatusClearTimer) {
+    clearTimeout(siteAccessStatusClearTimer);
+    siteAccessStatusClearTimer = 0;
+  }
+  siteAccessStatusEl.textContent = message;
+  siteAccessStatusEl.className = `status status-end${kind ? ` ${kind}` : ""}`;
+  if (kind === "ok" && message) {
+    siteAccessStatusClearTimer = window.setTimeout(() => {
+      siteAccessStatusClearTimer = 0;
+      if (siteAccessStatusEl.classList.contains("ok")) {
+        siteAccessStatusEl.textContent = "";
+        siteAccessStatusEl.className = "status status-end";
+      }
+    }, 2500);
   }
 }
 
@@ -1181,7 +1203,7 @@ async function renderOrigins() {
       onClick: async () => {
         const ok = await clearOriginToolsScope(grant.origin);
         await renderOrigins();
-        setStatus(
+        setSiteAccessStatus(
           ok
             ? `Revoked tools for ${grant.origin}`
             : `Could not revoke tools for ${grant.origin}`,
@@ -1194,7 +1216,7 @@ async function renderOrigins() {
       onClick: async () => {
         const ok = await clearOriginImageScope(grant.origin);
         await renderOrigins();
-        setStatus(
+        setSiteAccessStatus(
           ok
             ? `Revoked images for ${grant.origin}`
             : `Could not revoke images for ${grant.origin}`,
@@ -1355,7 +1377,7 @@ async function renderOrigins() {
       // that still has the stale id selected). Only an explicit switch to a
       // registered provider may update storage.
       if (!providers.some((p) => p.id === providerId)) {
-        setStatus(
+        setSiteAccessStatus(
           `Choose a registered provider for ${grant.origin} before updating.`,
           "err",
         );
@@ -1367,7 +1389,10 @@ async function renderOrigins() {
           allowUnknown: allowUnknownFor(providerId),
         })
       ) {
-        setStatus(`Choose a valid model for ${grant.origin}`, "err");
+        setSiteAccessStatus(
+          `Choose a valid model for ${grant.origin}`,
+          "err",
+        );
         return false;
       }
       if (providerId === persistedProviderId && model === persistedModel) {
@@ -1380,10 +1405,10 @@ async function renderOrigins() {
       if (ok) {
         persistedProviderId = providerId;
         persistedModel = model;
-        setStatus(`Updated ${grant.origin}`, "ok");
+        setSiteAccessStatus(`Updated ${grant.origin}`, "ok");
         return true;
       }
-      setStatus(`Could not update ${grant.origin}`, "err");
+      setSiteAccessStatus(`Could not update ${grant.origin}`, "err");
       await renderOrigins();
       return false;
     }
@@ -1419,7 +1444,7 @@ async function renderOrigins() {
           // Restore the persisted grant when the new provider cannot supply a
           // model so the UI never implies an unpersisted provider is active.
           await renderOrigins();
-          setStatus(
+          setSiteAccessStatus(
             `Could not switch ${grant.origin}: no models are available.`,
             "err",
           );
@@ -1463,7 +1488,7 @@ async function renderOrigins() {
     button.addEventListener("click", async () => {
       await revokeOrigin(grant.origin);
       await renderOrigins();
-      setStatus(`Revoked ${grant.origin}`, "ok");
+      setSiteAccessStatus(`Revoked ${grant.origin}`, "ok");
     });
     actions.append(button);
 
@@ -1519,7 +1544,7 @@ async function renderSpeechOrigins() {
     button.addEventListener("click", async () => {
       const ok = await revokeOriginOperation(grant.origin, grant.operation);
       await renderSpeechOrigins();
-      setStatus(
+      setSiteAccessStatus(
         ok
           ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
           : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
@@ -1711,7 +1736,7 @@ async function renderBlocked() {
     button.addEventListener("click", async () => {
       await unblockOrigin(block.origin);
       await renderBlocked();
-      setStatus(`Unblocked ${block.origin}`, "ok");
+      setSiteAccessStatus(`Unblocked ${block.origin}`, "ok");
     });
 
     li.append(code, button);
