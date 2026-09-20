@@ -65,9 +65,13 @@ function loadInference(fetchImpl = fetch) {
       ports: [port2],
     });
   }
-  port1.postMessage({
-    type: "feature-state",
-    experimentalSpeechEnabled: true,
+  // Apply synchronously — MessageChannel postMessage is async and raced
+  // with request() under CI load (speech still disabled → no bridge start).
+  port2.onmessage({
+    data: {
+      type: "feature-state",
+      experimentalSpeechEnabled: true,
+    },
   });
   return { inference: window.inference, port: port1 };
 }
