@@ -47,7 +47,7 @@ unzip -l dist/inference-bridge-*.zip
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Route `window.inference` chat to OpenAI, Anthropic, OpenRouter, Ollama, on-device browser AI, or your own OpenAI-compatible server — keys stay in the extension. |
+| Summary | Browser bridge for `window.inference`: per-site permission, your chosen provider, API keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -55,21 +55,22 @@ unzip -l dist/inference-bridge-*.zip
 
 ### Description (paste into store form)
 
-```
-Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose.
+Avoid stacked brand/product name lists in Summary and Description — Chrome Web Store may reject that as excessive keywords even if the copy was previously accepted.
 
-Bring your own OpenAI, Anthropic, or OpenRouter key, run local Ollama, use on-device browser AI when available, or add an OpenAI-compatible server (LM Studio, llama.cpp, vLLM, and similar). API keys stay in the extension; page scripts never see them.
+```
+Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose in Options.
+
+Bring your own API keys for supported cloud providers, run a local model server, use on-device browser AI when available, or point the extension at an OpenAI-compatible endpoint you configure. Keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
 • Function tools and hosted web search on window.inference.request (page-executed function tools; keys stay in the extension)
-• Hosted web search on OpenAI, Anthropic, OpenRouter, and Ollama (Ollama search runs through ollama.com with an optional account key)
-• Image input and output on window.inference.request (vision models / OpenAI & OpenRouter image generation; keys stay in the extension)
+• Hosted web search when the selected provider supports it
+• Image input and output on window.inference.request when the selected model supports vision or image generation
 • Optional, default-off experimental bounded transcription and MP3 speech synthesis with separate per-site approval
 • Per-site Allow / Deny / Remember prompts
-• You pick the provider and model
-• OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI (Prompt API), or named OpenAI-compatible endpoints
+• You pick the provider and model in Options
 • Optional host access is requested only for each custom server origin you save
-• Local Ollama and other loopback servers work without special ORIGINS setup
+• Local loopback servers work without special CORS / ORIGINS setup
 • Injects only on https and localhost pages
 
 Official reference for the experimental Inference Provider API:
