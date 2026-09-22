@@ -76,6 +76,8 @@ describe("provider registry", () => {
     expect(openai.defaultModel).toBe("gpt-5.6-luna");
     const models = await resolveProviderModels(openai);
     expect(models).toContainEqual({ id: "gpt-6-astra" });
+    expect(models).toContainEqual({ id: "gpt-6-sol" });
+    expect(models).toContainEqual({ id: "gpt-6-luna" });
     expect(models).toContainEqual({ id: "gpt-5.6-luna" });
     expect(models).toContainEqual({ id: "gpt-5-nano" });
     expect(models).toContainEqual({ id: "gpt-4.1" });
@@ -126,6 +128,7 @@ describe("provider registry", () => {
     const models = await resolveProviderModels(anthropic);
     expect(models).toContainEqual({ id: "claude-fable-5-1" });
     expect(models).toContainEqual({ id: "claude-fable-5" });
+    expect(models).toContainEqual({ id: "claude-opus-5-5" });
     expect(models).toContainEqual({ id: "claude-sonnet-5" });
     expect(models).toContainEqual({ id: "claude-opus-5" });
   });

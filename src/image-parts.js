@@ -189,12 +189,12 @@ export function imageCapabilityWarnings(provider, request) {
     } else if (provider?.id === "openai") {
       if (request.modelCanGenerateImages === false) {
         warnings.push(
-          "The selected OpenAI model does not support image generation. Choose a GPT-4o, GPT-4.1, or GPT-5 family model."
+          "The selected OpenAI model does not support image generation. Choose a GPT-4o, GPT-4.1, GPT-5, or GPT-6 family model."
         );
       }
     } else {
       warnings.push(
-        "Image generation is not available for this provider yet. Choose OpenAI (GPT-4o / GPT-4.1 / GPT-5) or OpenRouter with an image-output model."
+        "Image generation is not available for this provider yet. Choose OpenAI (GPT-4o / GPT-4.1 / GPT-5 / GPT-6) or OpenRouter with an image-output model."
       );
     }
   }

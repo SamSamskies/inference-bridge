@@ -23,7 +23,8 @@ const OPENAI_COMPAT_REASONING_EFFORTS = Object.freeze([
 /**
  * Lowest OpenAI-compatible effort for IPA `"none"` on a known model id.
  * OpenAI: models before gpt-5.1 do not support `"none"` (use `"minimal"`);
- * gpt-5.1+ does. GPT-6 Astra rejects `"none"` / `"minimal"` (use `"low"`).
+ * gpt-5.1+ does. GPT-6 Astra rejects `"none"` / `"minimal"` (use `"low"`),
+ * while GPT-6 Sol and Luna support `"none"`.
  * gpt-4.x is not a reasoning family — omit the field.
  * Unknown slugs return undefined so the caller can pass `"none"` through.
  *
@@ -34,7 +35,8 @@ export function mapOpenAINoneReasoningEffort(model) {
   if (typeof model !== "string" || !model) return undefined;
   const id = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
   if (/^gpt-4/i.test(id)) return undefined;
-  if (/^gpt-6/i.test(id)) return "low";
+  if (/^gpt-6-astra(?:$|-)/i.test(id)) return "low";
+  if (/^gpt-6/i.test(id)) return "none";
   const match = /^gpt-5(?:\.(\d+))?/i.exec(id);
   if (!match) return undefined;
   const minor = match[1] == null ? 0 : Number(match[1]);
@@ -193,20 +195,26 @@ export function anthropicThinkingMode(model) {
 }
 
 /**
- * Fable 5 (and Mythos 5) reject `thinking.type: "disabled"`.
+ * Fable 5, Mythos 5, and Opus 5.5 reject `thinking.type: "disabled"`.
  * @param {string | undefined} model
  * @returns {boolean}
  */
 export function anthropicRejectsDisabledThinking(model) {
   const parsed = parseAnthropicModel(model);
-  return Boolean(parsed && parsed.family === "fable" && parsed.major >= 5);
+  return Boolean(
+    parsed &&
+      ((parsed.family === "fable" && parsed.major >= 5) ||
+        (parsed.family === "opus" &&
+          parsed.major >= 5 &&
+          (parsed.major > 5 || parsed.minor >= 5)))
+  );
 }
 
 /**
  * Anthropic Messages API: adaptive thinking + `output_config.effort` on
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
- * Claude 4.5 and earlier. Fable 5 cannot disable thinking — IPA `"none"`
- * omits the field rather than 400.
+ * Claude 4.5 and earlier. Fable 5 and Opus 5.5 cannot disable thinking —
+ * IPA `"none"` omits the field rather than 400.
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]

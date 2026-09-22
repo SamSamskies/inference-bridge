@@ -1,7 +1,7 @@
 /**
  * OpenAI Responses API streaming path.
  * Used when hosted `{ type: "web_search" }` is present and/or `output.images`
- * is set, or the model requires Responses for function tools (GPT-6 Astra).
+ * is set, or the model requires Responses for function tools (GPT-6 models).
  * Other function-tool-only requests stay on Chat Completions.
  * `output.images` maps internally to `{ type: "image_generation" }` — not a
  * page-facing IPA tool.
