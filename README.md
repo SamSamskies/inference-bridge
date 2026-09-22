@@ -260,10 +260,10 @@ if (features.options?.temperature) {
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` on gpt-5.1+; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on gpt-6; omit on gpt-4.x | `thinking: { type: "disabled" }` (omit on Fable 5 / Fable 5.1 — cannot disable) | `think: false` |
-| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | `think: "low"` / `"medium"` / `"high"` |
+| `"none"` | `reasoning_effort: "none"` on gpt-5.1+ and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra; omit on gpt-4.x | `thinking: { type: "disabled" }` (omit on Fable 5 / Fable 5.1 / Opus 5.5 — cannot disable) | `think: false` |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | `think: "low"` / `"medium"` / `"high"` |
 
-Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. OpenAI maps IPA `"none"` from the model id (gpt-5.1+ → `none`; earlier gpt-5 → `minimal`; gpt-6 → `low`). Anthropic maps from the model id too (Claude 4.6+ adaptive; Claude 4.5 extended budgets; Fable 5 / Fable 5.1 cannot disable thinking). A 400 that lists supported values is retried once with the next-lowest effort (or with the field omitted if the list cannot be parsed). Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
+Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot adjust thinking. OpenAI maps IPA `"none"` from the model id (gpt-5.1+ and GPT-6 Sol/Luna → `none`; earlier gpt-5 → `minimal`; GPT-6 Astra → `low`). Anthropic maps from the model id too (Claude 4.6+ and Opus 5.5 adaptive; Claude 4.5 extended budgets; Fable 5 / Fable 5.1 and Opus 5.5 cannot disable thinking). A 400 that lists supported values is retried once with the next-lowest effort (or with the field omitted if the list cannot be parsed). Invalid enum values are `invalid_request`. Unknown keys under `options` are ignored. This preference is distinct from streaming `reasoning_delta` / `message.reasoning` (optional outputs).
 
 ### `temperature`
 
@@ -301,7 +301,7 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 
 | Provider | Hosted `{ type: "web_search" }` |
 | --- | --- |
-| OpenAI | Responses API (`/v1/responses`) when `web_search` is present, or for GPT-6 Astra function tools; other function-tool-only stays on Chat Completions |
+| OpenAI | Responses API (`/v1/responses`) when `web_search` is present, or for GPT-6 function tools; other function-tool-only stays on Chat Completions |
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
@@ -710,7 +710,7 @@ Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenA
 - Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
 - OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
 - OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
-- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
+- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 / GPT-6 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
 - OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
 - Chat Always-allow does not cover image input or image output. Approval lists them separately.
 
@@ -741,7 +741,7 @@ for await (const chunk of window.inference.request({
 }
 ```
 
-Generate an image (OpenAI GPT-4o / GPT-5 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
+Generate an image (OpenAI GPT-4o / GPT-5 / GPT-6 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
 
 ```js
 for await (const chunk of window.inference.request({

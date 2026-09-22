@@ -22,6 +22,7 @@ export const ANTHROPIC_DEFAULT_MAX_TOKENS = 8192;
 export const ANTHROPIC_MODELS = Object.freeze([
   "claude-fable-5-1",
   "claude-fable-5",
+  "claude-opus-5-5",
   "claude-opus-5",
   "claude-opus-4-8",
   "claude-opus-4-7",

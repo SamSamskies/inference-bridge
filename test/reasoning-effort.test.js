@@ -32,6 +32,12 @@ describe("mapReasoningEffortForOpenAICompat", () => {
     expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-astra")).toBe(
       "low"
     );
+    expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-sol")).toBe(
+      "none"
+    );
+    expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-luna")).toBe(
+      "none"
+    );
     expect(mapReasoningEffortForOpenAICompat("none", "openai/gpt-6-astra")).toBe(
       "low"
     );
@@ -60,6 +66,9 @@ describe("mapReasoningEffortForAnthropic", () => {
     });
     expect(
       mapReasoningEffortForAnthropic("none", "claude-fable-5")
+    ).toBeUndefined();
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-opus-5-5")
     ).toBeUndefined();
   });
 
