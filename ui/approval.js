@@ -36,6 +36,12 @@ const requestId = params.get("requestId");
 const APPROVAL_KEEPALIVE_MS = 20_000;
 try {
   const keepAlivePort = chrome.runtime.connect({ name: "ipa-approval" });
+  keepAlivePort.onDisconnect.addListener(() => {
+    // Firefox event pages can unload while an approval is open. Their
+    // in-memory request is then gone; close this orphaned popup. The page
+    // relay rebinds and settles its iterator as aborted/unavailable.
+    window.close();
+  });
   const ping = () => {
     try {
       keepAlivePort.postMessage({ type: "ping" });
@@ -1255,4 +1261,6 @@ rememberInput.addEventListener("change", updateRememberHint);
 allowBtn.addEventListener("click", () => decide("allow"));
 denyBtn.addEventListener("click", () => decide("deny"));
 
-void load();
+void load().catch((error) => {
+  showError(error instanceof Error ? error.message : "Permission request unavailable.");
+});

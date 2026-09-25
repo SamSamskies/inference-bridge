@@ -11,6 +11,7 @@
 export function installChromeMock() {
   /** @type {Map<string, unknown>} */
   const store = new Map();
+  let manifest = {};
 
   /** @type {Set<(changes: object, areaName: string) => void>} */
   const storageChangedListeners = new Set();
@@ -75,6 +76,7 @@ export function installChromeMock() {
     runtime: {
       lastError: undefined,
       getURL: (path) => `chrome-extension://test-id/${path}`,
+      getManifest: () => manifest,
     },
     windows: {
       create: (opts, cb) => {
@@ -99,8 +101,12 @@ export function installChromeMock() {
 
   return {
     store,
+    setManifest(value) {
+      manifest = value;
+    },
     reset() {
       store.clear();
+      manifest = {};
       chrome.runtime.lastError = undefined;
     },
   };

@@ -55,6 +55,8 @@ import {
   canAcceptStartedAck,
   decidePortDisconnect,
 } from "../src/stream-rebind.js";
+import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { hasBuiltInHostPermission } from "../src/host-permissions.js";
 
 // Drop chrome-extension Origin so local Ollama does not 403 chat requests.
 // Provider calls await their own retry; this eager attempt must not create an
@@ -62,6 +64,14 @@ import {
 void ensureOllamaOriginBypass().catch(() => {});
 
 chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
+chrome.permissions.onRemoved.addListener(() => {
+  // A user can revoke host access while Firefox is waiting for approval or
+  // streaming. Abort in-flight work; the next request re-checks its host.
+  if (!isFirefoxBuild()) return;
+  for (const id of activeStreams.keys()) {
+    abortStream(id, "Host access was revoked. Restore it in Firefox add-on settings.");
+  }
+});
 
 /** @typedef {"awaiting_permission" | "streaming"} StreamPhase */
 
@@ -214,6 +224,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-status") {
+    if (isFirefoxBuild()) {
+      sendResponse({ ok: false, availability: "missing", error: "On-device AI is unavailable in Firefox." });
+      return false;
+    }
     void getOnDeviceAvailability()
       .then((availability) => {
         sendResponse({ ok: true, availability });
@@ -229,6 +243,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-install") {
+    if (isFirefoxBuild()) {
+      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+      return false;
+    }
     void installOnDeviceModel({})
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
@@ -242,6 +260,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-cancel-install") {
+    if (isFirefoxBuild()) {
+      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+      return false;
+    }
     void cancelOnDeviceInstall()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: true }));
@@ -350,6 +372,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             error: {
               code: "invalid_request",
               message: `Unknown provider: ${providerId}`,
+            },
+          });
+          return;
+        }
+
+        if (!(await hasBuiltInHostPermission(provider.id))) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: "unavailable",
+              message: `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`,
             },
           });
           return;
@@ -760,6 +793,9 @@ async function handleSpeechStart({
   controller,
 }) {
   let settings = await getSettings();
+  if (isFirefoxBuild()) {
+    throw inferenceError("unavailable", "Experimental speech is not available in the Firefox build.");
+  }
   if (!settings.experimentalSpeechEnabled) {
     throw inferenceError(
       "invalid_request",
@@ -1147,6 +1183,13 @@ async function handleStart(port, msg, onStreamId) {
       throwInference(
         "unavailable",
         `${provider.label} API key not configured. Open the Inference Bridge options to add your key.`
+      );
+    }
+
+    if (!(await hasBuiltInHostPermission(provider.id))) {
+      throwInference(
+        "unavailable",
+        `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
       );
     }
 

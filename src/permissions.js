@@ -22,6 +22,7 @@ import {
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
+import { isFirefoxBuild } from "./runtime-browser.js";
 import {
   blocksAllowForImages,
   isImageGrantCovered,
@@ -658,7 +659,20 @@ export async function ensurePermission(args) {
       settings.defaultProviderId ||
       defaultProvider.id
   );
-  const provider = (await getProviderAsync(providerId)) || defaultProvider;
+  // A saved provider may be absent in this browser (notably Chrome's
+  // On-device provider on Firefox). Never substitute the remote default.
+  const selectedProvider = await getProviderAsync(providerId);
+  if (!selectedProvider && isFirefoxBuild()) {
+    return {
+      allowed: false,
+      providerId,
+      model: "",
+      once: false,
+      code: "unavailable",
+      message: `Provider "${providerId}" is unavailable in this browser. Choose an available provider in Inference Bridge Options.`,
+    };
+  }
+  const provider = selectedProvider || defaultProvider;
   // Prefer the per-provider remembered default from defaultModels.
   const remembered =
     typeof settings.defaultModels?.[provider.id] === "string"
@@ -713,6 +727,16 @@ export async function ensurePermission(args) {
     // Fall back to the grant provider's default — not settings.defaultModel,
     // which may belong to a different provider.
     const grantProvider = await getProviderAsync(grantProviderId);
+    if (!grantProvider && isFirefoxBuild()) {
+      return {
+        allowed: false,
+        providerId: grantProviderId,
+        model: existing.model || "",
+        once: false,
+        code: "unavailable",
+        message: `Saved provider "${grantProviderId}" is unavailable in this browser. Update this site's grant in Inference Bridge Options.`,
+      };
+    }
     const grantFallbackModel = grantProvider?.defaultModel || "";
     const grantModel = existing.model || grantFallbackModel;
 

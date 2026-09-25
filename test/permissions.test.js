@@ -247,6 +247,30 @@ async function waitForPending(requestId) {
 }
 
 describe("ensurePermission", () => {
+  it("fails closed for a stale Firefox On-device default", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    await saveSettings({ defaultProviderId: "on-device", defaultModel: "on-device" });
+    const result = await ensurePermission({
+      requestId: "firefox-on-device-default",
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
+    expect(getPendingApproval("firefox-on-device-default")).toBeNull();
+  });
+
+  it("fails closed for a stale Firefox On-device origin grant", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    await grantOriginAlways("https://app.example", { providerId: "on-device", model: "on-device" });
+    const result = await ensurePermission({
+      requestId: "firefox-on-device-grant",
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
+    expect(getPendingApproval("firefox-on-device-grant")).toBeNull();
+  });
+
   it("denies blocked origins without prompting", async () => {
     await blockOrigin("https://blocked.example");
 

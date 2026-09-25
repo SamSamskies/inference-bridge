@@ -9,6 +9,7 @@ import { openrouterProvider } from "./openrouter.js";
 import { onDeviceProvider } from "./on-device.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
 import { getSettings } from "../storage.js";
+import { isFirefoxBuild } from "../runtime-browser.js";
 import {
   SYNTHESIS_OUTPUT_MEDIA_TYPE,
   normalizeTranscriptionMediaType,
@@ -33,7 +34,9 @@ const providers = new Map([
  * @returns {Provider[]}
  */
 export function listProviders() {
-  return [...providers.values()];
+  return [...providers.values()].filter(
+    (provider) => provider.id !== "on-device" || !isFirefoxBuild()
+  );
 }
 
 /**
@@ -41,6 +44,7 @@ export function listProviders() {
  * @returns {Provider | undefined}
  */
 export function getProvider(id) {
+  if (id === "on-device" && isFirefoxBuild()) return undefined;
   return providers.get(id);
 }
 

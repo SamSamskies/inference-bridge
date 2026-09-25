@@ -1,7 +1,28 @@
 /**
  * Optional host-permission helpers for user-configured OpenAI-compatible
- * endpoints (Option A: request exact origin on save).
+ * endpoints. Firefox match patterns are host-scoped because ports are invalid
+ * there; fetch URLs still retain and enforce the configured port.
  */
+
+import { isLoopbackHostname } from "./loopback-origin-bypass.js";
+import { isFirefoxBuild } from "./runtime-browser.js";
+
+const FIREFOX_BUILTIN_HOSTS = Object.freeze({
+  openai: "https://api.openai.com/*",
+  anthropic: "https://api.anthropic.com/*",
+  openrouter: "https://openrouter.ai/*",
+  ollama: "http://localhost/*",
+  "ollama-web-search": "https://ollama.com/*",
+});
+
+/** Firefox users can revoke install-time host grants in about:addons. */
+export async function hasBuiltInHostPermission(providerId) {
+  if (!isFirefoxBuild()) return true;
+  const pattern = FIREFOX_BUILTIN_HOSTS[providerId];
+  if (!pattern) return true;
+  if (!chrome.permissions?.contains) return false;
+  return chrome.permissions.contains({ origins: [pattern] });
+}
 
 /**
  * Normalize a user-entered OpenAI-compatible base URL.
@@ -44,9 +65,10 @@ export function normalizeCompatBaseUrl(input) {
 /**
  * Match pattern for chrome.permissions.request / contains.
  * @param {string} baseUrl
+ * @param {{ firefox?: boolean }} [options]
  * @returns {string | null}
  */
-export function originPatternFromBaseUrl(baseUrl) {
+export function originPatternFromBaseUrl(baseUrl, options = {}) {
   if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
   let url;
   try {
@@ -56,7 +78,11 @@ export function originPatternFromBaseUrl(baseUrl) {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.hostname) return null;
-  return `${url.protocol}//${url.host}/*`;
+  const firefox = options.firefox ?? isFirefoxBuild();
+  if (firefox && url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
+    return null;
+  }
+  return `${url.protocol}//${firefox ? url.hostname : url.host}/*`;
 }
 
 /**

@@ -34,6 +34,13 @@ describe("provider registry", () => {
     expect(getProvider("missing")).toBeUndefined();
   });
 
+  it("omits the Chrome On-device provider from Firefox", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    expect(listProviders().map((provider) => provider.id)).not.toContain("on-device");
+    expect(getProvider("on-device")).toBeUndefined();
+    expect(await getProviderAsync("on-device")).toBeUndefined();
+  });
+
   it("merges saved compat endpoints into listAllProviders", async () => {
     await saveCompatEndpoints([
       {

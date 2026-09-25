@@ -15,6 +15,7 @@ import {
 } from "../src/storage.js";
 import {
   normalizeCompatBaseUrl,
+  originPatternFromBaseUrl,
   requestHostPermissionForBaseUrl,
 } from "../src/host-permissions.js";
 import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
@@ -31,6 +32,7 @@ import {
   installLanguageModel,
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
+import { isFirefoxBuild } from "../src/runtime-browser.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -115,29 +117,31 @@ function activateSettingsTab(tab, opts = {}) {
 function tabForCurrentHash() {
   const panelId = location.hash.slice(1);
   return settingsTabs.find(
-    (tab) => tab.getAttribute("aria-controls") === panelId,
+    (tab) => !tab.hidden && tab.getAttribute("aria-controls") === panelId,
   );
 }
 
-for (const [index, tab] of settingsTabs.entries()) {
+for (const tab of settingsTabs) {
   tab.addEventListener("click", () => {
     activateSettingsTab(tab, { updateHash: true });
   });
   tab.addEventListener("keydown", (event) => {
+    const availableTabs = settingsTabs.filter((candidate) => !candidate.hidden);
+    const index = availableTabs.indexOf(tab);
     let nextIndex;
     if (event.key === "ArrowRight") {
-      nextIndex = (index + 1) % settingsTabs.length;
+      nextIndex = (index + 1) % availableTabs.length;
     } else if (event.key === "ArrowLeft") {
-      nextIndex = (index - 1 + settingsTabs.length) % settingsTabs.length;
+      nextIndex = (index - 1 + availableTabs.length) % availableTabs.length;
     } else if (event.key === "Home") {
       nextIndex = 0;
     } else if (event.key === "End") {
-      nextIndex = settingsTabs.length - 1;
+      nextIndex = availableTabs.length - 1;
     } else {
       return;
     }
     event.preventDefault();
-    activateSettingsTab(settingsTabs[nextIndex], {
+    activateSettingsTab(availableTabs[nextIndex], {
       focus: true,
       updateHash: true,
     });
@@ -319,6 +323,7 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
+        response?.error?.message ||
         "Ollama is unavailable at http://localhost:11434, so this option is disabled. Install and start Ollama, then click Check again.",
     };
     modelCache.delete("ollama");
@@ -351,6 +356,7 @@ async function refreshOllamaStatus() {
  * @returns {boolean}
  */
 function isOnDeviceOffered() {
+  if (isFirefoxBuild()) return false;
   return (
     onDeviceStatus.availability !== "missing" &&
     onDeviceStatus.availability !== "unavailable"
@@ -371,6 +377,10 @@ function isOnDeviceReady() {
  * (downloadable / downloading) because create() needs a user gesture here.
  */
 async function refreshOnDeviceStatus() {
+  if (isFirefoxBuild()) {
+    onDeviceStatus = { availability: "missing", message: "" };
+    return onDeviceStatus;
+  }
   const local = await probeLanguageModelAvailability();
 
   /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */
@@ -1859,11 +1869,16 @@ compatSaveButton.addEventListener("click", async () => {
       );
       return;
     }
+    if (isFirefoxBuild() && new URL(baseUrl).protocol === "http:" &&
+        !originPatternFromBaseUrl(baseUrl)) {
+      setCompatStatus("Firefox requires HTTPS for non-loopback servers. Use HTTPS or a localhost/127.0.0.1/[::1] address.", "err");
+      return;
+    }
 
     const granted = await requestHostPermissionForBaseUrl(baseUrl);
     if (!granted) {
       setCompatStatus(
-        "Host permission was not granted. Chrome must allow access to this origin before the endpoint can be saved.",
+        "Host permission was not granted. Allow access to this server before saving it.",
         "err",
       );
       return;
@@ -1918,8 +1933,19 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
+  if (isFirefoxBuild()) {
+    const speechTab = document.getElementById("speech-tab");
+    speechTab.hidden = true;
+    speechTab.disabled = true;
+    document.getElementById("speech").hidden = true;
+    if (speechTab.getAttribute("aria-selected") === "true") {
+      activateSettingsTab(document.getElementById("providers-tab"), {
+        updateHash: true,
+      });
+    }
+  }
   experimentalSpeechEnabledInput.checked =
-    settings.experimentalSpeechEnabled === true;
+    !isFirefoxBuild() && settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
   savedDefaultProviderId = settings.defaultProviderId;
   modelDrafts = { ...settings.defaultModels };
@@ -1953,10 +1979,10 @@ async function load() {
     effectiveProvider,
     preferredDefaultModel(effectiveProvider),
   );
-  await loadSpeechDefaultControls(settings);
+  if (!isFirefoxBuild()) await loadSpeechDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
-  await renderSpeechOrigins();
+  if (!isFirefoxBuild()) await renderSpeechOrigins();
   await renderBlocked();
 }
 
@@ -2126,4 +2152,6 @@ saveButton.addEventListener("click", async () => {
   }
 });
 
-void load();
+void load().catch((error) => {
+  setStatus(error instanceof Error ? error.message : "Failed to load settings.", "err");
+});
