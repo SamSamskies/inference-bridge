@@ -21,7 +21,10 @@ import {
   isSpeechOperation,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
-import { hasHostPermissionForBaseUrl } from "./host-permissions.js";
+import {
+  hasBuiltInHostPermission,
+  hasHostPermissionForBaseUrl,
+} from "./host-permissions.js";
 import { isFirefoxBuild } from "./runtime-browser.js";
 import {
   blocksAllowForImages,
@@ -371,14 +374,17 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
 }
 
 /**
- * Compat endpoints need optional host access. Built-ins are always ok here.
+ * Optional host access required before Always-allow / Allow-once can proceed.
+ * Compat endpoints need a user-granted origin pattern; Firefox built-ins need
+ * their install-time host (revocable in about:addons).
  * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
  * @returns {Promise<boolean>}
  */
-async function hasCompatHostAccess(provider) {
+async function hasProviderHostAccess(provider) {
   // Fail closed when the provider is missing (e.g. deleted compat endpoint
-  // between grant read and resolve). Built-ins still short-circuit to true.
+  // between grant read and resolve).
   if (!provider?.id) return false;
+  if (!(await hasBuiltInHostPermission(provider.id))) return false;
   if (!isCompatProviderId(provider.id)) return true;
   const baseUrl = provider.baseUrl;
   return (
@@ -402,7 +408,7 @@ async function hasCompatHostAccess(provider) {
  * @param {ToolChoice | undefined} [toolChoice]
  */
 async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
-  if (!(await hasCompatHostAccess(provider))) return false;
+  if (!(await hasProviderHostAccess(provider))) return false;
   const raw = provider?.id ? apiKeys[provider.id] : undefined;
   return !blocksAllowForRequestTools(
     {
@@ -874,7 +880,7 @@ export async function ensurePermission(args) {
   const chosenProviderId = normalizeProviderId(
     decision.providerId || promptProviderId
   );
-  // Do not fall back to the pre-prompt provider: hasCompatHostAccess would
+  // Do not fall back to the pre-prompt provider: hasProviderHostAccess would
   // then check the wrong object while we still return chosenProviderId
   // (e.g. a deleted compat:* selection passing via a built-in fallback).
   const chosenProvider = await getProviderAsync(chosenProviderId);
@@ -897,9 +903,10 @@ export async function ensurePermission(args) {
   switch (decision.decision) {
     case "allow_once":
     case "always": {
-      // Same host gate as persistent grants: approving a compat provider
-      // without optional host access would only fail later in ensureReady.
-      // Do not report these as permission_denied — Allow already succeeded.
+      // Same host gate as persistent grants: approving without optional host
+      // access (compat origin or Firefox built-in) would only fail later when
+      // streaming. Do not report these as permission_denied — Allow already
+      // succeeded — and never write Always-allow while host access is missing.
       if (!chosenProvider) {
         return {
           allowed: false,
@@ -910,15 +917,18 @@ export async function ensurePermission(args) {
           message: `Unknown provider "${chosenProviderId}". Open the Inference Bridge options and update this site's grant.`,
         };
       }
-      if (!(await hasCompatHostAccess(chosenProvider))) {
+      if (!(await hasProviderHostAccess(chosenProvider))) {
         const label = chosenProvider.label || chosenProviderId;
+        const message = isCompatProviderId(chosenProviderId)
+          ? `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`
+          : `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
         return {
           allowed: false,
           providerId: chosenProviderId,
           model: chosenModel,
           once: false,
           code: "unavailable",
-          message: `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`,
+          message,
         };
       }
       if (decision.decision === "always") {

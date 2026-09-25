@@ -473,6 +473,69 @@ describe("ensurePermission", () => {
     });
   });
 
+  it("re-prompts when a built-in grant exists but Firefox host was revoked", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://builtin-grant.example", {
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2builtin-revoked",
+      origin: "https://builtin-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2builtin-revoked");
+
+    expect(getPendingApproval("r2builtin-revoked")).toMatchObject({
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    resolveApproval("r2builtin-revoked", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("denies always for built-in when Firefox host permission is still missing", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+
+    const pending = ensurePermission({
+      requestId: "r2builtin-approve-no-host",
+      origin: "https://builtin-approve.example",
+      messages: [{ role: "user", content: "hi" }],
+      preferredProviderId: "openai",
+      preferredModel: "gpt-4o",
+    });
+    await waitForPending("r2builtin-approve-no-host");
+
+    resolveApproval("r2builtin-approve-no-host", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "openai",
+      model: "gpt-4o",
+      once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/revoked|Firefox add-on/i),
+    });
+    expect(await getOriginGrant("https://builtin-approve.example")).toBeNull();
+  });
+
   it("denies approval when the chosen compat provider no longer resolves", async () => {
     const { saveCompatEndpoints } = await import("../src/storage.js");
     const registry = await import("../src/providers/registry.js");
