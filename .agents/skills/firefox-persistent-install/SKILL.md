@@ -47,6 +47,7 @@ Use this workflow when a user needs to test a Firefox extension that stays insta
 - `npm run dev:firefox`: fast temporary development install; it packages `build/firefox/`, launches `web-ext run`, and uses a temporary profile. It is not a persistence or install-prompt test.
 - Signed `.xpi` from AMO: persistent install in a regular Firefox profile; use this to verify settings and grants after a full browser restart.
 - A signed self-distribution install is not a public AMO listing. Public distribution follows the separate listed submission/review path.
+- To ship a public Firefox release on AMO, follow [ship-firefox-release](../ship-firefox-release/SKILL.md).
 
 ## Project references
 
