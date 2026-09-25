@@ -45,6 +45,8 @@ describe("browser packages", () => {
         expect(manifest.background).toEqual({ scripts: ["background/service-worker.js"], type: "module" });
         expect(manifest.host_permissions).toContain("http://localhost/*");
         expect(manifest.host_permissions).not.toContain("http://localhost:11434/*");
+        expect(manifest.optional_host_permissions).toContain("http://[::1]/*");
+        expect(manifest.optional_host_permissions).not.toContain("http://*/*");
         expect(manifest.browser_specific_settings.gecko.strict_min_version).toBe("140.0");
         expect(manifest.browser_specific_settings.gecko.data_collection_permissions.required).not.toContain("none");
         expect(manifest.browser_specific_settings.gecko_android).toBeUndefined();

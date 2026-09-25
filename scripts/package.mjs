@@ -44,6 +44,12 @@ function firefoxManifest() {
   manifest.host_permissions = manifest.host_permissions.map((pattern) =>
     pattern.replace(/^(https?:\/\/[^/:]+):\d+(\/.*)$/, "$1$2")
   );
+  manifest.optional_host_permissions = [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://[::1]/*",
+    "https://*/*",
+  ];
   manifest.background = {
     scripts: ["background/service-worker.js"],
     type: "module",

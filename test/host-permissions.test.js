@@ -84,6 +84,9 @@ describe("originPatternFromBaseUrl", () => {
     expect(originPatternFromBaseUrl("http://localhost:8080/v1", firefox)).toBe(
       "http://localhost/*"
     );
+    expect(originPatternFromBaseUrl("http://[::1]:8080/v1", firefox)).toBe(
+      "http://[::1]/*"
+    );
     expect(originPatternFromBaseUrl("https://llm.example.com:8443/v1", firefox)).toBe(
       "https://llm.example.com/*"
     );

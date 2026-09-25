@@ -55,7 +55,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog, Chat Completions API, and separately approved experimental transcription or speech-synthesis endpoints |
 | `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
 | Chrome: `http://localhost:11434/*`, `http://127.0.0.1:11434/*`; Firefox: portless `http://localhost/*`, `http://127.0.0.1/*` | Call local Ollama on port 11434. Firefox match patterns cannot include a port; request URLs still use only port 11434. |
-| Optional `http://*/*`, `https://*/*` | Not granted at install. When the user adds an OpenAI-compatible server, the browser prompts for that server host. Firefox permissions are host-scoped across ports; requests still use only the saved URL and port. |
+| Optional hosts | When the user adds an OpenAI-compatible server, the browser prompts for that server host. Chrome declares `http://*/*` and `https://*/*`; Firefox declares only loopback HTTP hosts and `https://*/*`. Firefox permissions are host-scoped across ports; requests still use only the saved URL and port. |
 
 Content scripts inject `window.inference` into top-level HTTP(S) pages so web apps can request inference. Injection is limited to secure contexts (`https:` or loopback `http:`).
 
