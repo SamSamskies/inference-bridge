@@ -643,8 +643,8 @@ function updateApiKeyField(providerId) {
 function updateProviderChrome(providerId) {
   updateApiKeyField(providerId);
 
-  // Only surface Ollama help + Check again when the option is disabled.
-  const showOllamaStatus = !ollamaStatus.available;
+  // Keep Ollama-specific access and availability guidance with Ollama itself.
+  const showOllamaStatus = providerId === "ollama" && !ollamaStatus.available;
   ollamaStatusRow.hidden = !showOllamaStatus;
   checkOllamaButton.hidden = !showOllamaStatus;
   if (showOllamaStatus) {
