@@ -1418,6 +1418,18 @@ async function renderOrigins() {
       if (providerId === persistedProviderId && model === persistedModel) {
         return true;
       }
+      // Same gate as default-provider Save: do not write site grants for a
+      // provider whose optional host access was revoked (Firefox built-in or
+      // compat endpoint). Provider change and model edits both go through here.
+      if (providersWithRevokedHostAccess.has(providerId)) {
+        setSiteAccessStatus(
+          providerAccessError(providerId) ||
+            "Provider host access was revoked.",
+          "err",
+        );
+        await renderOrigins();
+        return false;
+      }
       const ok = await setOriginProviderModel(grant.origin, {
         providerId,
         model,
