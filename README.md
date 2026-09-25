@@ -832,8 +832,9 @@ npm run package
 - [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions
 - [ ] OpenRouter router models (e.g. `openrouter/free`) work; `done.model` may report the underlying model
 - [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
-- [ ] Ollama unavailable / no models → provider option disabled with help text (Options + approval)
-- [ ] Ollama Check again enables the option after Ollama is running with models
+- [ ] Ollama unavailable / no models → “(unavailable)” label and help text; Options keeps it selectable to inspect the hint and blocks Save, while approval keeps it selectable but disables Allow
+- [ ] Firefox: revoked built-in or custom-server host access shows “(unavailable)” while remaining selectable; selecting it shows the reason, and Save is blocked until access is restored
+- [ ] Refreshing Firefox Options rechecks provider host access and Ollama availability
 - [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
 - [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
 - [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
