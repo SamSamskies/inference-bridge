@@ -254,13 +254,33 @@
       >
         <header class="settings-section-heading">
           <h2 id="speech-heading">Speech</h2>
-          <p class="hint">
+          <p class="hint" id="speechDescription">
             Configure the experimental speech capability and its defaults.
           </p>
         </header>
 
         <section
           class="panel stack"
+          id="firefoxSpeechNotice"
+          aria-labelledby="firefox-speech-heading"
+          hidden
+        >
+          <h3 id="firefox-speech-heading">Not available in Firefox yet</h3>
+          <p class="hint">
+            Experimental transcription and speech synthesis are not available
+            in this Firefox build. To use speech now, open the
+            <a
+              href="https://chromewebstore.google.com/detail/inference-bridge/ekjldffogogadhfhgkibgkfdhhikfamd"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Inference Bridge Chrome Web Store listing</a>
+            in Chrome and enable Experimental speech in Options.
+          </p>
+        </section>
+
+        <section
+          class="panel stack"
+          id="speechSettings"
           aria-labelledby="experimental-speech-heading"
         >
           <h3 id="experimental-speech-heading">Experimental speech</h3>
