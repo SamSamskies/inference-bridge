@@ -55,7 +55,7 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 
 ## Manual acceptance before listed submission
 
-- [ ] Install the exact staged artifact in Firefox 140+ and verify `window.inference` appears at `document_start` only on eligible top-level pages.
+- [ ] Install the exact staged artifact in the current Firefox desktop release and verify `window.inference` appears at `document_start` only on eligible top-level pages. Older versions down to the declared minimum are not part of pre-release QA; address compatibility reports as they arise.
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
 - [ ] Test OpenAI, Anthropic, OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
 - [ ] Revoke built-in and custom host grants in `about:addons`; affected calls fail with a clear error and never switch providers.
