@@ -6,9 +6,14 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs chrome",
+    "package:firefox": "node scripts/package.mjs firefox",
+    "dev:firefox": "npm run package:firefox && web-ext run --source-dir build/firefox --target firefox-desktop",
+    "package:all": "node scripts/package.mjs all",
+    "lint:firefox": "npm run package:firefox && node scripts/lint-firefox.mjs"
   },
   "devDependencies": {
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "web-ext": "^10.7.0"
   }
 }

@@ -79,6 +79,18 @@ describe("mapToolsForOllama", () => {
 });
 
 describe("hosted search helpers", () => {
+  it("fails clearly when Firefox ollama.com access is revoked", async () => {
+    vi.stubGlobal("chrome", {
+      runtime: { getManifest: () => ({ browser_specific_settings: { gecko: {} } }) },
+      permissions: { contains: vi.fn(async () => false) },
+    });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await expect(executeOllamaWebSearch({ apiKey: "key", query: "weather" }))
+      .rejects.toMatchObject({ code: "unavailable", message: expect.stringContaining("ollama.com") });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("detects API keys and hosted tool names", () => {
     expect(hasOllamaWebSearchApiKey(undefined)).toBe(false);
     expect(hasOllamaWebSearchApiKey("  ")).toBe(false);

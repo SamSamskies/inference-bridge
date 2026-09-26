@@ -77,6 +77,10 @@ label,
   line-height: 1.35;
 }
 
+.hint.error {
+  color: var(--danger);
+}
+
 a {
   color: var(--accent);
 }

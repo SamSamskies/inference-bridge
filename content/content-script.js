@@ -11,6 +11,11 @@
   const REBIND_TIMEOUT_MS = 3000;
   /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
   const KEEP_ALIVE_MS = 20_000;
+  /** Firefox event-page state cannot be recovered after an unload. */
+  const FIREFOX_REBIND_LIMIT_MS = 12_000;
+  const isFirefox = Boolean(
+    chrome.runtime.getManifest?.().browser_specific_settings?.gecko
+  );
 
   /** @type {Map<string, chrome.runtime.Port>} */
   const ports = new Map();
@@ -21,7 +26,7 @@
     try {
       bridgePort.postMessage({
         type: "feature-state",
-        experimentalSpeechEnabled: enabled === true,
+        experimentalSpeechEnabled: !isFirefox && enabled === true,
       });
     } catch {
       // ignore — page may have navigated away
@@ -149,6 +154,7 @@
     let gotOutcome = false;
     let cleanedUp = false;
     let rebindAttempted = false;
+    let rebindStartedAt = 0;
     /** Bumps on each new port so stale disconnect/message handlers no-op. */
     let portEpoch = 0;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -210,6 +216,7 @@
           // Allow another rebind if the port drops again while still awaiting
           // permission (or before the first chunk/error arrives).
           rebindAttempted = false;
+          rebindStartedAt = 0;
           ports.set(streamId, nextPort);
           return;
         }
@@ -330,6 +337,10 @@
      * @returns {boolean} true if a rebind attempt was started
      */
     function attemptRebind() {
+      if (!rebindStartedAt) rebindStartedAt = Date.now();
+      if (isFirefox && Date.now() - rebindStartedAt >= FIREFOX_REBIND_LIMIT_MS) {
+        return false;
+      }
       rebindAttempted = true;
       if (rebindTimer != null) {
         clearTimeout(rebindTimer);
@@ -362,8 +373,9 @@
         // ignore
       }
 
-      // Do not abort on timeout — approval may still be open. Retry until
-      // rebind-ok, rebind-fail, or a terminal stream outcome.
+      // Chrome keeps retrying while approval may still be open. Firefox gives
+      // up after the bounded window because an unloaded event page has lost
+      // the stream and its approval state.
       rebindTimer = setTimeout(() => {
         rebindTimer = null;
         if (cleanedUp || gotOutcome || epoch !== portEpoch) return;

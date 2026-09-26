@@ -16,10 +16,33 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run package
-      - name: Upload extension ZIP
+      - run: npm run package:all
+      - run: npm run lint:firefox
+      - name: Record reviewer build environment
+        run: |
+          {
+            node --version
+            npm --version
+            zip -v | head -2
+            uname -srm
+          } > dist/firefox-build-info.txt
+      - name: Archive reviewer source
+        run: git archive --format=zip --add-file=dist/firefox-build-info.txt --output "dist/inference-bridge-firefox-source-${GITHUB_REF_NAME}.zip" HEAD
+      - name: Upload Chrome ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: inference-bridge-zip
-          path: dist/inference-bridge-*.zip
+          name: inference-bridge-chrome-zip
+          path: dist/inference-bridge-[0-9]*.zip
+          if-no-files-found: error
+      - name: Upload Firefox unsigned ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: inference-bridge-firefox-unsigned-zip
+          path: dist/inference-bridge-firefox-[0-9]*.zip
+          if-no-files-found: error
+      - name: Upload Firefox reviewer source
+        uses: actions/upload-artifact@v4
+        with:
+          name: inference-bridge-firefox-source
+          path: dist/inference-bridge-firefox-source-*.zip
           if-no-files-found: error

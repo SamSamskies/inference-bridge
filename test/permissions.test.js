@@ -247,6 +247,30 @@ async function waitForPending(requestId) {
 }
 
 describe("ensurePermission", () => {
+  it("fails closed for a stale Firefox On-device default", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    await saveSettings({ defaultProviderId: "on-device", defaultModel: "on-device" });
+    const result = await ensurePermission({
+      requestId: "firefox-on-device-default",
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
+    expect(getPendingApproval("firefox-on-device-default")).toBeNull();
+  });
+
+  it("fails closed for a stale Firefox On-device origin grant", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    await grantOriginAlways("https://app.example", { providerId: "on-device", model: "on-device" });
+    const result = await ensurePermission({
+      requestId: "firefox-on-device-grant",
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
+    expect(getPendingApproval("firefox-on-device-grant")).toBeNull();
+  });
+
   it("denies blocked origins without prompting", async () => {
     await blockOrigin("https://blocked.example");
 
@@ -447,6 +471,69 @@ describe("ensurePermission", () => {
       code: "unavailable",
       message: expect.stringMatching(/host permission/i),
     });
+  });
+
+  it("re-prompts when a built-in grant exists but Firefox host was revoked", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+    await grantOriginAlways("https://builtin-grant.example", {
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    const pending = ensurePermission({
+      requestId: "r2builtin-revoked",
+      origin: "https://builtin-grant.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending("r2builtin-revoked");
+
+    expect(getPendingApproval("r2builtin-revoked")).toMatchObject({
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    resolveApproval("r2builtin-revoked", {
+      decision: "deny",
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  });
+
+  it("denies always for built-in when Firefox host permission is still missing", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+    };
+
+    const pending = ensurePermission({
+      requestId: "r2builtin-approve-no-host",
+      origin: "https://builtin-approve.example",
+      messages: [{ role: "user", content: "hi" }],
+      preferredProviderId: "openai",
+      preferredModel: "gpt-4o",
+    });
+    await waitForPending("r2builtin-approve-no-host");
+
+    resolveApproval("r2builtin-approve-no-host", {
+      decision: "always",
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+    await expect(pending).resolves.toEqual({
+      allowed: false,
+      providerId: "openai",
+      model: "gpt-4o",
+      once: false,
+      code: "unavailable",
+      message: expect.stringMatching(/revoked|Firefox add-on/i),
+    });
+    expect(await getOriginGrant("https://builtin-approve.example")).toBeNull();
   });
 
   it("denies approval when the chosen compat provider no longer resolves", async () => {

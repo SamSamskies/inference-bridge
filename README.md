@@ -2,7 +2,7 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Manifest V3 Chrome extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, browser **On-device** Prompt API when available, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
+Inference Bridge is a Manifest V3 browser extension that injects `window.inference`, prompts for per-origin permission, and routes chat requests to a user-chosen provider (**OpenAI**, **Anthropic**, **OpenRouter**, local **Ollama**, Chrome **On-device** Prompt API when available, or user-configured **OpenAI-compatible** servers). API keys stay in the extension. Page scripts never see them.
 
 The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the API contract. This repository implements that contract and may also ship **experimental** capabilities that are not part of the standard yet. Experimental features will be clearly labeled; they do not silently expand the core API.
 
@@ -10,10 +10,10 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - `window.inference.request()` for streaming text chat, function tools, hosted `{ type: "web_search" }`, and images (`ImagePart` / `output.images`)
 - `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `imageInput`, `imageOutput`, `options.reasoningEffort`, `options.temperature`)
-- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()`
+- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()` (Chrome only in the first Firefox preview)
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
-- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and On-device (Prompt API) support
+- OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and Chrome On-device (Prompt API) support
 - Named OpenAI-compatible endpoints (LM Studio, llama.cpp, vLLM, etc.)
 - Function tools on stable `request` (page-executed relay; optional `experimental.runTools` for DevTools demos)
 - Hosted `{ type: "web_search" }` on OpenAI, Anthropic, and OpenRouter (provider-executed) and Ollama (Bridge-executed via ollama.com; OpenAI-compatible / On-device fail closed with Allow disabled / `unavailable`)
@@ -28,7 +28,20 @@ Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/inf
 
 For local development or unreleased builds, use the load-unpacked steps below.
 
-### Development (Load unpacked)
+### Firefox desktop preview
+
+Firefox support is under development for desktop Firefox 140+. There is no AMO listing yet. To try the staged build in a temporary Firefox profile:
+
+```bash
+npm ci
+npm run package:firefox
+npm run lint:firefox
+npx web-ext run --source-dir build/firefox
+```
+
+The Firefox build supports the remote/local chat providers and custom OpenAI-compatible servers. Chrome's On-device Prompt API provider and experimental speech are disabled. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port. See the [Firefox release checklist](docs/firefox-amo.md) for current QA and submission status.
+
+### Chrome development (Load unpacked)
 
 1. Clone this repository
 2. Open `chrome://extensions`
@@ -176,7 +189,8 @@ For app-side helpers (TypeScript types, drain a stream to `done`, page-executed 
 - OpenAI / Anthropic / OpenRouter credentials are read only inside the service worker
 - Ollama traffic stays on `http://localhost:11434` / `http://127.0.0.1:11434`
 - Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
-- Optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
+- Chrome optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
+- Firefox match patterns cannot include ports, so its host permissions cover the saved hostname; provider requests still use the saved URL and port
 
 If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in the [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js) / [`src/loopback-origin-bypass.js`](src/loopback-origin-bypass.js). Keep host permissions and DNR rules tight; do not apply header stripping to remote APIs.
 
@@ -818,8 +832,9 @@ npm run package
 - [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions
 - [ ] OpenRouter router models (e.g. `openrouter/free`) work; `done.model` may report the underlying model
 - [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
-- [ ] Ollama unavailable / no models → provider option disabled with help text (Options + approval)
-- [ ] Ollama Check again enables the option after Ollama is running with models
+- [ ] Ollama unavailable / no models → “(unavailable)” label and help text; Options keeps it selectable to inspect the hint and blocks Save, while approval keeps it selectable but disables Allow
+- [ ] Firefox: revoked built-in or custom-server host access shows “(unavailable)” while remaining selectable; selecting it shows the reason, and Save is blocked until access is restored
+- [ ] Refreshing Firefox Options rechecks provider host access and Ollama availability
 - [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
 - [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
 - [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
@@ -880,6 +895,7 @@ Issues and pull requests are welcome.
 Shared agent instructions live in **[AGENTS.md](./AGENTS.md)** (build commands, layout, IPA alignment, browser-first sample code). Reusable workflows are under **[`.agents/skills/`](./.agents/skills/)** (for example `ship-chrome-release`). Cursor-specific glob rules stay in [`.cursor/rules/`](./.cursor/rules/). See [docs/ai-agents.md](./docs/ai-agents.md) for Codex, Claude Code, Cursor, and other harnesses.
 
 See also [Chrome Web Store release checklist](./docs/chrome-web-store.md) and the [privacy policy](./PRIVACY.md).
+The [Firefox release checklist](./docs/firefox-amo.md) tracks the separate AMO build and review.
 
 ## License
 

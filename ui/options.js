@@ -14,7 +14,10 @@ import {
   isPlausibleModelForProvider,
 } from "../src/storage.js";
 import {
+  hasBuiltInHostPermission,
+  hasHostPermissionForBaseUrl,
   normalizeCompatBaseUrl,
+  originPatternFromBaseUrl,
   requestHostPermissionForBaseUrl,
 } from "../src/host-permissions.js";
 import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
@@ -31,6 +34,7 @@ import {
   installLanguageModel,
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
+import { isFirefoxBuild } from "../src/runtime-browser.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -38,9 +42,7 @@ const apiKeyLabel = document.getElementById("apiKeyLabel");
 const apiKeyInput = document.getElementById("apiKey");
 const apiKeyHint = document.getElementById("apiKeyHint");
 const toggleApiKeyButton = document.getElementById("toggleApiKey");
-const ollamaStatusRow = document.getElementById("ollamaStatusRow");
-const ollamaHint = document.getElementById("ollamaHint");
-const checkOllamaButton = document.getElementById("checkOllama");
+const providerStatusHint = document.getElementById("providerStatusHint");
 const onDevicePanel = document.getElementById("onDevicePanel");
 const onDeviceHint = document.getElementById("onDeviceHint");
 const onDeviceInstallButton = document.getElementById("onDeviceInstall");
@@ -87,6 +89,14 @@ const compatStatusEl = document.getElementById("compatStatus");
 const settingsTabs = Array.from(
   document.querySelectorAll('[role="tab"][aria-controls]'),
 );
+const firefoxBuild = isFirefoxBuild();
+if (firefoxBuild) {
+  document.getElementById("speechDescription").textContent =
+    "Experimental speech is not available in this Firefox build.";
+  document.getElementById("firefoxSpeechNotice").hidden = false;
+  document.getElementById("speechSettings").hidden = true;
+  experimentalSpeechEnabledInput.disabled = true;
+}
 
 /**
  * @param {Element} tab
@@ -115,29 +125,31 @@ function activateSettingsTab(tab, opts = {}) {
 function tabForCurrentHash() {
   const panelId = location.hash.slice(1);
   return settingsTabs.find(
-    (tab) => tab.getAttribute("aria-controls") === panelId,
+    (tab) => !tab.hidden && tab.getAttribute("aria-controls") === panelId,
   );
 }
 
-for (const [index, tab] of settingsTabs.entries()) {
+for (const tab of settingsTabs) {
   tab.addEventListener("click", () => {
     activateSettingsTab(tab, { updateHash: true });
   });
   tab.addEventListener("keydown", (event) => {
+    const availableTabs = settingsTabs.filter((candidate) => !candidate.hidden);
+    const index = availableTabs.indexOf(tab);
     let nextIndex;
     if (event.key === "ArrowRight") {
-      nextIndex = (index + 1) % settingsTabs.length;
+      nextIndex = (index + 1) % availableTabs.length;
     } else if (event.key === "ArrowLeft") {
-      nextIndex = (index - 1 + settingsTabs.length) % settingsTabs.length;
+      nextIndex = (index - 1 + availableTabs.length) % availableTabs.length;
     } else if (event.key === "Home") {
       nextIndex = 0;
     } else if (event.key === "End") {
-      nextIndex = settingsTabs.length - 1;
+      nextIndex = availableTabs.length - 1;
     } else {
       return;
     }
     event.preventDefault();
-    activateSettingsTab(settingsTabs[nextIndex], {
+    activateSettingsTab(availableTabs[nextIndex], {
       focus: true,
       updateHash: true,
     });
@@ -187,6 +199,9 @@ let ollamaStatus = {
   models: [],
   message: "",
 };
+
+/** Provider IDs whose Firefox host access is currently missing. */
+const providersWithRevokedHostAccess = new Set();
 
 /**
  * @type {{
@@ -319,7 +334,8 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
-        "Ollama is unavailable at http://localhost:11434, so this option is disabled. Install and start Ollama, then click Check again.",
+        response?.error?.message ||
+        "Ollama is unavailable at http://localhost:11434, so this option is disabled. Install and start Ollama, then refresh these settings.",
     };
     modelCache.delete("ollama");
     return ollamaStatus;
@@ -331,7 +347,7 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
-        "Ollama is running but has no models installed, so this option is disabled. Run ollama pull gemma4, then click Check again.",
+        "Ollama is running but has no models installed, so this option is disabled. Run ollama pull gemma4, then refresh these settings.",
     };
     modelCache.delete("ollama");
     return ollamaStatus;
@@ -351,6 +367,7 @@ async function refreshOllamaStatus() {
  * @returns {boolean}
  */
 function isOnDeviceOffered() {
+  if (isFirefoxBuild()) return false;
   return (
     onDeviceStatus.availability !== "missing" &&
     onDeviceStatus.availability !== "unavailable"
@@ -371,6 +388,10 @@ function isOnDeviceReady() {
  * (downloadable / downloading) because create() needs a user gesture here.
  */
 async function refreshOnDeviceStatus() {
+  if (isFirefoxBuild()) {
+    onDeviceStatus = { availability: "missing", message: "" };
+    return onDeviceStatus;
+  }
   const local = await probeLanguageModelAvailability();
 
   /** @type {import("../src/prompt-api-core.js").OnDeviceAvailability} */
@@ -625,17 +646,29 @@ function updateApiKeyField(providerId) {
 function updateProviderChrome(providerId) {
   updateApiKeyField(providerId);
 
-  // Only surface Ollama help + Check again when the option is disabled.
-  const showOllamaStatus = !ollamaStatus.available;
-  ollamaStatusRow.hidden = !showOllamaStatus;
-  checkOllamaButton.hidden = !showOllamaStatus;
-  if (showOllamaStatus) {
-    ollamaHint.textContent =
-      ollamaStatus.message ||
-      "Ollama is unavailable at http://localhost:11434, so this option is disabled.";
-  }
+  const accessError = providerAccessError(providerId);
+  const message =
+    accessError ||
+    (providerId === "ollama" && !ollamaStatus.available
+      ? ollamaStatus.message ||
+        "Ollama is unavailable at http://localhost:11434, so this option is disabled."
+      : "");
+  providerStatusHint.hidden = !message;
+  providerStatusHint.textContent = message;
+  providerStatusHint.classList.toggle("error", Boolean(accessError));
 
   updateOnDevicePanel();
+}
+
+/**
+ * @param {string} providerId
+ * @returns {string}
+ */
+function providerAccessError(providerId) {
+  if (!providersWithRevokedHostAccess.has(providerId)) return "";
+  const provider = providers.find((candidate) => candidate.id === providerId);
+  const label = provider?.label || providerId;
+  return `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
 }
 
 /**
@@ -668,7 +701,7 @@ async function fetchModels(providerId) {
 
   if (!response?.ok) {
     // Do not cache failures — a transient API/network error should retry on
-    // the next provider switch or refresh, same as Ollama's "Check again".
+    // the next provider switch or settings page refresh.
     return {
       models: /** @type {Array<{ id: string, label?: string }>} */ ([]),
       error: response?.error?.message || "Failed to list models",
@@ -723,17 +756,17 @@ function populateProviderSelect(select, selectedId) {
     const option = document.createElement("option");
     option.value = provider.id;
     const ollamaDown = provider.id === "ollama" && !ollamaStatus.available;
+    const hostAccessRevoked = providersWithRevokedHostAccess.has(provider.id);
     const onDeviceGone =
       provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceOffered();
-    // Keep the current selection choosable; block switching *to* Ollama when down
-    // or on-device when the API is missing. downloadable stays selectable for Install.
-    option.disabled =
-      (ollamaDown || onDeviceGone) && effectiveId !== provider.id;
+    // Keep unavailable choices selectable so their provider-level explanation
+    // is reachable; Save validates unavailable selections below.
+    option.disabled = false;
     if (onDeviceGone) {
       option.textContent = `${provider.label} (unavailable)`;
     } else if (provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceReady()) {
       option.textContent = `${provider.label} (install required)`;
-    } else if (ollamaDown) {
+    } else if (ollamaDown || hostAccessRevoked) {
       option.textContent = `${provider.label} (unavailable)`;
     } else {
       option.textContent = provider.label;
@@ -844,6 +877,21 @@ async function refreshDefaultModels(providerId, preferredModel) {
     return;
   }
 
+  const hostAccessRevoked =
+    providerId !== "ollama" &&
+    typeof error === "string" &&
+    /^Host access for .+ was revoked\./.test(error);
+  if (hostAccessRevoked) {
+    providersWithRevokedHostAccess.add(providerId);
+  }
+  updateProviderChrome(providerId);
+  populateProviderSelect(providerSelect, providerId);
+
+  if (hostAccessRevoked) {
+    modelHint.hidden = true;
+    modelHint.textContent = "";
+  }
+
   // Keep the saved Ollama model visible (read-only) while Ollama is down so
   // the UI reflects the persisted default rather than an empty remapped catalog.
   if (providerId === "ollama" && !ollamaStatus.available) {
@@ -864,27 +912,29 @@ async function refreshDefaultModels(providerId, preferredModel) {
     disabled: models.length === 0 && !allowUnknown,
   });
 
-  if (error && providerId !== "ollama") {
-    modelHint.hidden = false;
-    modelHint.textContent = error;
-  } else if (models.length === 0 && providerId !== "ollama") {
-    modelHint.hidden = false;
-    modelHint.textContent = providerId.startsWith("compat:")
-      ? "Could not list models from /v1/models. Type a model id manually."
-      : "No models available for this provider.";
-  } else if (
-    preferredModel &&
-    allowUnknown &&
-    !models.some((m) => m.id === preferredModel) &&
-    readDefaultModelValue(providerId) === preferredModel
-  ) {
-    modelHint.hidden = false;
-    modelHint.textContent =
-      "Saved model is not in the current catalog; it will still be used.";
+  if (!hostAccessRevoked) {
+    if (error && providerId !== "ollama") {
+      modelHint.hidden = false;
+      modelHint.textContent = error;
+    } else if (models.length === 0 && providerId !== "ollama") {
+      modelHint.hidden = false;
+      modelHint.textContent = providerId.startsWith("compat:")
+        ? "Could not list models from /v1/models. Type a model id manually."
+        : "No models available for this provider.";
+    } else if (
+      preferredModel &&
+      allowUnknown &&
+      !models.some((m) => m.id === preferredModel) &&
+      readDefaultModelValue(providerId) === preferredModel
+    ) {
+      modelHint.hidden = false;
+      modelHint.textContent =
+        "Saved model is not in the current catalog; it will still be used.";
+    }
   }
 }
 
-/** Last saved default provider — used to restore Ollama after Check again. */
+/** Last saved default provider — also used by on-device install flows. */
 let savedDefaultProviderId = "openai";
 
 /** Per-provider model drafts — survives switching before Save, persisted as defaultModels. */
@@ -960,36 +1010,6 @@ clearModelButton.addEventListener("click", () => {
   updateClearModelButton();
   modelInput.focus();
   modelInput.dispatchEvent(new Event("input"));
-});
-
-checkOllamaButton.addEventListener("click", async () => {
-  checkOllamaButton.disabled = true;
-  checkOllamaButton.textContent = "Checking…";
-  try {
-    syncModelDraftFromControl();
-    const wantedOllama = savedDefaultProviderId === "ollama";
-    await refreshOllamaStatus();
-    // Restore saved Ollama when it becomes available; otherwise keep the
-    // current UI selection (including unavailable Ollama) — never remap to
-    // OpenAI, which would make Save overwrite the stored default.
-    const nextId = populateProviderSelect(
-      providerSelect,
-      wantedOllama && ollamaStatus.available ? "ollama" : providerSelect.value,
-    );
-    modelBoundProviderId = nextId;
-    updateProviderChrome(nextId);
-    await refreshDefaultModels(nextId, preferredDefaultModel(nextId));
-    await renderOrigins();
-    setStatus(
-      ollamaStatus.available
-        ? "Ollama is available."
-        : "Ollama is still unavailable.",
-      ollamaStatus.available ? "ok" : "err",
-    );
-  } finally {
-    checkOllamaButton.disabled = false;
-    checkOllamaButton.textContent = "Check again";
-  }
 });
 
 /**
@@ -1398,6 +1418,18 @@ async function renderOrigins() {
       if (providerId === persistedProviderId && model === persistedModel) {
         return true;
       }
+      // Same gate as default-provider Save: do not write site grants for a
+      // provider whose optional host access was revoked (Firefox built-in or
+      // compat endpoint). Provider change and model edits both go through here.
+      if (providersWithRevokedHostAccess.has(providerId)) {
+        setSiteAccessStatus(
+          providerAccessError(providerId) ||
+            "Provider host access was revoked.",
+          "err",
+        );
+        await renderOrigins();
+        return false;
+      }
       const ok = await setOriginProviderModel(grant.origin, {
         providerId,
         model,
@@ -1661,8 +1693,7 @@ async function loadSpeechDefaultControls(settings) {
 
 /**
  * Populate a per-origin provider select. Same availability rules as
- * populateProviderSelect: keep a current Ollama grant selected even if
- * unavailable. Unknown provider ids are listed as "(unknown)" so Options
+ * populateProviderSelect. Unknown provider ids are listed as "(unknown)" so Options
  * never silently remaps a fail-closed grant onto the first registered provider.
  * @param {HTMLSelectElement} select
  * @param {string} selectedId
@@ -1692,24 +1723,23 @@ function populateOriginProviderSelect(select, selectedId) {
     const option = document.createElement("option");
     option.value = provider.id;
     const ollamaDown = provider.id === "ollama" && !ollamaStatus.available;
+    const hostAccessRevoked = providersWithRevokedHostAccess.has(provider.id);
     const onDeviceGone =
       provider.id === ON_DEVICE_PROVIDER_ID && !isOnDeviceOffered();
     const onDeviceNeedsInstall =
       provider.id === ON_DEVICE_PROVIDER_ID &&
       isOnDeviceOffered() &&
       !isOnDeviceReady();
-    // Allow keeping the current grant visible; block switching *to* unready providers.
-    option.disabled =
-      ((ollamaDown || onDeviceGone || onDeviceNeedsInstall) &&
-        selectedId !== provider.id) ||
-      false;
+    // Keep unavailable providers selectable so their status can be inspected.
+    // An uninstalled on-device model remains blocked when it is not this grant.
+    option.disabled = onDeviceNeedsInstall && selectedId !== provider.id;
     if (onDeviceGone) {
       option.textContent = `${provider.label} (unavailable)`;
     } else if (onDeviceNeedsInstall) {
       option.textContent = `${provider.label} (install required)`;
       // Still allow selecting current grant; block switching *to* until installed.
       option.disabled = selectedId !== ON_DEVICE_PROVIDER_ID;
-    } else if (ollamaDown) {
+    } else if (ollamaDown || hostAccessRevoked) {
       option.textContent = `${provider.label} (unavailable)`;
     } else {
       option.textContent = provider.label;
@@ -1747,6 +1777,31 @@ async function renderBlocked() {
 async function loadProviders() {
   const response = await chrome.runtime.sendMessage({ type: "list-providers" });
   providers = Array.isArray(response?.providers) ? response.providers : [];
+  await refreshProviderHostAccess();
+}
+
+/** Reconcile optional Firefox host grants so every provider uses the same status. */
+async function refreshProviderHostAccess() {
+  const revoked = await Promise.all(
+    providers.map(async (provider) => {
+      if (provider.id === ON_DEVICE_PROVIDER_ID) return "";
+
+      let granted;
+      if (provider.id.startsWith("compat:")) {
+        const endpoint = compatEndpoints.find((item) => item.id === provider.id);
+        if (!endpoint) return "";
+        granted = await hasHostPermissionForBaseUrl(endpoint.baseUrl);
+      } else {
+        granted = await hasBuiltInHostPermission(provider.id);
+      }
+      return granted ? "" : provider.id;
+    }),
+  );
+
+  providersWithRevokedHostAccess.clear();
+  for (const providerId of revoked) {
+    if (providerId) providersWithRevokedHostAccess.add(providerId);
+  }
 }
 
 /**
@@ -1859,11 +1914,16 @@ compatSaveButton.addEventListener("click", async () => {
       );
       return;
     }
+    if (isFirefoxBuild() && new URL(baseUrl).protocol === "http:" &&
+        !originPatternFromBaseUrl(baseUrl)) {
+      setCompatStatus("Firefox requires HTTPS for non-loopback servers. Use HTTPS or a localhost/127.0.0.1/[::1] address.", "err");
+      return;
+    }
 
     const granted = await requestHostPermissionForBaseUrl(baseUrl);
     if (!granted) {
       setCompatStatus(
-        "Host permission was not granted. Chrome must allow access to this origin before the endpoint can be saved.",
+        "Host permission was not granted. Allow access to this server before saving it.",
         "err",
       );
       return;
@@ -1919,8 +1979,9 @@ async function load() {
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
   experimentalSpeechEnabledInput.checked =
-    settings.experimentalSpeechEnabled === true;
+    !firefoxBuild && settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
+  await refreshProviderHostAccess();
   savedDefaultProviderId = settings.defaultProviderId;
   modelDrafts = { ...settings.defaultModels };
   for (const [providerId, model] of Object.entries(modelDrafts)) {
@@ -1953,7 +2014,7 @@ async function load() {
     effectiveProvider,
     preferredDefaultModel(effectiveProvider),
   );
-  await loadSpeechDefaultControls(settings);
+  if (!firefoxBuild) await loadSpeechDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
   await renderSpeechOrigins();
@@ -2083,9 +2144,16 @@ saveButton.addEventListener("click", async () => {
       setStatus("Choose a registered provider before saving.", "err");
       return;
     }
+    if (providersWithRevokedHostAccess.has(providerId)) {
+      setStatus(
+        providerAccessError(providerId) || "Provider host access was revoked.",
+        "err",
+      );
+      return;
+    }
     if (providerId === "ollama" && !ollamaStatus.available) {
       setStatus(
-        "Ollama is unavailable. Choose another provider or click Check again.",
+        "Ollama is unavailable. Choose another provider or refresh these settings after starting Ollama.",
         "err",
       );
       return;
@@ -2126,4 +2194,6 @@ saveButton.addEventListener("click", async () => {
   }
 });
 
-void load();
+void load().catch((error) => {
+  setStatus(error instanceof Error ? error.message : "Failed to load settings.", "err");
+});

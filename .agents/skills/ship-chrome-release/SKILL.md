@@ -1,22 +1,23 @@
 ---
 name: ship-chrome-release
 description: >-
-  Prep and ship an Inference Bridge Chrome Web Store release: bump version,
-  test, package ZIP, tag, GitHub Release, and store submission checklist. Use
-  when the user asks to release, ship, publish, bump version, package for the
-  Chrome Web Store, create a store upload, cut a new extension version, hotfix
-  a rejected store review, or resubmit an in-review package.
+  Prep and ship an Inference Bridge Chrome Web Store release using the repo's
+  shared Chrome/Firefox version: test, package, tag, create a GitHub Release,
+  and prepare the store submission. Use when the user asks to release Chrome,
+  ship a browser release that includes Chrome, bump the shared extension
+  version, package for the Chrome Web Store, create a store upload, cut a new
+  extension version, hotfix a rejected Chrome review, or resubmit a package.
 ---
 
 # Ship Chrome Web Store release
 
-Follow [`docs/chrome-web-store.md`](docs/chrome-web-store.md) (repo root) as the source of truth for listing copy, permission justifications, and store questionnaire details.
+Follow [`docs/chrome-web-store.md`](../../../docs/chrome-web-store.md) as the source of truth for listing copy, permission justifications, and store questionnaire details. This repo has one version in `manifest.json` and `package.json`, shared by the Chrome and Firefox packages. When shipping both stores, use this skill for Chrome and [ship-firefox-release](../ship-firefox-release/SKILL.md) for Firefox's AMO steps.
 
 ## Choose the release line
 
 - **Listing-only** (copy, screenshots, privacy questionnaire): no new ZIP. Edit the dashboard and/or docs.
 - **Hotfix** for a version already uploaded or in review: do **not** package `main`. Follow [Hotfix from tag](#hotfix-from-tag).
-- **Normal release**: `main` includes the intended changes. Follow [Workflow](#workflow).
+- **Normal release**: `main` includes the intended changes. Follow [Workflow](#workflow). Confirm whether Firefox is also a release target; the tag workflow packages both browsers either way, while store submission stays platform-specific.
 
 ## Workflow
 
@@ -26,8 +27,8 @@ Copy and track:
 Release progress:
 - [ ] 1. Confirm main is clean and includes intended changes
 - [ ] 2. Choose and bump version
-- [ ] 3. npm ci && npm test && npm run package
-- [ ] 4. Inspect ZIP contents
+- [ ] 3. npm ci && npm test && npm run package:all && npm run lint:firefox
+- [ ] 4. Inspect the Chrome ZIP and any Firefox artifacts needed for this release
 - [ ] 5. Commit version bump
 - [ ] 6. Tag vX.Y.Z and push tag (triggers release workflow artifact)
 - [ ] 7. Create GitHub Release with notes
@@ -39,13 +40,14 @@ Release progress:
 - On `main` (normal release), clean working tree, up to date with `origin/main`.
 - Summarize commits since the previous `v*` tag (`git log vPREV..HEAD --oneline`).
 - Do not include uncommitted WIP unless the user asks.
+- If Firefox is also being submitted, check its latest AMO version and use the Firefox release skill for its listing and reviewer-source requirements.
 
 ### 2. Version bump
 
-Chrome Web Store requires a **strictly higher** `manifest.json` `"version"` than any previously uploaded package.
+The repo uses **one shared version** in `manifest.json` and `package.json` for both browser packages. Chrome Web Store requires a **strictly higher** version than the latest Chrome package uploaded there. If Firefox is also a target, choose a shared version that is valid for both stores. The same built version can be submitted to the other store later if it is still newer than that store's latest version.
 
-1. Bump `"version"` in `manifest.json`.
-2. Keep `package.json` `"version"` aligned.
+1. Bump `"version"` in `manifest.json` once for this release train.
+2. Set `package.json` `"version"` to the same value.
 3. Choose semver for this repo:
    - **patch** (`0.1.1` → `0.1.2`): fixes, permission/doc tweaks, no user-facing feature
    - **minor** (`0.1.x` → `0.2.0`): new provider or user-facing capability
@@ -58,18 +60,20 @@ Tag format: `vX.Y.Z` (must match manifest version).
 ```bash
 npm ci
 npm test
-npm run package
+npm run package:all
+npm run lint:firefox
 ```
 
-Output: `dist/inference-bridge-<version>.zip`
+Outputs include `dist/inference-bridge-<version>.zip` and `dist/inference-bridge-firefox-<version>.zip`. The tag workflow also creates a Firefox reviewer source ZIP. Run Firefox's manual AMO preparation and submission only when Firefox is a release target; see [ship-firefox-release](../ship-firefox-release/SKILL.md).
 
 ### 4. Inspect ZIP
 
 ```bash
 unzip -l dist/inference-bridge-<version>.zip
+unzip -l dist/inference-bridge-firefox-<version>.zip
 ```
 
-Allowlist only: `manifest.json`, `background/`, `content/`, `src/`, `ui/`, `icons/`, `offscreen/`.
+Chrome allowlist only: `manifest.json`, `background/`, `content/`, `src/`, `ui/`, `icons/`, `offscreen/`. Firefox has its own staged allowlist and manifest; inspect it against `docs/firefox-amo.md` if it is being shipped.
 
 Reject the package if tests, docs, `node_modules`, `.git`, secrets, or unrelated files appear.
 
@@ -91,7 +95,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-Pushing `v*` runs `.github/workflows/release.yml`, which uploads the ZIP as a CI artifact. It does **not** submit to the Chrome Web Store.
+Pushing `v*` runs `.github/workflows/release.yml`, which tests and uploads the Chrome ZIP, unsigned Firefox ZIP, and Firefox reviewer source ZIP as CI artifacts. It does **not** submit to either store. Submit the same shared version through each selected store's separate workflow.
 
 ### 7. GitHub Release
 
@@ -109,7 +113,7 @@ EOF
   dist/inference-bridge-X.Y.Z.zip
 ```
 
-Attach the local ZIP so the release is downloadable without digging through Actions.
+Attach the local Chrome ZIP so it is downloadable without digging through Actions. If Firefox is also being released, attach the matching Firefox ZIP from the same tag workflow artifact and follow [ship-firefox-release](../ship-firefox-release/SKILL.md) for AMO. Keep the Firefox reviewer-source artifact available for AMO submission.
 
 ### 8. Store handoff
 
@@ -120,6 +124,8 @@ Give the user:
 3. Pasteables from `docs/chrome-web-store.md`: permission justifications, privacy disclosures
 4. Asset check: screenshots in `dist/store-screenshots/` — **re-capture Options/approval if UI changed** this release
 5. After publish: update README Installation with the store URL
+
+If Firefox is also targeted, hand off its ZIP and reviewer source ZIP to the Firefox workflow; do not treat signing an unlisted XPI as public AMO publication.
 
 Do not store or request Chrome Web Store API credentials. Submission stays manual.
 
@@ -137,7 +143,7 @@ When the store rejects a package, or a version already uploaded needs a code cha
 
 2. Apply **only** the store-required fix. Do not merge or cherry-pick unrelated `main` work.
 3. Patch-bump `manifest.json` and `package.json`. Chrome requires a strictly higher version than any previously uploaded package; the rejected version number cannot be reused.
-4. Continue from workflow step 3 (`npm ci && npm test && npm run package`) through inspect, commit, tag, GitHub Release, and store handoff.
+4. Continue from workflow step 3 (`npm ci && npm test && npm run package:all && npm run lint:firefox`) through inspect, commit, tag, GitHub Release, and store handoff.
 5. Push the hotfix branch and the new tag (not `main`):
 
    ```bash

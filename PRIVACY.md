@@ -1,31 +1,32 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-25
 
-Inference Bridge is a Chrome extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles.
+Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
 ## Summary
 
-- API keys and provider settings are stored locally in the browser via `chrome.storage.local`.
+- API keys and provider settings are stored in the browser's local extension storage. That storage is not encrypted by Inference Bridge. Page scripts cannot read it.
 - Inference request content is sent only to the provider the user selects (for example OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI, or a user-configured OpenAI-compatible server).
-- When experimental speech is enabled and approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page.
+- In Chrome, when experimental speech is enabled and approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page. Experimental speech is disabled in the first Firefox build.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
-- Recordings, transcripts, and generated audio are held only in memory for the active request and are never stored in `chrome.storage`.
+- The first Firefox build is unavailable in private windows, so private-session requests and grants are not persisted by this add-on.
+- Recordings, transcripts, and generated audio are held only in memory for the active Chrome request and are never stored in extension storage.
 - Recordings can contain biometric voice data and sensitive information about the speaker or bystanders, including location, health information, background conversations, and other ambient sounds.
 
 ## Data the extension stores locally
 
 | Data | Purpose | Where |
 | --- | --- | --- |
-| Provider API keys (OpenAI, Anthropic, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | `chrome.storage.local` |
-| Default provider and model | Pre-fill Options and approval UI | `chrome.storage.local` |
-| Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | `chrome.storage.local` |
-| Per-origin grants and blocks | Remember Allow / Deny decisions | `chrome.storage.local` |
-| Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | `chrome.storage.local` |
-| Per-origin speech grants and provider/model/voice choices | Keep transcription and synthesis authorization separate from chat and from each other | `chrome.storage.local` |
+| Provider API keys (OpenAI, Anthropic, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | Local extension storage |
+| Default provider and model | Pre-fill Options and approval UI | Local extension storage |
+| Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | Local extension storage |
+| Per-origin grants and blocks | Remember Allow / Deny decisions | Local extension storage |
+| Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | Local extension storage |
+| Per-origin speech grants and provider/model/voice choices (Chrome only) | Keep transcription and synthesis authorization separate from chat and from each other | Local extension storage |
 
-This data stays on the device unless the user clears extension storage or uninstalls the extension.
+Settings and grants stay on the device unless the user clears extension storage or uninstalls the extension. API keys are sent to their selected provider when needed to authenticate a request. Local extension storage is not encrypted by Inference Bridge or Firefox.
 
 ## Data sent to third parties
 
@@ -35,8 +36,10 @@ When the user allows a site to use inference:
 - **Anthropic:** chat messages (and, when the user allows image input, image bytes from the page) and the stored Anthropic API key are sent to `https://api.anthropic.com` (Messages API) for the selected model.
 - **OpenRouter:** chat messages and the stored OpenRouter API key are sent to `https://openrouter.ai` for the selected model. The public model catalog (`GET /api/v1/models`) is fetched without an API key to populate the Options UI. When the user allows image input or output, image bytes may be sent to or returned from OpenRouter for the selected model. When experimental speech is separately enabled and approved, the complete bounded audio/media file or synthesis text is sent to OpenRouter’s dedicated speech endpoint; generated MP3 bytes are returned to the page.
 - **Ollama:** chat messages (and, when the user allows image input, image bytes from the page) are sent to the local Ollama endpoint (`http://localhost:11434` / `http://127.0.0.1:11434`). If experimental speech is enabled, the user approves transcription, and the installed model explicitly reports the `audio` capability, the complete bounded WAV file—or MP3 for a specifically verified model—is sent to that same local endpoint; Ollama synthesis remains unsupported. If the page passes an image `url`, the page fetches it (same CORS rules as the site) and the extension then sends those bytes to the selected provider. When the user enables hosted `{ type: "web_search" }` and has saved an Ollama account API key, Inference Bridge also sends search queries (and optional page-fetch URLs) plus that key to `https://ollama.com` (`/api/web_search`, `/api/web_fetch`). Local chat and local transcription do not use that key. Generated images are not requested from Ollama in the current build.
-- **On-device:** chat messages (and, when the user allows image input, image bytes from the page) are processed by the browser Prompt API (`LanguageModel`) on the device. No API key is used. The browser chooses and may download the model when the user clicks **Install** in Options. Generated images are not requested from the Prompt API.
-- **OpenAI-compatible:** chat messages (and, when the user allows image input, image bytes from the page, plus an optional API key, if configured) are sent only to the base URL the user saved. The extension may also call that server’s `/v1/models` to populate the model picker.
+- **On-device (Chrome only):** chat messages (and, when the user allows image input, image bytes from the page) are processed by the browser Prompt API (`LanguageModel`) on the device. No API key is used. The browser chooses and may download the model when the user clicks **Install** in Options. Generated images are not requested from the Prompt API. This provider is unavailable in Firefox.
+- **OpenAI-compatible:** chat messages (and, when the user allows image input, image bytes from the page, plus an optional API key, if configured) are sent only to the base URL the user saved. The extension may also call that server’s `/v1/models` to populate the model picker. Firefox requires HTTPS for non-loopback servers; HTTP is accepted only for localhost/loopback.
+
+If a user chooses **Always allow** for a website origin, future requests from that origin can reach the saved provider without another per-request popup. The grant can be reviewed and revoked in **Options → Site access**. The browser's add-on permissions can also be revoked, which prevents affected provider calls.
 
 The extension does not receive or relay responses through any Inference Bridge server. Page-supplied transcription URLs are fetched by the page under that page's CORS rules; the privileged extension does not fetch them. Speech media is passed through without local demuxing, transcoding, visual analysis, or automatic playback.
 
@@ -45,14 +48,14 @@ The extension does not receive or relay responses through any Inference Bridge s
 | Permission / host | Why it is needed |
 | --- | --- |
 | `storage` | Save settings, API keys, and origin grants |
-| `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject `chrome-extension://` origins |
-| `offscreen` | Host the browser Prompt API for the On-device provider (not available in the service worker) |
+| `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject extension origins |
+| `offscreen` (Chrome only) | Host the browser Prompt API for the On-device provider (not available in the service worker) |
 | `https://api.openai.com/*` | Call OpenAI chat, image, transcription, and speech-synthesis APIs selected by the user |
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog, Chat Completions API, and separately approved experimental transcription or speech-synthesis endpoints |
 | `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
-| `http://localhost:11434/*`, `http://127.0.0.1:11434/*` | Call local Ollama |
-| Optional `http://*/*`, `https://*/*` | Not granted at install. When the user adds an OpenAI-compatible server, Chrome prompts for **that endpoint’s origin only** |
+| Chrome: `http://localhost:11434/*`, `http://127.0.0.1:11434/*`; Firefox: portless `http://localhost/*`, `http://127.0.0.1/*` | Call local Ollama on port 11434. Firefox match patterns cannot include a port; request URLs still use only port 11434. |
+| Optional hosts | When the user adds an OpenAI-compatible server, the browser prompts for that server host. Chrome declares `http://*/*` and `https://*/*`; Firefox declares only loopback HTTP hosts and `https://*/*`. Firefox permissions are host-scoped across ports; requests still use only the saved URL and port. |
 
 Content scripts inject `window.inference` into top-level HTTP(S) pages so web apps can request inference. Injection is limited to secure contexts (`https:` or loopback `http:`).
 
