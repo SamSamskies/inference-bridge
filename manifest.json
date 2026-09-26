@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Inference Bridge",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
-  "permissions": ["storage", "declarativeNetRequestWithHostAccess", "offscreen"],
+  "permissions": [
+    "storage",
+    "declarativeNetRequestWithHostAccess",
+    "offscreen"
+  ],
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
@@ -12,7 +16,10 @@
     "http://localhost:11434/*",
     "http://127.0.0.1:11434/*"
   ],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
@@ -35,15 +42,25 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content/inject.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/inject.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
     },
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content/content-script.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/content-script.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
