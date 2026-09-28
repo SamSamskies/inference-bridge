@@ -77,7 +77,7 @@ export const openaiProvider = {
   label: "OpenAI",
   requiresApiKey: true,
   models: OPENAI_MODELS,
-  defaultModel: "gpt-5.6-luna",
+  defaultModel: "gpt-6-luna",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   transcription: {

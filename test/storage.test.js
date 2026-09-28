@@ -55,9 +55,9 @@ describe("getSettings", () => {
     await expect(getSettings()).resolves.toMatchObject({
       apiKeys: {},
       defaultProviderId: "openai",
-      defaultModel: "gpt-5.6-luna",
+      defaultModel: "gpt-6-luna",
       defaultModels: {
-        openai: "gpt-5.6-luna",
+        openai: "gpt-6-luna",
         anthropic: "claude-sonnet-5-5",
         openrouter: "openrouter/auto",
       },

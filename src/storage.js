@@ -34,7 +34,7 @@ const DEFAULTS = Object.freeze({
   /** Per-provider remembered models. Active model is defaultModels[defaultProviderId]. */
   /** @type {Readonly<Record<string, string>>} */
   defaultModels: Object.freeze({
-    openai: "gpt-5.6-luna",
+    openai: "gpt-6-luna",
     anthropic: "claude-sonnet-5-5",
     openrouter: "openrouter/auto",
   }),

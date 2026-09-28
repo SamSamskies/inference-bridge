@@ -80,7 +80,7 @@ describe("provider registry", () => {
   it("resolves static OpenAI models as ModelInfo entries", async () => {
     const openai = getProvider("openai");
     expect(openai).toBeDefined();
-    expect(openai.defaultModel).toBe("gpt-5.6-luna");
+    expect(openai.defaultModel).toBe("gpt-6-luna");
     const models = await resolveProviderModels(openai);
     expect(models).toContainEqual({ id: "gpt-6-astra" });
     expect(models).toContainEqual({ id: "gpt-6-sol" });
