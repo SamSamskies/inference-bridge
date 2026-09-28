@@ -27,6 +27,7 @@ export const ANTHROPIC_MODELS = Object.freeze([
   "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-opus-4-6",
+  "claude-sonnet-5-5",
   "claude-sonnet-5",
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
@@ -294,7 +295,7 @@ export const anthropicProvider = {
   label: "Anthropic",
   requiresApiKey: true,
   models: ANTHROPIC_MODELS,
-  defaultModel: "claude-sonnet-5",
+  defaultModel: "claude-sonnet-5-5",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
 

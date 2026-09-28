@@ -55,10 +55,10 @@ describe("getSettings", () => {
     await expect(getSettings()).resolves.toMatchObject({
       apiKeys: {},
       defaultProviderId: "openai",
-      defaultModel: "gpt-5.6-luna",
+      defaultModel: "gpt-6-luna",
       defaultModels: {
-        openai: "gpt-5.6-luna",
-        anthropic: "claude-sonnet-5",
+        openai: "gpt-6-luna",
+        anthropic: "claude-sonnet-5-5",
         openrouter: "openrouter/auto",
       },
       compatEndpoints: [],
@@ -497,7 +497,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
     expect(settings.defaultModel).toBe("openrouter/free");
     expect(settings.defaultModels).toEqual({
       openai: "gpt-4.1-nano",
-      anthropic: "claude-sonnet-5",
+      anthropic: "claude-sonnet-5-5",
       openrouter: "openrouter/free",
     });
   });

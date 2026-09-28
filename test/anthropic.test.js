@@ -346,9 +346,10 @@ describe("anthropicProvider", () => {
     expect(listProviders().map((p) => p.id)).toContain("anthropic");
     expect(anthropicProvider.requiresApiKey).toBe(true);
     expect(anthropicProvider.label).toBe("Anthropic");
-    expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5");
+    expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5-5");
     expect(anthropicProvider.models).toContain("claude-fable-5-1");
     expect(anthropicProvider.models).toContain("claude-fable-5");
+    expect(anthropicProvider.models).toContain("claude-sonnet-5-5");
     expect(anthropicProvider.models).toContain("claude-sonnet-5");
     expect(anthropicProvider.supportsFunctionTools).toBe(true);
     expect(anthropicProvider.hostedTools).toEqual(["web_search"]);

@@ -80,7 +80,7 @@ describe("provider registry", () => {
   it("resolves static OpenAI models as ModelInfo entries", async () => {
     const openai = getProvider("openai");
     expect(openai).toBeDefined();
-    expect(openai.defaultModel).toBe("gpt-5.6-luna");
+    expect(openai.defaultModel).toBe("gpt-6-luna");
     const models = await resolveProviderModels(openai);
     expect(models).toContainEqual({ id: "gpt-6-astra" });
     expect(models).toContainEqual({ id: "gpt-6-sol" });
@@ -130,12 +130,13 @@ describe("provider registry", () => {
     expect(anthropic).toBeDefined();
     expect(anthropic.requiresApiKey).toBe(true);
     expect(anthropic.label).toBe("Anthropic");
-    expect(anthropic.defaultModel).toBe("claude-sonnet-5");
+    expect(anthropic.defaultModel).toBe("claude-sonnet-5-5");
     expect(typeof anthropic.listModels).toBe("undefined");
     const models = await resolveProviderModels(anthropic);
     expect(models).toContainEqual({ id: "claude-fable-5-1" });
     expect(models).toContainEqual({ id: "claude-fable-5" });
     expect(models).toContainEqual({ id: "claude-opus-5-5" });
+    expect(models).toContainEqual({ id: "claude-sonnet-5-5" });
     expect(models).toContainEqual({ id: "claude-sonnet-5" });
     expect(models).toContainEqual({ id: "claude-opus-5" });
   });
