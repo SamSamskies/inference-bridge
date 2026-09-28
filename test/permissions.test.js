@@ -283,7 +283,7 @@ describe("ensurePermission", () => {
     ).resolves.toEqual({
       allowed: false,
       providerId: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       once: false,
     });
     expect(getPendingApproval("r1")).toBeNull();
@@ -627,14 +627,14 @@ describe("ensurePermission", () => {
     const request = getPendingApproval("r4");
     expect(request).toMatchObject({
       providerId: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
     expect(request.model).not.toBe("gemma4");
 
     resolveApproval("r4", {
       decision: "deny",
       providerId: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
