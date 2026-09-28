@@ -295,7 +295,7 @@ export const anthropicProvider = {
   label: "Anthropic",
   requiresApiKey: true,
   models: ANTHROPIC_MODELS,
-  defaultModel: "claude-sonnet-5",
+  defaultModel: "claude-sonnet-5-5",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
 

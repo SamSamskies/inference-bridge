@@ -35,7 +35,7 @@ const DEFAULTS = Object.freeze({
   /** @type {Readonly<Record<string, string>>} */
   defaultModels: Object.freeze({
     openai: "gpt-5.6-luna",
-    anthropic: "claude-sonnet-5",
+    anthropic: "claude-sonnet-5-5",
     openrouter: "openrouter/auto",
   }),
   /** @type {readonly CompatEndpoint[]} */

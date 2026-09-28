@@ -130,7 +130,7 @@ describe("provider registry", () => {
     expect(anthropic).toBeDefined();
     expect(anthropic.requiresApiKey).toBe(true);
     expect(anthropic.label).toBe("Anthropic");
-    expect(anthropic.defaultModel).toBe("claude-sonnet-5");
+    expect(anthropic.defaultModel).toBe("claude-sonnet-5-5");
     expect(typeof anthropic.listModels).toBe("undefined");
     const models = await resolveProviderModels(anthropic);
     expect(models).toContainEqual({ id: "claude-fable-5-1" });
