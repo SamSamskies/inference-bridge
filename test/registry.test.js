@@ -136,6 +136,7 @@ describe("provider registry", () => {
     expect(models).toContainEqual({ id: "claude-fable-5-1" });
     expect(models).toContainEqual({ id: "claude-fable-5" });
     expect(models).toContainEqual({ id: "claude-opus-5-5" });
+    expect(models).toContainEqual({ id: "claude-sonnet-5-5" });
     expect(models).toContainEqual({ id: "claude-sonnet-5" });
     expect(models).toContainEqual({ id: "claude-opus-5" });
   });

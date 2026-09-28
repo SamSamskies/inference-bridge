@@ -77,6 +77,10 @@ describe("mapReasoningEffortForAnthropic", () => {
       thinking: { type: "adaptive" },
       output_config: { effort: "low" },
     });
+    expect(mapReasoningEffortForAnthropic("low", "claude-sonnet-5-5")).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+    });
     expect(mapReasoningEffortForAnthropic("medium", "claude-sonnet-4-6")).toEqual(
       {
         thinking: { type: "adaptive" },
