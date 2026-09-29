@@ -14,6 +14,13 @@ npm run lint:firefox
 unzip -l dist/inference-bridge-firefox-*.zip
 ```
 
+On a `vX.Y.Z`-tagged commit, also build the AMO reviewer source archive:
+
+```bash
+npm run package:firefox-source
+# → dist/inference-bridge-firefox-source-vX.Y.Z.zip
+```
+
 `build/firefox/` is the exact staged extension root. The Firefox ZIP has the manifest at its root, the Firefox event-page background, portless localhost host patterns, an explicit CSP without `upgrade-insecure-requests`, and no `offscreen` permission or document. The packaging test verifies the allowlist, versions, and repeat-build checksums. `npm run package` still produces the Chrome ZIP.
 
 `npm run lint:firefox` invokes `web-ext lint --warnings-as-errors` on the staged root. The lint wrapper suppresses only Mozilla [web-ext issue #3561](https://github.com/mozilla/web-ext/issues/3561), an Android minimum-version warning emitted despite `gecko_android` being absent. Any other notice, warning, or error fails the job. Remove this exception after the upstream linter fixes the rule.

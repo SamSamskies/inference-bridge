@@ -46,7 +46,15 @@ unzip -l dist/inference-bridge-firefox-<version>.zip
 
 `npm run lint:firefox` stages the Firefox root and runs Mozilla `web-ext lint` with warnings treated as errors, except the documented Android warning. The Firefox ZIP is `dist/inference-bridge-firefox-<version>.zip`; `build/firefox/` is its staged root. Check the Firefox allowlist and manifest against `docs/firefox-amo.md`, and ensure the Chrome package is also present if this is a combined release. Never include `dist/*.zip` in a source commit.
 
-Use the exact tagged source revision to provide the matching AMO reviewer archive. The `v*` workflow runs tests, packages both browsers, lints Firefox, and uploads three CI artifacts: Chrome ZIP, unsigned Firefox ZIP, and Firefox reviewer source ZIP. The source ZIP includes `git archive HEAD`, build instructions, lockfile, packaging scripts, and runner tool versions. Download the Firefox ZIP and source ZIP artifacts for AMO; do not substitute the Chrome ZIP or a source archive from another commit.
+AMO always requires a matching reviewer source archive for this project (Firefox packaging transforms the manifest and stages files). Prefer the CI artifact from the exact `v*` tag run. After the tag exists and CI succeeds, also keep a local copy:
+
+```bash
+# After tagging HEAD as vX.Y.Z (exact match required):
+npm run package:firefox-source
+# → dist/inference-bridge-firefox-source-vX.Y.Z.zip
+```
+
+The `v*` workflow also builds that archive (`git archive HEAD` plus `firefox-build-info.txt`) and uploads it as the `inference-bridge-firefox-source` Actions artifact. Download the Firefox ZIP and source ZIP from that exact run when preparing AMO; do not substitute the Chrome ZIP or a source archive from another commit.
 
 Before submission, compare the packaged manifest, Firefox install permission wording, privacy declaration, and listing claims with the actual Firefox build. Firefox targets desktop 140+; per project decision, pre-release QA covers the current Firefox release and skips installing an older Firefox 140 build. Address compatibility reports if users encounter them.
 
@@ -60,15 +68,21 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-The tag triggers `.github/workflows/release.yml`. It does not submit to AMO or the Chrome Web Store. Wait for CI to pass, then download the Firefox ZIP and reviewer source ZIP artifacts from that exact run. Create the GitHub Release from the tag and attach the browser ZIPs being released. Keep the Firefox source archive available for AMO's source-code upload; it may be attached to the GitHub Release as a reviewer artifact if useful.
+The tag triggers `.github/workflows/release.yml`. It does not submit to AMO or the Chrome Web Store. Wait for CI to pass, then download the Firefox ZIP and reviewer source ZIP artifacts from that exact run (or run `npm run package:firefox-source` on the tagged commit). Create the GitHub Release from the tag and **always attach all three**:
+
+- `dist/inference-bridge-X.Y.Z.zip`
+- `dist/inference-bridge-firefox-X.Y.Z.zip`
+- `dist/inference-bridge-firefox-source-vX.Y.Z.zip`
+
+Do not ship a Firefox release whose GitHub Release is missing the reviewer source ZIP — AMO asks for it on every version that uses the packaging transform.
 
 ## Submit a new public AMO version
 
 Use the AMO Developer Hub: <https://addons.mozilla.org/en-US/developers/>.
 
 1. If no AMO add-on record exists yet, choose **Submit a New Add-on** and select **On this site**. If there is already an AMO record, open it and submit a new version there. For a record created by an earlier self-distributed (**On your own**) version, use the same record and select **On this site** for the public version when AMO offers that choice.
-2. Upload `inference-bridge-firefox-<version>.zip` from the matching tag workflow artifact.
-3. For this project, answer **Yes** to the source-code question. The Firefox packaging script creates a Firefox-specific manifest and stages files. Upload the reviewer source ZIP from the same tag.
+2. Upload `inference-bridge-firefox-<version>.zip` from the matching tag workflow artifact or GitHub Release.
+3. For this project, answer **Yes** to the source-code question. The Firefox packaging script creates a Firefox-specific manifest and stages files. Upload `inference-bridge-firefox-source-vX.Y.Z.zip` from the same tag (GitHub Release asset or `inference-bridge-firefox-source` Actions artifact). Never answer No.
 4. Complete metadata and review details from `docs/firefox-amo.md`: listing name, summary, description, MIT license, privacy policy URL, support site, categories, experimental status, pricing disclosure, screenshots, and reviewer notes. Provide test credentials only if a flow actually requires an account; never put real user keys in source or notes.
 5. Compare the Firefox data-collection declaration in the manifest with the AMO privacy choices and the current Mozilla data taxonomy. The Firefox build does not expose speech or Chrome's On-device Prompt API; keep those out of the Firefox listing claims.
 6. Submit the version. Monitor AMO for validation or reviewer feedback and fix only the issues requested. A signature-pending state means signing is in progress; a listed release may still be subject to manual review.
