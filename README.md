@@ -28,9 +28,13 @@ Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/inf
 
 For local development or unreleased builds, use the load-unpacked steps below.
 
-### Firefox desktop preview
+### Firefox Add-ons (AMO)
 
-Firefox support is under development for desktop Firefox 140+. There is no AMO listing yet. To try the staged build in a temporary Firefox profile:
+Install from [Firefox Browser Add-ons](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/). Desktop Firefox 140+.
+
+The Firefox build supports the remote/local chat providers and custom OpenAI-compatible servers. Chrome's On-device Prompt API provider and experimental speech are disabled. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
+
+For local development or unreleased builds:
 
 ```bash
 npm ci
@@ -39,7 +43,7 @@ npm run lint:firefox
 npx web-ext run --source-dir build/firefox
 ```
 
-The Firefox build supports the remote/local chat providers and custom OpenAI-compatible servers. Chrome's On-device Prompt API provider and experimental speech are disabled. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port. See the [Firefox release checklist](docs/firefox-amo.md) for current QA and submission status.
+See the [Firefox release checklist](docs/firefox-amo.md) for packaging and AMO submission details.
 
 ### Chrome development (Load unpacked)
 
