@@ -1,6 +1,6 @@
 # Firefox desktop and AMO release checklist
 
-The first Firefox artifact targets desktop Firefox 140+ and is not yet listed on AMO. Its permanent Gecko ID is `inference-bridge@samsamskies.github.io` (AMO uniqueness still needs confirmation at first signing). Android is not declared. The Chrome manifest and Chrome Web Store package stay separate.
+The Firefox artifact targets desktop Firefox 140+ and is listed on AMO as [Inference Bridge](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/) (`inference-bridge@samsamskies.github.io`). Android is not declared. The Chrome manifest and Chrome Web Store package stay separate.
 
 ## Build and inspect
 
@@ -70,6 +70,9 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 - [ ] Restart Firefox with a packaged/signed install and verify storage, DNR rules, grants, and Options. Temporary installs do not prove install-time prompts or restart behavior.
 - [ ] Check install-time data and host permission wording, private-window exclusion, and the current Chrome manual checklist from its own ZIP.
 - [ ] Confirm Mozilla developer account and distribution agreement, listing metadata/screenshots, policy classification, reviewer notes, and a source archive that reproduces the submitted ZIP.
-- [ ] Submit the first version manually as a listed add-on. After Mozilla signs and lists it, record the AMO URL/ID in this document and add the install link to the README.
+- [x] Submit the first version manually as a listed add-on. After Mozilla signs and lists it, record the AMO URL/ID in this document and add the install link to the README.
+
+**AMO listing:** https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/  
+**Add-on ID:** `inference-bridge@samsamskies.github.io`
 
 For limited beta testing before the listing, use a separately signed unlisted XPI. AMO does not provide a documented percentage rollout; rollback requires republishing the prior code at a higher version.
