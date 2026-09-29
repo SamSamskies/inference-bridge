@@ -59,7 +59,7 @@ describe("openaiProvider.streamChat", () => {
     ]);
   });
 
-  it.each(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])(
+  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])(
     "uses Responses for %s when only function tools are present",
     async (model) => {
       const fetchMock = vi.fn(async () =>
@@ -82,6 +82,7 @@ describe("openaiProvider.streamChat", () => {
         messages: [{ role: "user", content: "weather?" }],
         tools: [{ type: "function", function: { name: "get_weather" } }],
         toolChoice: { type: "function", function: { name: "get_weather" } },
+        options: { reasoningEffort: "none" },
         signal: new AbortController().signal,
         onDelta: () => {},
       });
@@ -89,6 +90,10 @@ describe("openaiProvider.streamChat", () => {
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe("https://api.openai.com/v1/responses");
       const body = JSON.parse(init.body);
+      expect(body.model).toBe(model);
+      expect(body.reasoning.effort).toBe(
+        model === "gpt-6-astra" || model === "gpt-6.1-sol" ? "low" : "none"
+      );
       expect(body.tools).toEqual([
         {
           type: "function",
@@ -110,30 +115,38 @@ describe("openaiProvider.streamChat", () => {
     }
   );
 
-  it("keeps GPT-6 Astra on Chat Completions without function tools", async () => {
-    const fetchMock = vi.fn(async () =>
-      sseResponse(
-        [
-          'data: {"choices":[{"delta":{"content":"ok"}}]}',
-          "data: [DONE]",
-          "",
-        ].join("\n")
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it.each(["gpt-6-astra", "gpt-6.1-sol"])(
+    "keeps %s on Chat Completions without function tools",
+    async (model) => {
+      const fetchMock = vi.fn(async () =>
+        sseResponse(
+          [
+            'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            "data: [DONE]",
+            "",
+          ].join("\n")
+        )
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    await openaiProvider.streamChat({
-      apiKey: "sk-test",
-      model: "gpt-6-astra",
-      messages: [{ role: "user", content: "hi" }],
-      signal: new AbortController().signal,
-      onDelta: () => {},
-    });
+      await openaiProvider.streamChat({
+        apiKey: "sk-test",
+        model,
+        messages: [{ role: "user", content: "hi" }],
+        options: { reasoningEffort: "none" },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      });
 
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "https://api.openai.com/v1/chat/completions"
-    );
-  });
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "https://api.openai.com/v1/chat/completions"
+      );
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+        model,
+        reasoning_effort: "low",
+      });
+    }
+  );
 
   it("uses Responses when hosted web_search is requested", async () => {
     const fetchMock = vi.fn(async () =>

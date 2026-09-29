@@ -23,8 +23,8 @@ const OPENAI_COMPAT_REASONING_EFFORTS = Object.freeze([
 /**
  * Lowest OpenAI-compatible effort for IPA `"none"` on a known model id.
  * OpenAI: models before gpt-5.1 do not support `"none"` (use `"minimal"`);
- * gpt-5.1+ does. GPT-6 Astra rejects `"none"` / `"minimal"` (use `"low"`),
- * while GPT-6 Sol and Luna support `"none"`.
+ * gpt-5.1+ does. GPT-6 Astra and GPT-6.1 Sol reject `"none"` / `"minimal"`
+ * (use `"low"`), while GPT-6 Sol and Luna support `"none"`.
  * gpt-4.x is not a reasoning family — omit the field.
  * Unknown slugs return undefined so the caller can pass `"none"` through.
  *
@@ -36,6 +36,7 @@ export function mapOpenAINoneReasoningEffort(model) {
   const id = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
   if (/^gpt-4/i.test(id)) return undefined;
   if (/^gpt-6-astra(?:$|-)/i.test(id)) return "low";
+  if (/^gpt-6\.1-sol(?:$|-)/i.test(id)) return "low";
   if (/^gpt-6/i.test(id)) return "none";
   const match = /^gpt-5(?:\.(\d+))?/i.exec(id);
   if (!match) return undefined;

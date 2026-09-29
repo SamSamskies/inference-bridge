@@ -10,6 +10,20 @@ import {
 } from "../src/providers/reasoning-effort.js";
 
 describe("mapReasoningEffortForOpenAICompat", () => {
+  it.each([
+    "gpt-6.1-sol",
+    "gpt-6.1-sol-2026-09-29",
+    "openai/gpt-6.1-sol",
+    "openai/gpt-6.1-sol-2026-09-29",
+  ])("uses at least low reasoning effort for %s", (model) => {
+    expect(mapReasoningEffortForOpenAICompat("none", model)).toBe("low");
+    expect(mapReasoningEffortForOpenAICompat("auto", model)).toBeUndefined();
+    expect(mapReasoningEffortForOpenAICompat(undefined, model)).toBeUndefined();
+    for (const effort of ["low", "medium", "high"]) {
+      expect(mapReasoningEffortForOpenAICompat(effort, model)).toBe(effort);
+    }
+  });
+
   it("omits auto and undefined", () => {
     expect(mapReasoningEffortForOpenAICompat(undefined)).toBeUndefined();
     expect(mapReasoningEffortForOpenAICompat("auto")).toBeUndefined();
