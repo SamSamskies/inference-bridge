@@ -516,6 +516,56 @@ describe("openrouterProvider.streamChat", () => {
     );
   });
 
+  it("retries without none when an endpoint requires reasoning", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (body.reasoning_effort === "none") {
+        return jsonResponse(
+          {
+            error: {
+              message: "Provider returned error",
+              metadata: {
+                raw: JSON.stringify({
+                  error: {
+                    message:
+                      "Reasoning is mandatory for this endpoint and cannot be disabled.",
+                  },
+                }),
+              },
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openrouterProvider.streamChat({
+      apiKey: "sk-or-test",
+      model: "example/mandatory-reasoning-model",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe(
+      "none"
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty(
+      "reasoning_effort"
+    );
+  });
+
   it("maps options.temperature to temperature", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse(
