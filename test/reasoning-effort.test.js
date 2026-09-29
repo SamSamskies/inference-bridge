@@ -70,6 +70,12 @@ describe("mapReasoningEffortForAnthropic", () => {
     expect(
       mapReasoningEffortForAnthropic("none", "claude-opus-5-5")
     ).toBeUndefined();
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-sonnet-5-5")
+    ).toEqual({ thinking: { type: "between_tools" } });
+    expect(
+      mapReasoningEffortForAnthropic("none", "anthropic/claude-sonnet-5-5")
+    ).toEqual({ thinking: { type: "between_tools" } });
   });
 
   it("enables adaptive thinking with output_config.effort on Claude 4.6+", () => {
@@ -185,6 +191,23 @@ describe("OpenAI-compat reasoning-effort retry helpers", () => {
     ).toEqual({ retry: false });
     expect(
       nextOpenAICompatReasoningEffortAfterError(400, NANO_NONE_ERROR, undefined)
+    ).toEqual({ retry: false });
+  });
+
+  it("omits none when OpenRouter says reasoning is mandatory", () => {
+    const detail =
+      "Reasoning is mandatory for this endpoint and cannot be disabled.";
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(400, detail, "none")
+    ).toEqual({ retry: true, effort: undefined });
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(422, detail, "none")
+    ).toEqual({ retry: true, effort: undefined });
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(400, detail, "low")
+    ).toEqual({ retry: false });
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(401, detail, "none")
     ).toEqual({ retry: false });
   });
 });

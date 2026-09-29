@@ -940,6 +940,58 @@ describe("anthropicProvider", () => {
     const fableBody = JSON.parse(fetchMock.mock.calls[4][1].body);
     expect(fableBody).not.toHaveProperty("thinking");
     expect(fableBody).not.toHaveProperty("output_config");
+
+    await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-sonnet-5-5",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    expect(JSON.parse(fetchMock.mock.calls[5][1].body).thinking).toEqual({
+      type: "between_tools",
+    });
+  });
+
+  it("retries without disabled thinking when a newer Claude model rejects it", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (body.thinking?.type === "disabled") {
+        return jsonResponse(
+          {
+            error: {
+              type: "invalid_request_error",
+              message:
+                '"thinking.type.disabled" is not supported for this model. Use "thinking.type.adaptive".',
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n'
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-new-6",
+      messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: "none" },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).thinking).toEqual({
+      type: "disabled",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty(
+      "thinking"
+    );
   });
 
   it("maps options.temperature and clamps above 1 for Anthropic", async () => {
@@ -988,4 +1040,3 @@ describe("anthropicProvider", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
   });
 });
-

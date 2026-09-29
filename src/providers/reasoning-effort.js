@@ -137,6 +137,13 @@ export function nextOpenAICompatReasoningEffortAfterError(
   sentEffort
 ) {
   if (sentEffort === undefined) return { retry: false };
+  if (
+    sentEffort === "none" &&
+    (status === 400 || status === 422) &&
+    /\breasoning\b.*\bmandatory\b.*\bcannot be disabled\b/i.test(message)
+  ) {
+    return { retry: true, effort: undefined };
+  }
   if (!isUnsupportedReasoningEffortError(status, message)) {
     return { retry: false };
   }
@@ -210,17 +217,29 @@ export function anthropicRejectsDisabledThinking(model) {
   );
 }
 
+/** Claude Sonnet 5.5 uses `between_tools` as its lowest thinking setting. */
+function anthropicUsesBetweenToolsForNone(model) {
+  const parsed = parseAnthropicModel(model);
+  return Boolean(
+    parsed &&
+      parsed.family === "sonnet" &&
+      parsed.major === 5 &&
+      parsed.minor === 5
+  );
+}
+
 /**
  * Anthropic Messages API: adaptive thinking + `output_config.effort` on
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
- * Claude 4.5 and earlier. Fable 5 and Opus 5.5 cannot disable thinking —
- * IPA `"none"` omits the field rather than 400.
+ * Claude 4.5 and earlier. Sonnet 5.5 uses `between_tools` for IPA `"none"`;
+ * Fable 5 and Opus 5.5 cannot disable thinking, so omit the field.
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]
  * @returns {{
  *   thinking:
  *     | { type: "disabled" }
+ *     | { type: "between_tools" }
  *     | { type: "adaptive" }
  *     | { type: "enabled", budget_tokens: number },
  *   output_config?: { effort: "low" | "medium" | "high" },
@@ -229,6 +248,9 @@ export function anthropicRejectsDisabledThinking(model) {
 export function mapReasoningEffortForAnthropic(effort, model) {
   if (effort == null || effort === "auto") return undefined;
   if (effort === "none") {
+    if (anthropicUsesBetweenToolsForNone(model)) {
+      return { thinking: { type: "between_tools" } };
+    }
     if (anthropicRejectsDisabledThinking(model)) return undefined;
     return { thinking: { type: "disabled" } };
   }

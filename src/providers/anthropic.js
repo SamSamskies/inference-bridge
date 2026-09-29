@@ -359,41 +359,62 @@ export const anthropicProvider = {
       requestBody.temperature = temperature;
     }
 
-    let response;
-    try {
-      response = await fetch(ANTHROPIC_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey || "",
-          "anthropic-version": ANTHROPIC_VERSION,
-          // Required for browser / extension fetch (CORS). Keys stay in the SW.
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify(requestBody),
-        signal,
-      });
-    } catch (err) {
-      if (signal.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
-        throwInference("aborted", "Request aborted");
+    async function sendRequest() {
+      try {
+        return await fetch(ANTHROPIC_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey || "",
+            "anthropic-version": ANTHROPIC_VERSION,
+            // Required for browser / extension fetch (CORS). Keys stay in the SW.
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify(requestBody),
+          signal,
+        });
+      } catch (err) {
+        if (signal.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
+          throwInference("aborted", "Request aborted");
+        }
+        throwInference(
+          "unavailable",
+          err instanceof Error ? err.message : "Network error contacting Anthropic"
+        );
       }
-      throwInference(
-        "unavailable",
-        err instanceof Error ? err.message : "Network error contacting Anthropic"
-      );
     }
 
-    if (!response.ok) {
-      let detail = `Anthropic HTTP ${response.status}`;
+    /** @param {Response} failedResponse */
+    async function errorDetail(failedResponse) {
+      let detail = `Anthropic HTTP ${failedResponse.status}`;
       try {
-        const body = await response.json();
+        const body = await failedResponse.json();
         const fromBody = anthropicErrorMessage(body);
         if (fromBody) detail = fromBody;
       } catch {
         // ignore parse failure
       }
-      const mappedStatus = mapAnthropicStatus(response.status, detail);
-      throwInference(mappedStatus.code, mappedStatus.message);
+      return detail;
+    }
+
+    let response = await sendRequest();
+    if (!response.ok) {
+      let detail = await errorDetail(response);
+      // Future models may also require thinking. Retry a rejected `none`
+      // preference once without the field, preserving the provider default.
+      if (
+        (response.status === 400 || response.status === 422) &&
+        requestBody.thinking?.type === "disabled" &&
+        /thinking\.type\.disabled.*not supported/i.test(detail)
+      ) {
+        delete requestBody.thinking;
+        response = await sendRequest();
+        if (!response.ok) detail = await errorDetail(response);
+      }
+      if (!response.ok) {
+        const mappedStatus = mapAnthropicStatus(response.status, detail);
+        throwInference(mappedStatus.code, mappedStatus.message);
+      }
     }
 
     if (!response.body) {
