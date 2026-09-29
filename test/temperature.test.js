@@ -25,11 +25,26 @@ describe("mapTemperatureForAnthropic", () => {
   });
 
   it("passes through values in [0, 1] and clamps above 1", () => {
-    expect(mapTemperatureForAnthropic(0)).toBe(0);
-    expect(mapTemperatureForAnthropic(0.5)).toBe(0.5);
-    expect(mapTemperatureForAnthropic(1)).toBe(1);
-    expect(mapTemperatureForAnthropic(1.5)).toBe(1);
-    expect(mapTemperatureForAnthropic(2)).toBe(1);
+    expect(mapTemperatureForAnthropic(0, "claude-sonnet-4-6")).toBe(0);
+    expect(mapTemperatureForAnthropic(0.5, "claude-sonnet-4-6")).toBe(0.5);
+    expect(mapTemperatureForAnthropic(1, "claude-sonnet-4-6")).toBe(1);
+    expect(mapTemperatureForAnthropic(1.5, "claude-sonnet-4-6")).toBe(1);
+    expect(mapTemperatureForAnthropic(2, "claude-sonnet-4-6")).toBe(1);
+  });
+
+  it("omits deprecated sampling controls on Claude 4.7 and later", () => {
+    for (const model of [
+      "claude-opus-4-7",
+      "claude-opus-4-8",
+      "claude-sonnet-5",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "anthropic/claude-opus-5-5",
+    ]) {
+      expect(mapTemperatureForAnthropic(0.4, model)).toBeUndefined();
+    }
+    expect(mapTemperatureForAnthropic(0.4, "claude-sonnet-4-6")).toBe(0.4);
+    expect(mapTemperatureForAnthropic(0.4, "claude-opus-4-20250514")).toBe(0.4);
   });
 });
 
@@ -52,6 +67,12 @@ describe("OpenAI-compat temperature retry helpers", () => {
     expect(isUnsupportedTemperatureError(400, NANO_TEMPERATURE_ERROR)).toBe(
       true
     );
+    expect(
+      isUnsupportedTemperatureError(
+        400,
+        "`temperature` is deprecated for this model."
+      )
+    ).toBe(true);
     expect(isUnsupportedTemperatureError(401, NANO_TEMPERATURE_ERROR)).toBe(
       false
     );

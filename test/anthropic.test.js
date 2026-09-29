@@ -1008,7 +1008,7 @@ describe("anthropicProvider", () => {
 
     await anthropicProvider.streamChat({
       apiKey: "sk-ant-test",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-4-6",
       messages: [{ role: "user", content: "hi" }],
       options: { temperature: 0.4 },
       signal: new AbortController().signal,
@@ -1018,13 +1018,64 @@ describe("anthropicProvider", () => {
 
     await anthropicProvider.streamChat({
       apiKey: "sk-ant-test",
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-4-6",
       messages: [{ role: "user", content: "hi" }],
       options: { temperature: 1.8 },
       signal: new AbortController().signal,
       onDelta: () => {},
     });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBe(1);
+  });
+
+  it("omits temperature on Sonnet 5.5 and Opus 5.5", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse('data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n')
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const model of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      await anthropicProvider.streamChat({
+        apiKey: "sk-ant-test",
+        model,
+        messages: [{ role: "user", content: "hi" }],
+        options: { temperature: 0.4 },
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse(init.body)).not.toHaveProperty("temperature");
+    }
+  });
+
+  it("retries once without temperature when an unknown model deprecates it", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      if (JSON.parse(init.body).temperature !== undefined) {
+        return jsonResponse(
+          { error: { message: "`temperature` is deprecated for this model." } },
+          400
+        );
+      }
+      return sseResponse('data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n');
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await anthropicProvider.streamChat({
+      apiKey: "sk-ant-test",
+      model: "claude-new-model",
+      messages: [{ role: "user", content: "hi" }],
+      options: { temperature: 0.4 },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).temperature).toBe(0.4);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty(
+      "temperature"
+    );
   });
 
   it("fail-closes output.images", async () => {

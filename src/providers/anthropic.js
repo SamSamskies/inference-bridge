@@ -12,7 +12,10 @@ import {
   omitHostedWebSearchIfNone,
 } from "./hosted-tools.js";
 import { mapReasoningEffortForAnthropic } from "./reasoning-effort.js";
-import { mapTemperatureForAnthropic } from "./temperature.js";
+import {
+  isUnsupportedTemperatureError,
+  mapTemperatureForAnthropic,
+} from "./temperature.js";
 
 export const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
@@ -354,7 +357,7 @@ export const anthropicProvider = {
         requestBody.output_config = thinking.output_config;
       }
     }
-    const temperature = mapTemperatureForAnthropic(options?.temperature);
+    const temperature = mapTemperatureForAnthropic(options?.temperature, model);
     if (temperature !== undefined) {
       requestBody.temperature = temperature;
     }
@@ -398,23 +401,27 @@ export const anthropicProvider = {
     }
 
     let response = await sendRequest();
-    if (!response.ok) {
-      let detail = await errorDetail(response);
-      // Future models may also require thinking. Retry a rejected `none`
-      // preference once without the field, preserving the provider default.
-      if (
+    for (let retries = 0; !response.ok; retries++) {
+      const detail = await errorDetail(response);
+      const rejectedDisabledThinking =
         (response.status === 400 || response.status === 422) &&
         requestBody.thinking?.type === "disabled" &&
-        /thinking\.type\.disabled.*not supported/i.test(detail)
-      ) {
+        /thinking\.type\.disabled.*not supported/i.test(detail);
+      if (retries < 2 && rejectedDisabledThinking) {
+        // Future models may require thinking even when `none` was requested.
         delete requestBody.thinking;
-        response = await sendRequest();
-        if (!response.ok) detail = await errorDetail(response);
-      }
-      if (!response.ok) {
+      } else if (
+        retries < 2 &&
+        requestBody.temperature !== undefined &&
+        isUnsupportedTemperatureError(response.status, detail)
+      ) {
+        // Unknown models may deprecate temperature before their IDs are mapped.
+        delete requestBody.temperature;
+      } else {
         const mappedStatus = mapAnthropicStatus(response.status, detail);
         throwInference(mappedStatus.code, mappedStatus.message);
       }
+      response = await sendRequest();
     }
 
     if (!response.body) {

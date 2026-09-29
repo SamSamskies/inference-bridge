@@ -290,9 +290,9 @@ IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
 | IPA `temperature` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted | omit `temperature` | omit `temperature` | omit `options.temperature` |
-| `0`–`2` | top-level `temperature` | top-level `temperature`, clamped to `[0, 1]` | nested `options: { temperature }` |
+| `0`–`2` | top-level `temperature` | top-level `temperature`, clamped to `[0, 1]` on Claude 4.6 and earlier; omitted on Claude 4.7+ | nested `options: { temperature }` |
 
-Values outside `[0, 2]` or non-finite numbers are `invalid_request`. Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot honor the value. OpenAI-compatible APIs retry once without `temperature` when a 400 names that field (some GPT-5 reasoning models, including gpt-5-nano, only accept the default `1`). On-device Prompt API ignores temperature today.
+Values outside `[0, 2]` or non-finite numbers are `invalid_request`. Mapping is **best-effort**: Bridge does not fail solely because the selected model cannot honor the value. Claude 4.7+ deprecates non-default `temperature`; Bridge omits the field for those models and retries without it if another Anthropic model rejects it. OpenAI-compatible APIs retry once without `temperature` when a 400 names that field (some GPT-5 reasoning models, including gpt-5-nano, only accept the default `1`). On-device Prompt API ignores temperature today.
 
 
 ## Tools
