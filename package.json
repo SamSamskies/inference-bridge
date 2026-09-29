@@ -10,6 +10,7 @@
     "package:firefox": "node scripts/package.mjs firefox",
     "dev:firefox": "npm run package:firefox && web-ext run --source-dir build/firefox --target firefox-desktop",
     "package:all": "node scripts/package.mjs all",
+    "package:firefox-source": "node scripts/package-firefox-source.mjs",
     "lint:firefox": "npm run package:firefox && node scripts/lint-firefox.mjs"
   },
   "devDependencies": {

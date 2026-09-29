@@ -31,7 +31,7 @@ Release progress:
 - [ ] 4. Inspect the Chrome ZIP and any Firefox artifacts needed for this release
 - [ ] 5. Commit version bump
 - [ ] 6. Tag vX.Y.Z and push tag (triggers release workflow artifact)
-- [ ] 7. Create GitHub Release with notes
+- [ ] 7. Create GitHub Release with notes (attach Chrome ZIP; if Firefox is in scope, also attach Firefox ZIP + reviewer source ZIP)
 - [ ] 8. Hand off store upload checklist to user
 ```
 
@@ -100,6 +100,7 @@ Pushing `v*` runs `.github/workflows/release.yml`, which tests and uploads the C
 ### 7. GitHub Release
 
 ```bash
+# After tag push + CI (or local npm run package:firefox-source on the tagged commit):
 gh release create vX.Y.Z \
   --title "vX.Y.Z" \
   --notes "$(cat <<'EOF'
@@ -108,12 +109,18 @@ gh release create vX.Y.Z \
 
 ## Chrome Web Store
 Upload `dist/inference-bridge-X.Y.Z.zip` (or the release workflow artifact).
+
+## Firefox / AMO
+Upload `dist/inference-bridge-firefox-X.Y.Z.zip` and `dist/inference-bridge-firefox-source-vX.Y.Z.zip`.
+Answer Yes to source code on AMO.
 EOF
 )" \
-  dist/inference-bridge-X.Y.Z.zip
+  dist/inference-bridge-X.Y.Z.zip \
+  dist/inference-bridge-firefox-X.Y.Z.zip \
+  dist/inference-bridge-firefox-source-vX.Y.Z.zip
 ```
 
-Attach the local Chrome ZIP so it is downloadable without digging through Actions. If Firefox is also being released, attach the matching Firefox ZIP from the same tag workflow artifact and follow [ship-firefox-release](../ship-firefox-release/SKILL.md) for AMO. Keep the Firefox reviewer-source artifact available for AMO submission.
+Always attach the Chrome ZIP. When Firefox is also a release target (or when packaging both browsers for the tag), also attach the Firefox unsigned ZIP **and** the reviewer source ZIP (`inference-bridge-firefox-source-vX.Y.Z.zip` from CI or `npm run package:firefox-source`). Do not leave AMO source as Actions-only — reviewers and the submitter need it on the GitHub Release. Follow [ship-firefox-release](../ship-firefox-release/SKILL.md) for AMO steps.
 
 ### 8. Store handoff
 
@@ -125,7 +132,7 @@ Give the user:
 4. Asset check: screenshots in `dist/store-screenshots/` — **re-capture Options/approval if UI changed** this release
 5. After publish: update README Installation with the store URL
 
-If Firefox is also targeted, hand off its ZIP and reviewer source ZIP to the Firefox workflow; do not treat signing an unlisted XPI as public AMO publication.
+If Firefox is also targeted, hand off paths/URLs for both `inference-bridge-firefox-<version>.zip` and `inference-bridge-firefox-source-vX.Y.Z.zip`, and remind the user to answer **Yes** on AMO's source-code question; do not treat signing an unlisted XPI as public AMO publication.
 
 Do not store or request Chrome Web Store API credentials. Submission stays manual.
 

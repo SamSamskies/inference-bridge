@@ -11,7 +11,7 @@ Use this workflow when a user needs to test a Firefox extension that stays insta
 
 1. Check the working tree and current branch. Do not include uncommitted changes in an archive silently; tell the user whether the build will use committed code or ask them to commit/stash if the submission needs another source snapshot.
 2. Run `npm run package:firefox`. The unsigned add-on ZIP is `dist/inference-bridge-firefox-<version>.zip`; its staged source root is `build/firefox/`.
-3. If the package or source code changed, keep their source snapshots aligned. The source ZIP must correspond to the exact code used for the add-on ZIP. For a tagged release, prefer the `inference-bridge-firefox-source-<tag>.zip` reviewer source asset produced by `.github/workflows/release.yml`. For an unmerged branch without a release asset, first ensure the working tree is clean and the package was built from `HEAD`, then create a local reviewer archive with build instructions and tool versions:
+3. If the package or source code changed, keep their source snapshots aligned. The source ZIP must correspond to the exact code used for the add-on ZIP. For a tagged release, prefer `npm run package:firefox-source` (requires an exact `vX.Y.Z` tag on HEAD) or the `inference-bridge-firefox-source-<tag>.zip` reviewer source asset from `.github/workflows/release.yml` / the GitHub Release. For an unmerged branch without a release asset, first ensure the working tree is clean and the package was built from `HEAD`, then create a local reviewer archive with build instructions and tool versions:
 
    ```sh
    node --version > dist/firefox-build-info.txt
