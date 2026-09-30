@@ -596,20 +596,21 @@
             if (end <= uploadOffset) {
               throw makeError("aborted", "Binary upload requested past end.");
             }
-            const buffer = await uploadSource
-              .slice(uploadOffset, end)
-              .arrayBuffer();
+            // Encode inside MAIN: Firefox's isolated world cannot read a
+            // transferred page ArrayBuffer through its Xray wrapper.
+            const encoded = await blobToBase64(
+              uploadSource.slice(uploadOffset, end)
+            );
             if (state === "closed") return;
             bridgePort.postMessage(
               {
                 type: "binary-chunk",
                 streamId,
                 sequence: uploadSequence,
-                byteLength: buffer.byteLength,
+                byteLength: end - uploadOffset,
                 done: end === uploadSource.size,
-                data: buffer,
-              },
-              [buffer]
+                data: encoded,
+              }
             );
             uploadOffset = end;
             uploadSequence += 1;

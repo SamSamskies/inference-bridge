@@ -89,14 +89,6 @@ const compatStatusEl = document.getElementById("compatStatus");
 const settingsTabs = Array.from(
   document.querySelectorAll('[role="tab"][aria-controls]'),
 );
-const firefoxBuild = isFirefoxBuild();
-if (firefoxBuild) {
-  document.getElementById("speechDescription").textContent =
-    "Experimental speech is not available in this Firefox build.";
-  document.getElementById("firefoxSpeechNotice").hidden = false;
-  document.getElementById("speechSettings").hidden = true;
-  experimentalSpeechEnabledInput.disabled = true;
-}
 
 /**
  * @param {Element} tab
@@ -1979,7 +1971,7 @@ async function load() {
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
   experimentalSpeechEnabledInput.checked =
-    !firefoxBuild && settings.experimentalSpeechEnabled === true;
+    settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
   await refreshProviderHostAccess();
   savedDefaultProviderId = settings.defaultProviderId;
@@ -2014,7 +2006,7 @@ async function load() {
     effectiveProvider,
     preferredDefaultModel(effectiveProvider),
   );
-  if (!firefoxBuild) await loadSpeechDefaultControls(settings);
+  await loadSpeechDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
   await renderSpeechOrigins();

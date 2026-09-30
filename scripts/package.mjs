@@ -62,12 +62,12 @@ function firefoxManifest() {
     gecko: {
       id: "inference-bridge@samsamskies.github.io",
       strict_min_version: "140.0",
-      // Speech and the Chrome Prompt API are disabled in this artifact.
-      // Chat messages, page text/images, credentials and hosted search terms
-      // can leave the browser only for the provider the user selects.
+      // Chat, page content, credentials, search terms, and opt-in speech
+      // recordings can leave the browser only for the selected provider.
       data_collection_permissions: {
         required: [
           "authenticationInfo",
+          "personallyIdentifyingInfo",
           "personalCommunications",
           "websiteContent",
           "searchTerms",
