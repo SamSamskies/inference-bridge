@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - `window.inference.request()` for streaming text chat, function tools, hosted `{ type: "web_search" }`, and images (`ImagePart` / `output.images`)
 - `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `imageInput`, `imageOutput`, `options.reasoningEffort`, `options.temperature`)
-- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()` (Chrome only in the first Firefox preview)
+- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()`
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and Chrome On-device (Prompt API) support
@@ -32,7 +32,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 
 Install from [Firefox Browser Add-ons](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/). Desktop Firefox 140+.
 
-The Firefox build supports the remote/local chat providers and custom OpenAI-compatible servers. Chrome's On-device Prompt API provider and experimental speech are disabled. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
+The Firefox build supports the remote/local chat providers, custom OpenAI-compatible servers, and the same opt-in experimental transcription and speech synthesis as Chrome. Chrome's On-device Prompt API provider is unavailable. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
 
 For local development or unreleased builds:
 
@@ -649,17 +649,14 @@ document.body.append(audio); // Playback remains an explicit user action.
 Paste-ready transcription example:
 
 ```js
-const [handle] = await window.showOpenFilePicker({
-  multiple: false,
-  types: [{
-    description: "Audio or video",
-    accept: {
-      "audio/*": [".mp3", ".wav", ".m4a", ".mp4", ".webm"],
-      "video/*": [".mp4", ".webm"]
-    }
-  }]
+const picker = document.createElement("input");
+picker.type = "file";
+picker.accept = "audio/*,video/mp4,video/webm";
+document.body.append(picker); // Select a completed recording in the page.
+const file = await new Promise((resolve) => {
+  picker.addEventListener("change", () => resolve(picker.files[0]), { once: true });
 });
-const file = await handle.getFile();
+picker.remove();
 
 for await (const chunk of window.inference.experimental.request({
   method: "transcribe",
@@ -674,8 +671,12 @@ Page-owned recording also stays bounded: record first, stop the microphone,
 then submit the completed `Blob`:
 
 ```js
+const recordingType = ["audio/webm", "audio/mp4"].find((type) =>
+  MediaRecorder.isTypeSupported(type)
+);
+if (!recordingType) throw new Error("No supported recording format available.");
 const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
-const recorder = new MediaRecorder(microphone);
+const recorder = new MediaRecorder(microphone, { mimeType: recordingType });
 const parts = [];
 recorder.ondataavailable = ({ data }) => {
   if (data.size) parts.push(data);

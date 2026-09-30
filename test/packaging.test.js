@@ -49,6 +49,7 @@ describe("browser packages", () => {
         expect(manifest.optional_host_permissions).not.toContain("http://*/*");
         expect(manifest.browser_specific_settings.gecko.strict_min_version).toBe("140.0");
         expect(manifest.browser_specific_settings.gecko.data_collection_permissions.required).not.toContain("none");
+        expect(manifest.browser_specific_settings.gecko.data_collection_permissions.required).toContain("personallyIdentifyingInfo");
         expect(manifest.browser_specific_settings.gecko_android).toBeUndefined();
         expect(manifest.incognito).toBe("not_allowed");
         expect(manifest.content_security_policy.extension_pages).not.toContain("upgrade-insecure-requests");

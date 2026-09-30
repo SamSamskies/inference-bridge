@@ -26,7 +26,7 @@
     try {
       bridgePort.postMessage({
         type: "feature-state",
-        experimentalSpeechEnabled: !isFirefox && enabled === true,
+        experimentalSpeechEnabled: enabled === true,
       });
     } catch {
       // ignore — page may have navigated away
@@ -66,24 +66,22 @@
           });
           return;
         }
-        if (!(data.data instanceof ArrayBuffer) || data.data.byteLength === 0) {
+        // MAIN encodes each bounded chunk before crossing Firefox's Xray
+        // boundary. Reading a page ArrayBuffer here can throw a permissions
+        // error even when a cross-realm brand check succeeds.
+        if (
+          typeof data.data !== "string" || !data.data ||
+          !Number.isSafeInteger(data.byteLength) || data.byteLength <= 0
+        ) {
           throw new Error("Invalid binary chunk");
-        }
-        const bytes = new Uint8Array(data.data);
-        let binary = "";
-        const batchBytes = 0x8000;
-        for (let offset = 0; offset < bytes.length; offset += batchBytes) {
-          binary += String.fromCharCode(
-            ...bytes.subarray(offset, offset + batchBytes)
-          );
         }
         port.postMessage({
           type: "binary-chunk",
           streamId: data.streamId,
           sequence: data.sequence,
-          byteLength: bytes.byteLength,
+          byteLength: data.byteLength,
           done: data.done === true,
-          data: btoa(binary),
+          data: data.data,
         });
       } catch {
         try {

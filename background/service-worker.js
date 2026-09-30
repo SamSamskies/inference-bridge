@@ -793,9 +793,6 @@ async function handleSpeechStart({
   controller,
 }) {
   let settings = await getSettings();
-  if (isFirefoxBuild()) {
-    throw inferenceError("unavailable", "Experimental speech is not available in the Firefox build.");
-  }
   if (!settings.experimentalSpeechEnabled) {
     throw inferenceError(
       "invalid_request",
@@ -889,6 +886,12 @@ async function handleSpeechStart({
     throw inferenceError(
       "unavailable",
       `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
+    );
+  }
+  if (!(await hasBuiltInHostPermission(provider.id))) {
+    throw inferenceError(
+      "unavailable",
+      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
     );
   }
   const model = permission.model;

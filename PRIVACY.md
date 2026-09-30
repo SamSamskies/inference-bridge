@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-09-25
+**Last updated:** 2026-09-30
 
 Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
@@ -8,11 +8,11 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 
 - API keys and provider settings are stored in the browser's local extension storage. That storage is not encrypted by Inference Bridge. Page scripts cannot read it.
 - Inference request content is sent only to the provider the user selects (for example OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI, or a user-configured OpenAI-compatible server).
-- In Chrome, when experimental speech is enabled and approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page. Experimental speech is disabled in the first Firefox build.
+- In Chrome and Firefox, when experimental speech is enabled and approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
 - The first Firefox build is unavailable in private windows, so private-session requests and grants are not persisted by this add-on.
-- Recordings, transcripts, and generated audio are held only in memory for the active Chrome request and are never stored in extension storage.
+- Recordings, transcripts, and generated audio are held only in memory for the active request and are never stored in extension storage.
 - Recordings can contain biometric voice data and sensitive information about the speaker or bystanders, including location, health information, background conversations, and other ambient sounds.
 
 ## Data the extension stores locally
@@ -24,7 +24,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 | Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | Local extension storage |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | Local extension storage |
 | Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | Local extension storage |
-| Per-origin speech grants and provider/model/voice choices (Chrome only) | Keep transcription and synthesis authorization separate from chat and from each other | Local extension storage |
+| Per-origin speech grants and provider/model/voice choices | Keep transcription and synthesis authorization separate from chat and from each other | Local extension storage |
 
 Settings and grants stay on the device unless the user clears extension storage or uninstalls the extension. API keys are sent to their selected provider when needed to authenticate a request. Local extension storage is not encrypted by Inference Bridge or Firefox.
 

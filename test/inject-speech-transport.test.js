@@ -123,7 +123,8 @@ describe("MAIN-world speech transport", () => {
           message.type === "binary-chunk" && message.sequence === 0
       )
     );
-    expect([...new Uint8Array(first.data)]).toEqual([1, 2]);
+    expect(first.data).toBe(btoa(String.fromCharCode(1, 2)));
+    expect(first.byteLength).toBe(2);
     expect(first.done).toBe(false);
 
     port.postMessage({
@@ -138,7 +139,8 @@ describe("MAIN-world speech transport", () => {
           message.type === "binary-chunk" && message.sequence === 1
       )
     );
-    expect([...new Uint8Array(second.data)]).toEqual([3, 4, 5]);
+    expect(second.data).toBe(btoa(String.fromCharCode(3, 4, 5)));
+    expect(second.byteLength).toBe(3);
     expect(second.done).toBe(true);
 
     port.postMessage({

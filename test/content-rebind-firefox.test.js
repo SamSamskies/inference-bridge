@@ -42,12 +42,17 @@ function runtimePort() {
 afterEach(() => vi.useRealTimers());
 
 describe("Firefox event-page loss", () => {
-  it("settles a page request if rebind never receives a response", async () => {
+  it.each([
+    { method: "chat", messages: [{ role: "user", content: "hi" }] },
+    { method: "transcribe", media: { mediaType: "audio/wav", byteLength: 3 } },
+    { method: "synthesize", text: "hi" },
+  ])("settles a $method request if rebind never receives a response", async (request) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-25T12:00:00Z"));
     const runtimePorts = [];
     const pageMessages = [];
     let pagePort;
+    let storageChanged;
     const chrome = {
       runtime: {
         getManifest: () => ({ browser_specific_settings: { gecko: {} } }),
@@ -59,7 +64,7 @@ describe("Firefox event-page loss", () => {
       },
       storage: {
         local: { get: async () => ({ experimentalSpeechEnabled: true }) },
-        onChanged: { addListener() {} },
+        onChanged: { addListener(listener) { storageChanged = listener; } },
       },
     };
     const window = {
@@ -82,10 +87,22 @@ describe("Firefox event-page loss", () => {
       console,
     });
 
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pageMessages.at(-1)).toEqual({
+      type: "feature-state",
+      experimentalSpeechEnabled: true,
+    });
+    storageChanged({ experimentalSpeechEnabled: { newValue: false } }, "local");
+    expect(pageMessages.at(-1)).toEqual({
+      type: "feature-state",
+      experimentalSpeechEnabled: false,
+    });
+    storageChanged({ experimentalSpeechEnabled: { newValue: true } }, "local");
+
     pagePort.postMessage({
       type: "start",
       id: "page-1",
-      request: { method: "chat", messages: [{ role: "user", content: "hi" }] },
+      request,
     });
     runtimePorts[0].emit({ type: "started", streamId: "stream-1" });
     expect(pageMessages).toContainEqual({ id: "page-1", streamId: "stream-1" });
@@ -102,7 +119,7 @@ describe("Firefox event-page loss", () => {
     ]));
     expect(pageMessages).toContainEqual({
       type: "feature-state",
-      experimentalSpeechEnabled: false,
+      experimentalSpeechEnabled: true,
     });
   });
 });
