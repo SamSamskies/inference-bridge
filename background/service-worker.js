@@ -2,6 +2,7 @@
  * Service worker: permission gating, provider orchestration, streaming.
  */
 
+import { decisionApprovalPreview } from "../src/decisions.js";
 import { serializeInferenceError } from "../src/errors.js";
 import {
   validateExperimentalInferenceRequest,
@@ -12,6 +13,7 @@ import { getSettings, hasStoredApiKey } from "../src/storage.js";
 import {
   ensurePermission,
   ensureSpeechPermission,
+  ensureOperationPermission,
   resolveApproval,
   getPendingApproval,
   handleApprovalWindowClosed,
@@ -26,6 +28,7 @@ import {
   resolveProviderModels,
   resolveProviderVoices,
   providerSupportsMethod,
+  providerMethodCatalog,
   resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
 import { ollamaModelHasVision } from "../src/providers/ollama.js";
@@ -272,7 +275,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "list-providers") {
     const method =
-      message.method === "transcribe" || message.method === "synthesize"
+      message.method === "decide" ||
+      message.method === "transcribe" ||
+      message.method === "synthesize"
         ? message.method
         : "chat";
     const request =
@@ -285,48 +290,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
      *   Map when settings loaded; omit/`null` means unknown (do not claim hasApiKey: false).
      */
     const serializeProviders = (all, apiKeys) =>
-      all.map((p) => ({
-        operation: method,
-        id: p.id,
-        label: p.label,
-        requiresApiKey: Boolean(p.requiresApiKey),
-        optionalApiKey: Boolean(
-          /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
-        ),
-        ...(apiKeys
-          ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) }
-          : {}),
-        defaultModel:
-          method === "transcribe"
-            ? p.transcription?.defaultModel
-            : method === "synthesize"
-              ? p.synthesis?.defaultModel
-              : p.defaultModel,
-        ...(method === "synthesize" && p.synthesis?.defaultVoice
-          ? { defaultVoice: p.synthesis.defaultVoice }
-          : {}),
-        supportsFunctionTools: Boolean(p.supportsFunctionTools),
-        hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
-        // Static catalogs only; dynamic providers omit models here.
-        // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
-        models: (
-          method === "transcribe"
-            ? p.transcription?.models
-            : method === "synthesize"
-              ? p.synthesis?.models
-              : p.models
-        )
-          ? (
-              method === "transcribe"
-                ? p.transcription.models
-                : method === "synthesize"
-                  ? p.synthesis.models
-                  : p.models
-            ).map((entry) =>
-              typeof entry === "string" ? { id: entry } : entry
-            )
-          : undefined,
-      }));
+      all.map((p) => {
+        const catalog = providerMethodCatalog(p, method);
+        return {
+          operation: method,
+          id: p.id,
+          label: p.label,
+          requiresApiKey: Boolean(p.requiresApiKey),
+          optionalApiKey: Boolean(
+            /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
+          ),
+          ...(apiKeys ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) } : {}),
+          defaultModel: catalog?.defaultModel,
+          ...(method === "synthesize" && p.synthesis?.defaultVoice
+            ? { defaultVoice: p.synthesis.defaultVoice }
+            : {}),
+          supportsFunctionTools: Boolean(p.supportsFunctionTools),
+          hostedTools: Array.isArray(p.hostedTools) ? [...p.hostedTools] : [],
+          // Static catalogs only; dynamic providers omit models here.
+          // Normalize string entries to ModelInfo so the UI always sees { id, label? }.
+          models: catalog?.models?.map((entry) =>
+            typeof entry === "string" ? { id: entry } : entry
+          ),
+        };
+      });
 
     void listAllProviders()
       .then(async (all) => {
@@ -391,7 +378,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         try {
           const settings = await getSettings();
           const method =
-            message.method === "transcribe" || message.method === "synthesize"
+            message.method === "decide" ||
+            message.method === "transcribe" ||
+            message.method === "synthesize"
               ? message.method
               : "chat";
           const models = await resolveProviderModels(provider, {
@@ -406,12 +395,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             ok: true,
             providerId: provider.id,
             models,
-            defaultModel:
-              method === "transcribe"
-                ? provider.transcription?.defaultModel
-                : method === "synthesize"
-                  ? provider.synthesis?.defaultModel
-                  : provider.defaultModel,
+            defaultModel: providerMethodCatalog(provider, method)?.defaultModel,
           });
         } catch (err) {
           sendResponse({
@@ -776,6 +760,102 @@ function inferenceError(code, message) {
   return error;
 }
 
+/** Decision calls have no binary transfer or partial answer stream. */
+async function handleDecideStart({
+  streamId,
+  port,
+  origin,
+  request,
+  controller,
+}) {
+  let settings = await getSettings();
+  const capable = filterProvidersForMethod(await listAllProviders(), "decide");
+  const storedDefault = settings.operationDefaults.decide;
+  if (
+    storedDefault &&
+    !capable.some((provider) => provider.id === storedDefault.providerId)
+  ) {
+    throw inferenceError(
+      "unavailable",
+      "The selected provider does not support decisions."
+    );
+  }
+  const preferred =
+    capable.find((provider) => provider.id === storedDefault?.providerId) ||
+    capable[0];
+  if (!preferred)
+    throw inferenceError("unavailable", "No provider supports decisions.");
+  port.postMessage({ type: "started", streamId });
+  const permission = await ensureOperationPermission({
+    requestId: streamId,
+    origin,
+    method: "decide",
+    preferredProviderId: preferred.id,
+    preferredModel: storedDefault?.model || preferred.decisions.defaultModel,
+    ...decisionApprovalPreview(request),
+  });
+  let entry = activeStreams.get(streamId);
+  if (!entry || controller.signal.aborted) return streamId;
+  if (entry.portDisconnected) {
+    entry = await waitForPortRebind(streamId, Infinity);
+    if (!entry || controller.signal.aborted) return streamId;
+  }
+  if (!permission.allowed)
+    throw inferenceError(
+      permission.code || "permission_denied",
+      permission.message || "Permission denied by user."
+    );
+  entry.phase = "streaming";
+  settings = await getSettings();
+  const provider = await getProviderAsync(permission.providerId);
+  if (!providerSupportsMethod(provider, "decide"))
+    throw inferenceError(
+      "unavailable",
+      "The selected provider does not support decisions."
+    );
+  if (
+    provider.requiresApiKey &&
+    !hasStoredApiKey(settings.apiKeys[provider.id])
+  )
+    throw inferenceError(
+      "unavailable",
+      `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
+    );
+  if (!(await hasBuiltInHostPermission(provider.id)))
+    throw inferenceError(
+      "unavailable",
+      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+    );
+  const models = await resolveProviderModels(provider, {
+    method: "decide",
+    apiKey: settings.apiKeys[provider.id],
+    signal: controller.signal,
+  });
+  if (!models.some((model) => model.id === permission.model)) {
+    throw inferenceError(
+      "unavailable",
+      provider.id === "ollama"
+        ? "No matching installed decision model. Use Ollama 0.35+, run ollama pull nimble, then choose it in Options."
+        : "Choose a model from the OpenRouter Decisions catalog."
+    );
+  }
+  if (controller.signal.aborted || !activeStreams.has(streamId))
+    return streamId;
+  entry.port.postMessage({ type: "chunk", chunk: { type: "accepted" } });
+  const result = await provider.decide({
+    apiKey: settings.apiKeys[provider.id],
+    model: permission.model,
+    state: request.state,
+    questions: request.questions,
+    signal: controller.signal,
+  });
+  if (controller.signal.aborted || !activeStreams.has(streamId))
+    return streamId;
+  entry.port.postMessage({ type: "chunk", chunk: { type: "done", ...result } });
+  activeStreams.delete(streamId);
+  return streamId;
+}
+
 /**
  * @param {{
  *   streamId: string,
@@ -1114,6 +1194,11 @@ async function handleStart(port, msg, onStreamId) {
       sendError("invalid_request", validated.message);
       activeStreams.delete(streamId);
       return null;
+    }
+    if (validated.value.method === "decide") {
+      return await handleDecideStart({
+        streamId, port, origin, request: validated.value, controller,
+      });
     }
     if (validated.value.method !== "chat") {
       return await handleSpeechStart({

@@ -1,0 +1,24 @@
+{
+  "state": { "ticket": "Checkout is blank" },
+  "questions": {
+    "is_bug": { "type": "noul", "instructions": "Is this a software defect?" },
+    "team": {
+      "type": "choice",
+      "instructions": "Which team?",
+      "criteria": {
+        "account": null,
+        "frontend": "Rendering",
+        "payments": "Billing"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How urgent?",
+      "criteria": [
+        "Can wait for the next release",
+        "Should be fixed this week",
+        "Blocking revenue right now"
+      ]
+    }
+  }
+}

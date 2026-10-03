@@ -18,7 +18,7 @@ import {
   getOriginOperationLastUsed,
   grantOriginOperationAlways,
   setOriginOperationLastUsed,
-  isSpeechOperation,
+  isExperimentalOperation,
 } from "./storage.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import {
@@ -63,13 +63,15 @@ import {
  * } | {
  *   requestId: string,
  *   origin: string,
- *   method: "transcribe" | "synthesize",
+ *   method: "decide" | "transcribe" | "synthesize",
  *   providerId: string,
  *   model: string,
  *   voice?: string,
  *   mediaType?: string,
  *   byteLength?: number,
  *   text?: string,
+ *   stateSummary?: string,
+ *   questionSummaries?: Array<{ id: string, type: string }>,
  * }} ApprovalRequest
  */
 
@@ -467,29 +469,31 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
 }
 
 /**
- * Speech permission routing is separate from chat/tool episodes. Existing
- * allowedOrigins entries can never satisfy this function.
+ * Experimental operation permissions are separate from chat/tool episodes.
+ * Existing allowedOrigins entries can never satisfy this function.
  * @param {{
  *   requestId: string,
  *   origin: string,
- *   method: "transcribe" | "synthesize",
+ *   method: "decide" | "transcribe" | "synthesize",
  *   preferredProviderId?: string,
  *   preferredModel?: string,
  *   preferredVoice?: string,
  *   mediaType?: string,
  *   byteLength?: number,
  *   text?: string,
+ *   stateSummary?: string,
+ *   questionSummaries?: Array<{ id: string, type: string }>,
  * }} args
  */
-export async function ensureSpeechPermission(args) {
-  if (!isSpeechOperation(args.method)) {
+export async function ensureOperationPermission(args) {
+  if (!isExperimentalOperation(args.method)) {
     return {
       allowed: false,
       providerId: "",
       model: "",
       once: false,
       code: "invalid_request",
-      message: "Unknown speech operation.",
+      message: "Unknown experimental operation.",
     };
   }
 
@@ -565,6 +569,9 @@ export async function ensureSpeechPermission(args) {
       ? { byteLength: args.byteLength }
       : {}),
     ...(typeof args.text === "string" ? { text: args.text } : {}),
+    ...(args.method === "decide"
+      ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries }
+      : {}),
   });
   const chosenProviderId =
     typeof decision.providerId === "string"
@@ -630,6 +637,9 @@ export async function ensureSpeechPermission(args) {
       };
   }
 }
+
+// Backwards-compatible internal name for speech callers.
+export const ensureSpeechPermission = ensureOperationPermission;
 
 /**
  * Ensure the origin may proceed. Opens an approval popup when needed.

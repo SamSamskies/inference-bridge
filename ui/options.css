@@ -1,6 +1,6 @@
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -18,6 +18,7 @@
   font-size: 0.85rem;
   font-weight: 650;
   text-align: center;
+  white-space: nowrap;
 }
 
 .settings-tab:hover {
@@ -78,7 +79,7 @@
 
 @media (max-width: 420px) {
   .settings-tab {
-    padding-inline: 6px;
+    padding-inline: 2px;
     font-size: 0.8rem;
   }
 }

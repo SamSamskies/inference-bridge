@@ -65,6 +65,12 @@ const experimentalSpeechEnabledInput = document.getElementById(
 const experimentalSpeechStatus = document.getElementById(
   "experimentalSpeechStatus",
 );
+const experimentalDecisionsStatus = document.getElementById("experimentalDecisionsStatus");
+const decisionsProviderSelect = document.getElementById("decisionsProvider");
+const decisionsModelSelect = document.getElementById("decisionsModel");
+const decisionsModelHint = document.getElementById("decisionsModelHint");
+const decisionsOriginsEl = document.getElementById("decisionsOrigins");
+const decisionsOriginsEmpty = document.getElementById("decisionsOriginsEmpty");
 const transcriptionProviderSelect = document.getElementById(
   "transcriptionProvider",
 );
@@ -158,6 +164,8 @@ window.addEventListener("hashchange", () => {
 let providers = [];
 /** @type {Record<"transcribe" | "synthesize", any[]>} */
 let speechProviders = { transcribe: [], synthesize: [] };
+let decisionsProviders = [];
+let decisionsModelsLoadId = 0;
 
 /** @type {Array<{ id: string, name: string, baseUrl: string }>} */
 let compatEndpoints = [];
@@ -1535,10 +1543,12 @@ async function renderOrigins() {
   }
 }
 
-async function renderSpeechOrigins() {
+async function renderOperationOrigins() {
   const grants = await listOriginOperationGrants();
   speechOriginsEl.replaceChildren();
-  speechOriginsEmpty.hidden = grants.length > 0;
+  decisionsOriginsEl.replaceChildren();
+  speechOriginsEmpty.hidden = grants.some((grant) => grant.operation !== "decide");
+  decisionsOriginsEmpty.hidden = grants.some((grant) => grant.operation === "decide");
 
   for (const grant of grants) {
     const li = document.createElement("li");
@@ -1547,7 +1557,7 @@ async function renderSpeechOrigins() {
     const origin = document.createElement("code");
     origin.textContent = grant.origin;
     const operation =
-      grant.operation === "transcribe" ? "Transcription" : "Synthesis";
+      grant.operation === "decide" ? "Decisions" : grant.operation === "transcribe" ? "Transcription" : "Synthesis";
     const provider =
       providers.find((candidate) => candidate.id === grant.providerId)?.label ||
       grant.providerId;
@@ -1567,7 +1577,7 @@ async function renderSpeechOrigins() {
     button.textContent = "Revoke";
     button.addEventListener("click", async () => {
       const ok = await revokeOriginOperation(grant.origin, grant.operation);
-      await renderSpeechOrigins();
+      await renderOperationOrigins();
       setSiteAccessStatus(
         ok
           ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
@@ -1576,7 +1586,7 @@ async function renderSpeechOrigins() {
       );
     });
     li.append(meta, button);
-    speechOriginsEl.append(li);
+    (grant.operation === "decide" ? decisionsOriginsEl : speechOriginsEl).append(li);
   }
 }
 
@@ -1606,6 +1616,58 @@ async function loadSpeechModels(operation, providerId, preferredModel) {
   });
   const models = response?.ok ? normalizeModels(response.models) : [];
   return fillSimpleSelect(modelSelect, models, preferredModel);
+}
+
+async function loadDecisionModels(providerId, preferredModel) {
+  const loadId = ++decisionsModelsLoadId;
+  decisionsModelSelect.replaceChildren();
+  decisionsModelSelect.disabled = true;
+  const response = await chrome.runtime.sendMessage({
+    type: "list-models",
+    method: "decide",
+    providerId,
+  });
+  if (loadId !== decisionsModelsLoadId) return;
+  const models = response?.ok ? normalizeModels(response.models) : [];
+  fillSimpleSelect(decisionsModelSelect, models, preferredModel);
+  decisionsModelHint.textContent = models.length
+    ? providerId === "openrouter"
+      ? "Uses your saved OpenRouter API key and the Decisions alpha service."
+      : "Uses installed local decision models on Ollama 0.35+ (Clef requires 0.35.1+)."
+    : response?.error?.message ||
+      (providerId === "openrouter"
+        ? "No decision models are currently listed by OpenRouter."
+        : "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+.");
+}
+
+async function loadDecisionDefaultControls(settings) {
+  const response = await chrome.runtime.sendMessage({
+    type: "list-providers",
+    method: "decide",
+  });
+  decisionsProviders = Array.isArray(response?.providers)
+    ? response.providers
+    : [];
+  const stored = settings.operationDefaults.decide;
+  const providerId = fillSimpleSelect(
+    decisionsProviderSelect,
+    decisionsProviders,
+    stored?.providerId
+  );
+  const provider = decisionsProviders.find((entry) => entry.id === providerId);
+  await loadDecisionModels(
+    providerId,
+    stored?.providerId === providerId ? stored.model : provider?.defaultModel
+  );
+}
+
+async function persistDecisionDefault() {
+  const providerId = decisionsProviderSelect.value;
+  const model = decisionsModelSelect.value;
+  if (!providerId || !model || decisionsModelSelect.disabled) return;
+  await saveSettings({ operationDefaults: { decide: { providerId, model } } });
+  experimentalDecisionsStatus.textContent = "Decisions default saved.";
+  experimentalDecisionsStatus.className = "status ok";
 }
 
 async function loadSynthesisVoices(providerId, model, preferredVoice) {
@@ -2007,9 +2069,10 @@ async function load() {
     preferredDefaultModel(effectiveProvider),
   );
   await loadSpeechDefaultControls(settings);
+  await loadDecisionDefaultControls(settings);
   renderCompatEndpoints();
   await renderOrigins();
-  await renderSpeechOrigins();
+  await renderOperationOrigins();
   await renderBlocked();
 }
 
@@ -2106,6 +2169,26 @@ synthesisVoiceSelect.addEventListener("change", () => {
   void updateSpeechControl("synthesize", async () => {});
 });
 
+decisionsProviderSelect.addEventListener("change", async () => {
+  const providerId = decisionsProviderSelect.value;
+  const provider = decisionsProviders.find((entry) => entry.id === providerId);
+  try {
+    await loadDecisionModels(providerId, provider?.defaultModel);
+    if (providerId === decisionsProviderSelect.value)
+      await persistDecisionDefault();
+  } catch (err) {
+    experimentalDecisionsStatus.textContent =
+      err instanceof Error ? err.message : "Could not save decisions default.";
+    experimentalDecisionsStatus.className = "status err";
+  }
+});
+decisionsModelSelect.addEventListener("change", () => {
+  void persistDecisionDefault().catch((err) => {
+    experimentalDecisionsStatus.textContent =
+      err instanceof Error ? err.message : "Could not save decisions default.";
+    experimentalDecisionsStatus.className = "status err";
+  });
+});
 experimentalSpeechEnabledInput.addEventListener("change", async () => {
   const enabled = experimentalSpeechEnabledInput.checked;
   experimentalSpeechEnabledInput.disabled = true;

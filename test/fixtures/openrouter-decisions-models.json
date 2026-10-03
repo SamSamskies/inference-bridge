@@ -1,0 +1,154 @@
+{
+  "data": [
+    {
+      "id": "liquid/d1",
+      "name": "LiquidAI: D1",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "togethercomputer/tev1-4b-experimental",
+      "name": "Together: Tev1 4B Experimental",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Qwen3",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "inception/mercury-decide:free",
+      "name": "Inception: Mercury Decide (free)",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "upstage/solar-decide",
+      "name": "Upstage: Solar Decide",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "respan/span-01",
+      "name": "Respan: Span-01",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "respan/span-01-lite",
+      "name": "Respan: Span-01 Lite",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "respan/span-01-lite:free",
+      "name": "Respan: Span-01 Lite (free)",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "jaredpalmer/kev-4b",
+      "name": "Jared Palmer: Kev 4B",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "~typesafe/jev-latest",
+      "name": "TypeSafe: Jev Latest",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Router",
+        "instruct_type": null
+      }
+    },
+    {
+      "id": "typesafe/jev-1.13",
+      "name": "TypeSafe: Jev 1.13",
+      "architecture": {
+        "modality": "text->decisions",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "decisions"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      }
+    }
+  ]
+}

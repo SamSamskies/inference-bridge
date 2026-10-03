@@ -92,7 +92,7 @@ const denyBtn = document.getElementById("deny");
  *   hostedTools?: string[],
  * }>} */
 let providers = [];
-/** @type {"chat" | "transcribe" | "synthesize"} */
+/** @type {"chat" | "decide" | "transcribe" | "synthesize"} */
 let requestMethod = "chat";
 let requestMediaType = "";
 let voicesReady = true;
@@ -547,6 +547,7 @@ async function refreshOllamaStatus() {
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
     providerId: "ollama",
+    ...(requestMethod === "decide" ? { method: "decide" } : {}),
   });
 
   if (!response?.ok) {
@@ -565,7 +566,9 @@ async function refreshOllamaStatus() {
       available: false,
       models: [],
       message:
-        "Ollama is running but has no models installed. Run ollama pull gemma4, then try again.",
+        requestMethod === "decide"
+        ? "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+."
+        : "Ollama is running but has no models installed. Run ollama pull gemma4, then try again.",
     };
     return ollamaStatus;
   }
@@ -777,6 +780,8 @@ async function loadModelsForProvider(providerId, preferredModel) {
           requestMethod === "transcribe" &&
           requestMediaType === "audio/mpeg"
           ? "No installed Ollama audio model has verified MP3 support. WAV is more compatible."
+          : providerId === "ollama" && requestMethod === "decide"
+          ? "No installed decision models. Upgrade to Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+."
           : providerId.startsWith("compat:")
           ? "Could not list models from /v1/models. Type a model id manually."
           : "No models available for this provider."
@@ -1105,7 +1110,9 @@ async function load() {
   }
 
   requestMethod =
-    request.method === "transcribe" || request.method === "synthesize"
+    request.method === "decide" ||
+    request.method === "transcribe" ||
+    request.method === "synthesize"
       ? request.method
       : "chat";
   requestMediaType =
@@ -1126,6 +1133,14 @@ async function load() {
 
   if (requestMethod === "chat") {
     await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
+  } else if (requestMethod === "decide") {
+    // Cloud decisions remain usable while a local Ollama probe is pending.
+    void refreshOllamaStatus()
+      .then(() => {
+        updateProviderHint();
+        updateAllowEnabled();
+      })
+      .catch(() => updateAllowEnabled());
   } else if (providers.some((provider) => provider.id === "ollama")) {
     await refreshOllamaStatus();
   }
@@ -1133,11 +1148,13 @@ async function load() {
   originEl.textContent = request.origin;
   originEl.title = request.origin;
   requestDescription.textContent =
-    requestMethod === "transcribe"
-      ? "This site wants to send a complete media file to a provider for transcription."
-      : requestMethod === "synthesize"
-        ? "This site wants a provider to generate synthetic speech from text. This may incur provider charges."
-        : "This site wants to send a chat request through Inference Bridge.";
+    requestMethod === "decide"
+      ? "This site wants to send state and typed questions to a decision model. Cloud providers may charge separately."
+      : requestMethod === "transcribe"
+        ? "This site wants to send a complete media file to a provider for transcription."
+        : requestMethod === "synthesize"
+          ? "This site wants a provider to generate synthetic speech from text. This may incur provider charges."
+          : "This site wants to send a chat request through Inference Bridge.";
   const requestedId =
     typeof request.providerId === "string" &&
     providers.some((p) => p.id === request.providerId)
@@ -1164,7 +1181,16 @@ async function load() {
     previewEl.replaceChildren();
     const preview = document.createElement("div");
     preview.className = "preview-msg";
-    if (requestMethod === "transcribe") {
+    if (requestMethod === "decide") {
+      preview.textContent = request.stateSummary || "";
+      const questions = document.createElement("ul");
+      for (const question of request.questionSummaries || []) {
+        const item = document.createElement("li");
+        item.textContent = `${question.id} · ${question.type}`;
+        questions.append(item);
+      }
+      previewEl.append(questions);
+    } else if (requestMethod === "transcribe") {
       const size =
         Number.isSafeInteger(request.byteLength) && request.byteLength > 0
           ? `${request.byteLength.toLocaleString()} bytes`

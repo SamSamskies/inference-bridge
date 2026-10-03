@@ -33,14 +33,14 @@ The `v*` tag workflow uploads a Chrome ZIP, an unsigned Firefox ZIP, and a revie
 
 ## Firefox privacy declaration
 
-The Firefox manifest declares these required Mozilla data types for the supported chat and opt-in speech flows:
+The Firefox manifest declares these required Mozilla data types for the supported chat, experimental decisions, and opt-in speech flows:
 
 | Type | Reason |
 | --- | --- |
 | `authenticationInfo` | A selected cloud provider or custom endpoint receives its saved API key. |
 | `personalCommunications` | Chat prompts, replies, and speech content can be personal messages. |
 | `personallyIdentifyingInfo` | Separately enabled and approved transcription can send voice/video recordings to the selected provider. |
-| `websiteContent` | A requesting page can provide text and image content for the selected provider. |
+| `websiteContent` | A requesting page can provide text, images, or decisions state and questions for the selected provider. |
 | `searchTerms` | Hosted web search can transmit search queries to the selected provider or ollama.com. |
 
 Firefox supports the same default-off experimental transcription and speech synthesis as Chrome. Speech uses separate per-origin, per-operation approval and provider/model/voice defaults; recordings, transcripts, and generated audio stay in memory for the active request. Chrome's On-device Prompt API remains unavailable. The page-level approval dialog identifies the website and selected provider. **Always allow** grants permit future requests from that origin without a new popup; users can revoke them in **Options → Site access**. API keys and grants live in unencrypted local extension storage, isolated from page scripts. Cloud APIs and remote custom endpoints use HTTPS; only loopback custom endpoints and local Ollama can use HTTP. See [PRIVACY.md](../PRIVACY.md) for the full provider-by-provider disclosure.
@@ -51,7 +51,7 @@ Before submission, compare this declaration against the actual packaged build, F
 
 - **Name:** Inference Bridge
 - **Summary:** Let websites request AI through `window.inference` with per-site approval and your chosen provider.
-- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Enable experimental speech in Options for separately approved transcription and MP3 speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
+- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Experimental decisions are available by default for separately approved typed questions over JSON state via cloud OpenRouter or local Ollama. Enable experimental speech in Options for separately approved transcription and MP3 speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
 - **License:** MIT
 - **Privacy policy:** `https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md`
 - **Support site:** `https://github.com/SamSamskies/inference-bridge/issues`
@@ -67,6 +67,7 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 
 - [ ] Install the exact staged artifact in the current Firefox desktop release and verify `window.inference` appears at `document_start` only on eligible top-level pages. Older versions down to the declared minimum are not part of pre-release QA; address compatibility reports as they arise.
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
+- [ ] Run the README decisions checks in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
 - [ ] Run the README speech checks in Firefox: default-off discovery, enable/disable updates, transcription upload, MP3 synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
 - [ ] Test OpenAI, Anthropic, OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
 - [ ] Revoke built-in and custom host grants in `about:addons`; affected calls fail with a clear error and never switch providers.

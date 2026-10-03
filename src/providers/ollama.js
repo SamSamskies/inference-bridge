@@ -3,6 +3,7 @@
  * Models are discovered via GET /api/tags — no hardcoded catalog.
  */
 
+import { requestSystemOne } from "./system-one.js";
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
 import { hostedWebSearchActive } from "./hosted-tools.js";
 import {
@@ -27,6 +28,68 @@ import {
 import { TRANSCRIPTION_INPUT_MAX_BYTES } from "../speech.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
+
+const decisionModelIds = new Set();
+
+/** Known families plus custom names discovered through /api/show. */
+export function isOllamaDecisionModel(model) {
+  return (
+    typeof model === "string" &&
+    (decisionModelIds.has(model) ||
+      /^(?:library\/)?(?:nimble|tev1|clef|clef-flash)(?::[a-zA-Z0-9._-]+)?$/.test(
+        model
+      ))
+  );
+}
+
+/** A fresh capability probe supports installed aliases and future model families. */
+export async function ollamaModelHasDecision(model, { signal } = {}) {
+  if (!model || /:(?:[^:]*-)?cloud(?:-[^:]*)?$/i.test(model)) return false;
+  await ensureOllamaOriginBypass();
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal,
+    });
+    if (signal?.aborted) throwInference("aborted", "Request aborted");
+    if (!response.ok) return false;
+    const payload = await response.json();
+    if (signal?.aborted) throwInference("aborted", "Request aborted");
+    if (
+      !Array.isArray(payload?.capabilities) ||
+      !payload.capabilities.includes("decision")
+    ) {
+      decisionModelIds.delete(model);
+      return false;
+    }
+    decisionModelIds.add(model);
+    return payload?.details?.format === "gguf" && !payload.remote_host;
+  } catch (err) {
+    if (
+      signal?.aborted ||
+      err?.name === "AbortError" ||
+      err?.code === "aborted"
+    )
+      throwInference("aborted", "Request aborted");
+    return false;
+  }
+}
+
+async function filterOllamaDecisionModels(models, args) {
+  const checks = await Promise.all(
+    models.map(async (model) => ({
+      model,
+      supported: await ollamaModelHasDecision(model.id, args),
+    }))
+  );
+  return checks.filter(({ supported }) => supported).map(({ model }) => model);
+}
+
+export async function listOllamaDecisionModels(args = {}) {
+  return filterOllamaDecisionModels(await listOllamaModels(args), args);
+}
 
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
 /** @typedef {import("./types.js").Tool} Tool */
@@ -634,7 +697,26 @@ export const ollamaProvider = {
   },
   transcribe: transcribeOllama,
 
-  listModels: listOllamaModels,
+  async listModels(args) {
+    const models = await listOllamaModels(args);
+    await filterOllamaDecisionModels(models, args);
+    return models.filter((model) => !isOllamaDecisionModel(model.id));
+  },
+  decisions: { defaultModel: "nimble", listModels: listOllamaDecisionModels },
+  async decide(args) {
+    if (!(await ollamaModelHasDecision(args.model, { signal: args.signal })))
+      throwInference(
+        "unavailable",
+        "Select an installed local GGUF model with Ollama's decision capability."
+      );
+    await ensureOllamaOriginBypass();
+    return requestSystemOne({
+      ...args,
+      apiKey: undefined,
+      label: "Ollama",
+      url: `${OLLAMA_BASE_URL}/v1/systemone`,
+    });
+  },
 
   async streamChat({
     apiKey,
@@ -648,6 +730,12 @@ export const ollamaProvider = {
     onDelta,
     onReasoningDelta,
   }) {
+    if (isOllamaDecisionModel(model)) {
+      throwInference(
+        "unavailable",
+        "Decision models require experimental method decide, not chat."
+      );
+    }
     if (hostedWebSearchActive(tools, toolChoice)) {
       if (!hasOllamaWebSearchApiKey(apiKey)) {
         throwInference("unavailable", missingOllamaWebSearchKeyMessage());

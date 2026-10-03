@@ -122,6 +122,22 @@
  *   hostedTools?: readonly string[],
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   decisions?: {
+ *     defaultModel: string,
+ *     models?: readonly (string | ModelInfo)[],
+ *     listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
+ *   },
+ *   decide?: (args: {
+ *     apiKey?: string,
+ *     model: string,
+ *     state: string | Record<string, unknown> | unknown[],
+ *     questions: Record<string, DecideQuestion>,
+ *     signal: AbortSignal,
+ *   }) => Promise<{
+ *     model: string,
+ *     answers: Record<string, DecideAnswer>,
+ *     usage?: { inputTokens?: number, outputTokens?: number },
+ *   }>,
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
@@ -181,4 +197,13 @@
  * }} Provider
  */
 
+/**
+ * Bridge-experimental, not normative IPA. No page-owned provider/model fields.
+ * @typedef {{ type: "noul", instructions: string, criteria?: { true?: string, false?: string } } |
+ *   { type: "choice", instructions: string, criteria: Record<string, string | null> } |
+ *   { type: "score", instructions: string, criteria: string[] }} DecideQuestion
+ * @typedef {{ type: "noul", noul: number } |
+ *   { type: "choice", choice: string, confidence: number, probabilities: Record<string, number> } |
+ *   { type: "score", score: number, confidence: number, probabilities: Record<string, number>, legend: Record<string, string> }} DecideAnswer
+ */
 export {};

@@ -18,7 +18,7 @@ import {
 /** @typedef {import("./types.js").Provider} Provider */
 /** @typedef {import("./types.js").ModelInfo} ModelInfo */
 /** @typedef {import("./types.js").VoiceInfo} VoiceInfo */
-/** @typedef {"chat" | "transcribe" | "synthesize"} InferenceMethod */
+/** @typedef {"chat" | "decide" | "transcribe" | "synthesize"} InferenceMethod */
 
 /** @type {Map<string, Provider>} */
 const providers = new Map([
@@ -103,6 +103,9 @@ export function providerSupportsMethod(provider, method, request = {}) {
   if (method === "chat") {
     return typeof provider?.streamChat === "function";
   }
+  if (method === "decide") {
+    return Boolean(provider?.decisions && typeof provider.decide === "function");
+  }
   if (method === "transcribe") {
     if (
       !provider?.transcription ||
@@ -179,6 +182,19 @@ function toVoiceInfo(entry) {
 }
 
 /**
+ * The catalog for an operation never falls back to the provider's chat models.
+ * @param {Provider} provider
+ * @param {InferenceMethod} method
+ */
+export function providerMethodCatalog(provider, method) {
+  if (method === "chat") return provider;
+  if (method === "decide") return provider.decisions;
+  if (method === "transcribe") return provider.transcription;
+  if (method === "synthesize") return provider.synthesis;
+  return undefined;
+}
+
+/**
  * Resolve models for a provider (static catalog or async discovery).
  * Always returns ModelInfo[] so UI callers share one shape.
  * @param {Provider} provider
@@ -192,12 +208,7 @@ function toVoiceInfo(entry) {
  */
 export async function resolveProviderModels(provider, args = {}) {
   const method = args.method || "chat";
-  const catalog =
-    method === "transcribe"
-      ? provider.transcription
-      : method === "synthesize"
-        ? provider.synthesis
-        : provider;
+  const catalog = providerMethodCatalog(provider, method);
   if (!catalog) return [];
   const catalogArgs = {
     ...(args.signal ? { signal: args.signal } : {}),

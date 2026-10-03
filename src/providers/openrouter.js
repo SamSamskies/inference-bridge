@@ -3,6 +3,7 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
+import { requestSystemOne } from "./system-one.js";
 import {
   assertImagesSupported,
   messagesHaveImageParts,
@@ -28,9 +29,24 @@ import {
   TRANSCRIPTION_INPUT_MAX_BYTES,
 } from "../speech.js";
 
+export const OPENROUTER_DEFAULT_DECISION_MODEL = "typesafe/jev-1.13";
+const decisionsOnlyModelIds = new Set([OPENROUTER_DEFAULT_DECISION_MODEL]);
+let decisionCatalog = null;
+let decisionCatalogListedAt = 0;
+const DECISION_CATALOG_MAX_AGE_MS = 60_000;
+
+export function isOpenRouterDecisionModel(model) {
+  return (
+    typeof model === "string" &&
+    (decisionsOnlyModelIds.has(model) ||
+      /^~?typesafe\/jev(?:-(?:\d|latest|preview)|$)/i.test(model))
+  );
+}
+
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_CHAT_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
 const OPENROUTER_MODELS_URL = `${OPENROUTER_BASE_URL}/models`;
+const OPENROUTER_DECISION_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=decisions`;
 
 /** @type {Map<string, { inputImage: boolean, outputImage: boolean, outputText: boolean }>} */
 const modalitiesByModel = new Map();
@@ -122,6 +138,13 @@ export function resetOpenRouterModalitiesCache() {
   modalitiesByModel.clear();
 }
 
+export function resetOpenRouterDecisionCatalog() {
+  decisionCatalog = null;
+  decisionCatalogListedAt = 0;
+  decisionsOnlyModelIds.clear();
+  decisionsOnlyModelIds.add(OPENROUTER_DEFAULT_DECISION_MODEL);
+}
+
 /**
  * OpenRouter `:batch` slugs are Async Batch API-only (POST /api/beta/batches).
  * They cannot be used with interactive chat completions / streaming.
@@ -145,17 +168,20 @@ function openRouterBatchModelMessage(model) {
 }
 
 /**
- * List OpenRouter models from the public catalog (no auth required).
- * Omits `:batch` variants — those require the async Batch API, not chat completions.
+ * Read a public model catalog without sending the stored API key.
+ * @param {string} url
  * @param {{ signal?: AbortSignal }} [args]
- * @returns {Promise<import("./types.js").ModelInfo[]>}
+ * @returns {Promise<Array<Record<string, any>>>}
  */
-export async function listOpenRouterModels({ signal } = {}) {
+async function fetchOpenRouterModelEntries(url, { signal } = {}) {
   let response;
   try {
-    response = await fetch(OPENROUTER_MODELS_URL, { signal });
+    response = await fetch(url, { signal });
   } catch (err) {
-    if (signal?.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
+    if (
+      signal?.aborted ||
+      (err && /** @type {Error} */ (err).name === "AbortError")
+    ) {
       throwInference("aborted", "Request aborted");
     }
     throwInference(
@@ -176,18 +202,72 @@ export async function listOpenRouterModels({ signal } = {}) {
   let body;
   try {
     body = await response.json();
-  } catch {
-    throwInference("provider_error", "OpenRouter returned invalid JSON for /api/v1/models");
+  } catch (err) {
+    if (signal?.aborted || err?.name === "AbortError")
+      throwInference("aborted", "Request aborted");
+    throwInference(
+      "provider_error",
+      "OpenRouter returned invalid JSON for /api/v1/models"
+    );
   }
+  if (signal?.aborted) throwInference("aborted", "Request aborted");
 
-  const entries = Array.isArray(body?.data) ? body.data : [];
+  return Array.isArray(body?.data) ? body.data : [];
+}
+
+/** The public models endpoint defaults to text output; decisions need a filter. */
+export async function listOpenRouterDecisionModels(args = {}) {
+  const entries = await fetchOpenRouterModelEntries(
+    OPENROUTER_DECISION_MODELS_URL,
+    args
+  );
+  const models = new Map();
+  for (const entry of entries) {
+    const id = typeof entry?.id === "string" ? entry.id.trim() : "";
+    if (
+      !id ||
+      isOpenRouterBatchModel(id) ||
+      !stringList(entry?.architecture?.output_modalities).includes("decisions")
+    )
+      continue;
+    decisionsOnlyModelIds.add(id);
+    models.set(id, {
+      id,
+      ...(typeof entry.name === "string" && entry.name
+        ? { label: entry.name }
+        : {}),
+      inputModalities: stringList(entry.architecture.input_modalities),
+      outputModalities: ["decisions"],
+    });
+  }
+  decisionCatalog = [...models.values()].sort((a, b) =>
+    a.id.localeCompare(b.id)
+  );
+  decisionCatalogListedAt = Date.now();
+  return decisionCatalog.map((model) => ({ ...model }));
+}
+
+/** List interactive chat models, excluding batch and known decision models. */
+export async function listOpenRouterModels(args = {}) {
+  const entries = await fetchOpenRouterModelEntries(
+    OPENROUTER_MODELS_URL,
+    args
+  );
   /** @type {import("./types.js").ModelInfo[]} */
   const models = [];
   for (const entry of entries) {
     const id = typeof entry?.id === "string" ? entry.id : "";
-    if (!id || isOpenRouterBatchModel(id)) continue;
+    if (
+      id &&
+      stringList(entry?.architecture?.output_modalities).includes("decisions")
+    ) {
+      decisionsOnlyModelIds.add(id);
+    }
+    if (!id || isOpenRouterBatchModel(id) || isOpenRouterDecisionModel(id))
+      continue;
     rememberModalities(id, entry?.architecture);
-    const label = typeof entry?.name === "string" && entry.name ? entry.name : undefined;
+    const label =
+      typeof entry?.name === "string" && entry.name ? entry.name : undefined;
     /** @type {import("./types.js").ModelInfo} */
     const info = { id };
     if (label) info.label = label;
@@ -212,6 +292,31 @@ export const openrouterProvider = {
   defaultModel: "openrouter/auto",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  decisions: {
+    defaultModel: OPENROUTER_DEFAULT_DECISION_MODEL,
+    listModels: listOpenRouterDecisionModels,
+  },
+  async decide(args) {
+    if (!args.apiKey?.trim())
+      throwInference("unavailable", "OpenRouter API key not configured.");
+    if (
+      !decisionCatalog ||
+      Date.now() - decisionCatalogListedAt >= DECISION_CATALOG_MAX_AGE_MS
+    ) {
+      await listOpenRouterDecisionModels({ signal: args.signal });
+    }
+    if (!decisionCatalog.some((entry) => entry.id === args.model)) {
+      throwInference(
+        "unavailable",
+        `Unknown OpenRouter Decisions model: ${args.model}.`
+      );
+    }
+    return requestSystemOne({
+      ...args,
+      label: "OpenRouter",
+      url: "https://openrouter.ai/api/alpha/decisions",
+    });
+  },
   transcription: {
     defaultModel: OPENROUTER_TRANSCRIPTION_MODELS[0].id,
     models: OPENROUTER_TRANSCRIPTION_MODELS,
@@ -250,6 +355,12 @@ export const openrouterProvider = {
     onDelta,
     onReasoningDelta,
   }) {
+    if (isOpenRouterDecisionModel(model)) {
+      throwInference(
+        "unavailable",
+        "Decision models require experimental method decide, not chat."
+      );
+    }
     if (!model) {
       throwInference(
         "unavailable",
