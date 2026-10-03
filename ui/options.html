@@ -32,6 +32,17 @@
         <button
           type="button"
           class="settings-tab"
+          id="site-access-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="site-access"
+          tabindex="-1"
+        >
+          Site access
+        </button>
+        <button
+          type="button"
+          class="settings-tab"
           id="speech-tab"
           role="tab"
           aria-selected="false"
@@ -43,13 +54,13 @@
         <button
           type="button"
           class="settings-tab"
-          id="site-access-tab"
+          id="decisions-tab"
           role="tab"
           aria-selected="false"
-          aria-controls="site-access"
+          aria-controls="decisions"
           tabindex="-1"
         >
-          Site access
+          Decisions
         </button>
       </div>
 
@@ -308,6 +319,39 @@
 
       <section
         class="settings-section stack"
+        id="decisions"
+        role="tabpanel"
+        aria-labelledby="decisions-tab"
+        tabindex="0"
+        hidden
+      >
+        <header class="settings-section-heading">
+          <h2>Decisions</h2>
+          <p class="hint">Evaluate state with typed yes/no, choice, and score questions.</p>
+        </header>
+        <section class="panel stack" aria-labelledby="experimental-decisions-heading">
+          <h3 id="experimental-decisions-heading">Experimental decisions</h3>
+          <p class="hint">
+            Available to websites through the experimental API. Each website
+            needs your permission to use Decisions. Choose a provider and model below.
+            OpenRouter Decisions is an alpha cloud service and may incur charges.
+          </p>
+          <div class="speech-defaults">
+            <h4>Decisions default</h4>
+            <label class="field"><span>Provider</span><select id="decisionsProvider"></select></label>
+            <label class="field"><span>Model</span><select id="decisionsModel"></select></label>
+          </div>
+          <p class="hint" id="decisionsModelHint">
+            OpenRouter uses your saved API key. Local decisions require Ollama
+            0.35+ and an installed decision model (for example, ollama pull nimble).
+            Clef and Clef Flash require Ollama 0.35.1+.
+          </p>
+          <div class="status" id="experimentalDecisionsStatus" role="status" aria-live="polite"></div>
+        </section>
+      </section>
+
+      <section
+        class="settings-section stack"
         id="site-access"
         role="tabpanel"
         aria-labelledby="site-access-tab"
@@ -341,6 +385,13 @@
           <p class="hint" id="speechOriginsEmpty">
             No persistent speech grants yet.
           </p>
+        </section>
+
+        <section class="panel stack" aria-labelledby="decisions-origins-heading">
+          <h3 id="decisions-origins-heading">Always-allowed decisions origins</h3>
+          <p class="hint">Decisions grants are separate from chat and speech. Revoke one to require fresh approval.</p>
+          <ul class="list" id="decisionsOrigins"></ul>
+          <p class="hint" id="decisionsOriginsEmpty">No persistent decisions grants yet.</p>
         </section>
 
         <section class="panel stack" aria-labelledby="blocked-origins-heading">

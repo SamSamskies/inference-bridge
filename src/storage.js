@@ -18,13 +18,13 @@ import { normalizeCompatBaseUrl } from "./host-permissions.js";
  * @typedef {{ blockedAt: number }} OriginBlock
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  * @typedef {{ id: string, name: string, baseUrl: string }} CompatEndpoint
- * @typedef {"transcribe" | "synthesize"} SpeechOperation
+ * @typedef {"decide" | "transcribe" | "synthesize"} ExperimentalOperation
  * @typedef {{ providerId: string, model: string, voice?: string }} OperationRoute
  * @typedef {OperationRoute & { allowedAt: number }} OperationGrant
  * @typedef {OperationRoute & { usedAt: number }} OperationLastUsed
- * @typedef {Partial<Record<SpeechOperation, OperationRoute>>} OperationDefaults
- * @typedef {Record<string, Partial<Record<SpeechOperation, OperationGrant>>>} OperationGrants
- * @typedef {Record<string, Partial<Record<SpeechOperation, OperationLastUsed>>>} OperationLastUsedByOrigin
+ * @typedef {Partial<Record<ExperimentalOperation, OperationRoute>>} OperationDefaults
+ * @typedef {Record<string, Partial<Record<ExperimentalOperation, OperationGrant>>>} OperationGrants
+ * @typedef {Record<string, Partial<Record<ExperimentalOperation, OperationLastUsed>>>} OperationLastUsedByOrigin
  */
 
 const DEFAULTS = Object.freeze({
@@ -167,17 +167,22 @@ function normalizeOriginLastUsed(value) {
 
 /**
  * @param {unknown} value
- * @returns {value is SpeechOperation}
+ * @returns {value is "transcribe" | "synthesize"}
  */
 export function isSpeechOperation(value) {
   return value === "transcribe" || value === "synthesize";
 }
 
+/** @param {unknown} value @returns {value is ExperimentalOperation} */
+export function isExperimentalOperation(value) {
+  return value === "decide" || isSpeechOperation(value);
+}
+
 /**
- * Speech models are operation-scoped and must not be checked against chat
+ * Experimental models are operation-scoped and must not be checked against chat
  * catalogs. A synthesis route is incomplete until it includes a voice.
  * @param {unknown} value
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @returns {OperationRoute | null}
  */
 function normalizeOperationRoute(value, operation) {
@@ -207,7 +212,11 @@ function normalizeOperationDefaults(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   /** @type {OperationDefaults} */
   const out = {};
-  for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
+  for (const operation of /** @type {const} */ ([
+    "decide",
+    "transcribe",
+    "synthesize",
+  ])) {
     const route = normalizeOperationRoute(
       /** @type {Record<string, unknown>} */ (value)[operation],
       operation
@@ -237,11 +246,19 @@ function normalizeOperationOriginMap(value, timestampKey) {
     }
     /** @type {Record<string, unknown>} */
     const normalized = {};
-    for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
-      const raw = /** @type {Record<string, unknown>} */ (operations)[operation];
+    for (const operation of /** @type {const} */ ([
+      "decide",
+      "transcribe",
+      "synthesize",
+    ])) {
+      const raw = /** @type {Record<string, unknown>} */ (operations)[
+        operation
+      ];
       const route = normalizeOperationRoute(raw, operation);
       if (!route || !raw || typeof raw !== "object") continue;
-      const timestamp = /** @type {Record<string, unknown>} */ (raw)[timestampKey];
+      const timestamp = /** @type {Record<string, unknown>} */ (raw)[
+        timestampKey
+      ];
       normalized[operation] = {
         ...route,
         [timestampKey]:
@@ -459,7 +476,7 @@ export async function getSettings() {
       scrubbed = true;
     }
   }
-  for (const operation of /** @type {const} */ (["transcribe", "synthesize"])) {
+  for (const operation of /** @type {const} */ (["decide", "transcribe", "synthesize"])) {
     const route = operationDefaults[operation];
     if (
       route &&
@@ -473,6 +490,7 @@ export async function getSettings() {
   for (const operationMap of [operationGrants, operationLastUsed]) {
     for (const [origin, operations] of Object.entries(operationMap)) {
       for (const operation of /** @type {const} */ ([
+        "decide",
         "transcribe",
         "synthesize",
       ])) {
@@ -563,7 +581,7 @@ function isPersistableOriginKey(origin) {
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
  *   experimentalSpeechEnabled: boolean,
- *   operationDefaults: Partial<Record<SpeechOperation, OperationRoute | null>>,
+ *   operationDefaults: Partial<Record<ExperimentalOperation, OperationRoute | null>>,
  * }>} patch
  */
 export async function saveSettings(patch) {
@@ -638,6 +656,7 @@ export async function saveSettings(patch) {
   ) {
     const merged = { ...current.operationDefaults };
     for (const operation of /** @type {const} */ ([
+      "decide",
       "transcribe",
       "synthesize",
     ])) {
@@ -742,11 +761,11 @@ export async function grantOriginAlways(
 
 /**
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @returns {Promise<OperationGrant | null>}
  */
 export async function getOriginOperationGrant(origin, operation) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return null;
   }
   const { operationGrants } = await getSettings();
@@ -757,12 +776,12 @@ export async function getOriginOperationGrant(origin, operation) {
  * Persist an operation-specific Always-allow binding. Chat grants remain in
  * allowedOrigins and can neither authorize nor be overwritten by this call.
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @param {OperationRoute} options
  * @returns {Promise<boolean>}
  */
 export async function grantOriginOperationAlways(origin, operation, options) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return false;
   }
   const route = normalizeOperationRoute(options, operation);
@@ -779,11 +798,11 @@ export async function grantOriginOperationAlways(origin, operation, options) {
 
 /**
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @returns {Promise<OperationLastUsed | null>}
  */
 export async function getOriginOperationLastUsed(origin, operation) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return null;
   }
   const { operationLastUsed } = await getSettings();
@@ -792,12 +811,12 @@ export async function getOriginOperationLastUsed(origin, operation) {
 
 /**
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @param {OperationRoute} options
  * @returns {Promise<boolean>}
  */
 export async function setOriginOperationLastUsed(origin, operation, options) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return false;
   }
   const route = normalizeOperationRoute(options, operation);
@@ -813,11 +832,11 @@ export async function setOriginOperationLastUsed(origin, operation, options) {
 
 /**
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @returns {Promise<boolean>}
  */
 export async function revokeOriginOperation(origin, operation) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return false;
   }
   const { operationGrants } = await getSettings();
@@ -835,12 +854,12 @@ export async function revokeOriginOperation(origin, operation) {
  * Changing provider/model/voice changes the exact binding checked by the
  * permission layer; it never falls back to a chat route.
  * @param {string} origin
- * @param {SpeechOperation} operation
+ * @param {ExperimentalOperation} operation
  * @param {OperationRoute} options
  * @returns {Promise<boolean>}
  */
 export async function setOriginOperationRoute(origin, operation, options) {
-  if (!isPersistableOriginKey(origin) || !isSpeechOperation(operation)) {
+  if (!isPersistableOriginKey(origin) || !isExperimentalOperation(operation)) {
     return false;
   }
   const route = normalizeOperationRoute(options, operation);
@@ -1074,7 +1093,7 @@ export async function listAllowedOrigins() {
 /**
  * @returns {Promise<Array<OperationGrant & {
  *   origin: string,
- *   operation: SpeechOperation,
+ *   operation: ExperimentalOperation,
  * }>>}
  */
 export async function listOriginOperationGrants() {
@@ -1082,6 +1101,7 @@ export async function listOriginOperationGrants() {
   const rows = [];
   for (const [origin, operations] of Object.entries(operationGrants)) {
     for (const operation of /** @type {const} */ ([
+      "decide",
       "transcribe",
       "synthesize",
     ])) {

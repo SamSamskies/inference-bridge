@@ -1,3 +1,4 @@
+import { validateDecideRequest } from "./decisions.js";
 import {
   SYNTHESIS_OUTPUT_MEDIA_TYPE,
   TRANSCRIPTION_INPUT_MAX_BYTES,
@@ -631,6 +632,9 @@ export function validateExperimentalInferenceRequest(request) {
     }
     return validateInferenceRequest(request);
   }
+  if (req.method === "decide") {
+    return validateDecideRequest(req);
+  }
   if (req.method === "transcribe") {
     return validateExperimentalTranscribeRequest(req);
   }
@@ -639,7 +643,7 @@ export function validateExperimentalInferenceRequest(request) {
   }
   return {
     ok: false,
-    message: 'method must be "chat", "transcribe", or "synthesize".',
+    message: 'method must be "chat", "decide", "transcribe", or "synthesize".',
   };
 }
 

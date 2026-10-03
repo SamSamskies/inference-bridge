@@ -86,11 +86,23 @@ describe("window.inference.getFeatures", () => {
     });
   });
 
-  it("returns a synchronous fail-closed experimental method snapshot", () => {
+  it("advertises decisions synchronously before the relay connects", () => {
+    const inference = loadInference();
+    expect(inference.experimental.getFeatures().methods).toEqual({
+      chat: true,
+      decide: true,
+    });
+    expect(inference.getFeatures()).not.toHaveProperty("methods");
+    expect(inference.experimental.decide).toBeUndefined();
+  });
+
+  it("keeps decisions available when speech discovery changes", () => {
     const { inference, setSpeechEnabled } = loadInferenceWithFeatureBridge();
+    const stable = inference.getFeatures();
     expect(inference.experimental.getFeatures()).toEqual({
       methods: {
         chat: true,
+        decide: true,
       },
     });
 
@@ -99,6 +111,7 @@ describe("window.inference.getFeatures", () => {
     expect(enabled).toEqual({
       methods: {
         chat: true,
+        decide: true,
         transcribe: {
           acceptedMedia: [
             { mediaType: "audio/mpeg" },
@@ -120,7 +133,8 @@ describe("window.inference.getFeatures", () => {
     setSpeechEnabled(false);
     expect(
       inference.experimental.getFeatures().methods
-    ).toEqual({ chat: true });
+    ).toEqual({ chat: true, decide: true });
+    expect(inference.getFeatures()).toEqual(stable);
   });
 });
 

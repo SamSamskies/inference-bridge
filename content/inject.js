@@ -26,6 +26,8 @@
   let warnedExperimentalSpeech = false;
   /** Fail-closed cache populated by the isolated content script. */
   let experimentalSpeechEnabled = false;
+  /** One-shot notice for the non-normative decisions method. */
+  let warnedExperimentalDecisions = false;
   /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
   let warnedExperimentalRunTools = false;
 
@@ -650,6 +652,8 @@
             );
             serializable = prepared.request;
             uploadSource = prepared.source;
+          } else if (experimental && serializable.method === "decide") {
+            serializable = snapshotDecisionRequest(serializable);
           } else {
             serializable = await encodeRequestImages(serializable, signal);
           }
@@ -982,6 +986,9 @@
     "output",
     "signal",
   ]);
+  const EXPERIMENTAL_DECIDE_FIELDS = new Set([
+    "method", "state", "questions", "signal",
+  ]);
   const EXPERIMENTAL_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
 
   /**
@@ -1085,6 +1092,68 @@
 
   }
 
+  // Repeat JSON checks before crossing Chrome's JSON / Firefox's clone boundary.
+  // Detailed question validation and byte limits are also enforced by the worker.
+  function snapshotDecisionRequest(request) {
+    if (
+      typeof request.state !== "string" &&
+      (!request.state || typeof request.state !== "object")
+    ) {
+      throw makeError(
+        "invalid_request",
+        "state must be a string, JSON object, or array."
+      );
+    }
+    function checkJson(value, ancestors = new Set(), depth = 0) {
+      if (depth > 64)
+        throw new Error("Decision JSON must not exceed 64 levels of nesting.");
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "boolean"
+      )
+        return;
+      if (typeof value === "number" && Number.isFinite(value)) return;
+      const proto =
+        value && typeof value === "object"
+          ? Object.getPrototypeOf(value)
+          : undefined;
+      const plain =
+        proto === null ||
+        (proto &&
+          Object.getPrototypeOf(proto) === null &&
+          proto.constructor?.name === "Object");
+      if (
+        !value ||
+        typeof value !== "object" ||
+        (!Array.isArray(value) && !plain)
+      ) {
+        throw new Error("state and questions must contain only JSON values.");
+      }
+      if (ancestors.has(value))
+        throw new Error("Decision JSON must not contain cycles.");
+      ancestors.add(value);
+      for (const child of Array.isArray(value) ? value : Object.values(value))
+        checkJson(child, ancestors, depth + 1);
+      ancestors.delete(value);
+    }
+    try {
+      const payload = { state: request.state, questions: request.questions };
+      checkJson(payload);
+      const json = JSON.stringify(payload);
+      if (new TextEncoder().encode(json).byteLength > 63 * 1024)
+        throw new Error(
+          "Serialized state and questions exceed the 63 KiB decision limit."
+        );
+      return { method: "decide", ...JSON.parse(json) };
+    } catch (err) {
+      throw makeError(
+        "invalid_request",
+        err instanceof Error ? err.message : "Invalid decision JSON."
+      );
+    }
+  }
+
   /**
    * @param {any} request
    */
@@ -1097,6 +1166,20 @@
         experimental: true,
         preflight() {
           assertClosedRequest(request, EXPERIMENTAL_CHAT_FIELDS);
+        },
+      });
+    }
+    if (method === "decide") {
+      if (!warnedExperimentalDecisions) {
+        warnedExperimentalDecisions = true;
+        console.warn(
+          "[Inference Bridge] Decisions are experimental, non-normative Bridge methods and may change before IPA standardization."
+        );
+      }
+      return createStream(request, {
+        experimental: true,
+        preflight() {
+          assertClosedRequest(request, EXPERIMENTAL_DECIDE_FIELDS);
         },
       });
     }
@@ -1114,7 +1197,7 @@
       preflight() {
         throw makeError(
           "invalid_request",
-          'method must be "chat", "transcribe", or "synthesize".'
+          'method must be "chat", "decide", "transcribe", or "synthesize".'
         );
       },
     });
@@ -1148,6 +1231,7 @@
           return {
             methods: {
               chat: true,
+              decide: true,
               ...(experimentalSpeechEnabled
                 ? {
                     transcribe: {
