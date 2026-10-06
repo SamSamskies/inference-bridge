@@ -1,4 +1,4 @@
-/** Bridge-experimental System One envelope, shared by both decision backends. */
+/** Bridge-experimental decision envelope shared by provider adapters. */
 export const DECISION_PAYLOAD_MAX_BYTES = 63 * 1024;
 export const DECISION_BODY_MAX_BYTES = 64 * 1024;
 export const DECISION_MAX_QUESTIONS = 64;
@@ -165,7 +165,9 @@ export function normalizeDecisionResponse(body, questions) {
   const answers = Object.fromEntries(
     Object.entries(questions).map(([id, question]) => {
       const answer = own(body.answers, id) ? body.answers[id] : null;
-      if (!record(answer) || answer.type !== question.type) invalid();
+      if (!record(answer)) invalid();
+      if (answer.type === "refusal") return [id, { type: "refusal" }];
+      if (answer.type !== question.type) invalid();
       if (question.type === "noul") {
         if (!probability(answer.noul)) invalid();
         return [id, { type: "noul", noul: answer.noul }];

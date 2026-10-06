@@ -1631,13 +1631,17 @@ async function loadDecisionModels(providerId, preferredModel) {
   const models = response?.ok ? normalizeModels(response.models) : [];
   fillSimpleSelect(decisionsModelSelect, models, preferredModel);
   decisionsModelHint.textContent = models.length
-    ? providerId === "openrouter"
-      ? "Uses your saved OpenRouter API key and the Decisions alpha service."
-      : "Uses installed local decision models on Ollama 0.35+ (Clef requires 0.35.1+)."
+    ? providerId === "openai"
+      ? "Uses your saved OpenAI API key and the Decisions beta service with gpt-6-luna."
+      : providerId === "openrouter"
+        ? "Uses your saved OpenRouter API key and the Decisions alpha service."
+        : "Uses installed local decision models on Ollama 0.35+ (Clef requires 0.35.1+)."
     : response?.error?.message ||
-      (providerId === "openrouter"
-        ? "No decision models are currently listed by OpenRouter."
-        : "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+.");
+      (providerId === "openai"
+        ? "No OpenAI decision models are available."
+        : providerId === "openrouter"
+          ? "No decision models are currently listed by OpenRouter."
+          : "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+.");
 }
 
 async function loadDecisionDefaultControls(settings) {
@@ -1652,7 +1656,7 @@ async function loadDecisionDefaultControls(settings) {
   const providerId = fillSimpleSelect(
     decisionsProviderSelect,
     decisionsProviders,
-    stored?.providerId
+    stored?.providerId || "openrouter"
   );
   const provider = decisionsProviders.find((entry) => entry.id === providerId);
   await loadDecisionModels(

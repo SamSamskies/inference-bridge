@@ -16,6 +16,11 @@ with short test instructions and state. The same answer shape is documented by
 [Ollama](https://docs.ollama.com/api/systemone).
 These are protocol fixtures, not recordings of a live Bridge provider call.
 
+`openai-decisions-response.json` uses the ordered predicate/choice/score answer
+and usage schemas from the [OpenAI Decisions reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
+Its synthetic probabilities match `system-one-response.json` to verify that
+both protocols return the same Bridge answers. It is not a live API recording.
+
 `openrouter-decisions-models.json` contains model IDs, labels, and architecture
 metadata from the public [OpenRouter decisions catalog](https://openrouter.ai/api/v1/models?output_modalities=decisions),
 captured on 2026-10-03. The regular models response defaults to text output;

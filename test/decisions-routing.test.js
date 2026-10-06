@@ -3,9 +3,11 @@ import { installChromeMock } from "./helpers/chrome-mock.js";
 import request from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
 import catalog from "./fixtures/openrouter-decisions-models.json";
+import openaiFixture from "./fixtures/openai-decisions-response.json";
 
 const origin = "https://app.example";
 const cloud = { providerId: "openrouter", model: "typesafe/jev-1.13" };
+const openai = { providerId: "openai", model: "gpt-6-luna" };
 const local = { providerId: "ollama", model: "nimble:latest" };
 const decide = { method: "decide", ...request };
 function event() {
@@ -34,7 +36,7 @@ async function setup(firefox) {
   permissions = await import("../src/permissions.js");
   await import("../background/service-worker.js");
   await storage.saveSettings({
-    apiKeys: { openrouter: "test-key" },
+    apiKeys: { openrouter: "test-key", openai: "openai-key" },
     operationDefaults: { decide: cloud },
   });
   vi.stubGlobal(
@@ -72,6 +74,8 @@ async function setup(firefox) {
           ...fixture,
           model: JSON.parse(options.body).model,
         });
+      if (url === "https://api.openai.com/v1/decisions")
+        return Response.json(openaiFixture);
       throw new Error(`Unexpected fetch: ${url}`);
     })
   );
@@ -272,7 +276,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     expect(port.messages.some((item) => item.chunk)).toBe(false);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it.each(["openai", "anthropic", "on-device", "compat:unsupported"])(
+  it.each(["anthropic", "on-device", "compat:unsupported"])(
     "rejects a saved unsupported provider %s",
     async (providerId) => {
       if (providerId.startsWith("compat:"))
@@ -327,7 +331,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
   it("fails closed when an unsupported provider is saved as the default", async () => {
     await storage.saveSettings({
       operationDefaults: {
-        decide: { providerId: "openai", model: "chat-model" },
+        decide: { providerId: "anthropic", model: "chat-model" },
       },
     });
     const port = start();
@@ -396,6 +400,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
         provider.defaultModel,
       ])
     ).toEqual([
+      ["openai", "gpt-6-luna"],
       ["openrouter", cloud.model],
       ["ollama", "nimble"],
     ]);
@@ -412,4 +417,94 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       { signal: undefined }
     );
   });
+  it("routes approved OpenAI decisions with the saved key and separate grants", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: openai } });
+    await storage.grantOriginAlways(origin, openai);
+    const port = start();
+    await approve(port, openai, "always");
+    await outcome(port);
+    expect(port.messages.filter((item) => item.chunk).map((item) => item.chunk.type))
+      .toEqual(["accepted", "done"]);
+    expect(port.messages.at(-1).chunk).toEqual({
+      type: "done", model: "gpt-6-luna", answers: fixture.answers,
+      usage: { inputTokens: 476, outputTokens: 0 },
+    });
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(openai);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://api.openai.com/v1/decisions", expect.objectContaining({
+      headers: { "Content-Type": "application/json", Authorization: "Bearer openai-key" },
+    }));
+    expect(JSON.parse(fetch.mock.calls[0][1].body).input).toBe(JSON.stringify(request.state));
+  });
+  it("keeps OpenRouter as the initial decisions default", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: null } });
+    const port = start();
+    await vi.waitFor(() => expect(permissions.getPendingApproval(port.streamId)?.method).toBe("decide"));
+    expect(permissions.getPendingApproval(port.streamId)).toMatchObject({
+      providerId: "openrouter", model: cloud.model,
+    });
+  });
+  it("lists the OpenAI Decisions model independently of chat", async () => {
+    expect(await message({ type: "list-models", method: "decide", providerId: "openai" }))
+      .toMatchObject({ ok: true, models: [{ id: "gpt-6-luna" }] });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("rejects stale OpenAI models and keys before contacting the provider", async () => {
+    await storage.grantOriginOperationAlways(origin, "decide", { ...openai, model: "gpt-6-astra" });
+    const stale = start();
+    await outcome(stale);
+    expect(stale.messages.at(-1).error).toMatchObject({
+      code: "unavailable", message: expect.stringContaining("OpenAI Decisions catalog"),
+    });
+    await storage.grantOriginOperationAlways(origin, "decide", openai);
+    await storage.saveSettings({ apiKeys: { openai: "" } });
+    const noKey = start();
+    await outcome(noKey);
+    expect(noKey.messages.at(-1).error.code).toBe("unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("checks the current OpenAI key after approval", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: openai } });
+    const port = start();
+    await vi.waitFor(() => expect(permissions.getPendingApproval(port.streamId)?.method).toBe("decide"));
+    await storage.saveSettings({ apiKeys: { openai: "" } });
+    await approve(port, openai);
+    await outcome(port);
+    expect(port.messages.at(-1).error.code).toBe("unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("returns individual OpenAI refusals in the done chunk", async () => {
+    await storage.grantOriginOperationAlways(origin, "decide", openai);
+    const body = structuredClone(openaiFixture);
+    body.answers[0] = { type: "refusal", name: "is_bug" };
+    fetch.mockResolvedValue(Response.json(body));
+    const port = start();
+    await outcome(port);
+    expect(port.messages.at(-1).chunk).toMatchObject({
+      type: "done", answers: { ...fixture.answers, is_bug: { type: "refusal" } },
+    });
+  });
+  it("aborts the OpenAI fetch without a done chunk", async () => {
+    await storage.grantOriginOperationAlways(origin, "decide", openai);
+    fetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const port = start();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    const signal = fetch.mock.calls[0][1].signal;
+    port.onMessage.emit({ type: "abort", streamId: port.streamId });
+    await outcome(port);
+    expect(signal.aborted).toBe(true);
+    expect(port.messages.at(-1).error.code).toBe("aborted");
+    expect(port.messages.some((item) => item.chunk?.type === "done")).toBe(false);
+  });
+  if (firefox) {
+    it("checks OpenAI host access before sending decisions", async () => {
+      await storage.grantOriginOperationAlways(origin, "decide", openai);
+      chrome.permissions.contains.mockResolvedValue(false);
+      const port = start();
+      await outcome(port);
+      expect(port.messages.at(-1).error.code).toBe("unavailable");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  }
 });

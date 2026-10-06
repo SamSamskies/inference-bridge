@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - `window.inference.request()` for streaming text chat, function tools, hosted `{ type: "web_search" }`, and images (`ImagePart` / `output.images`)
 - `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `imageInput`, `imageOutput`, `options.reasoningEffort`, `options.temperature`)
-- Experimental typed decisions via OpenRouter Decisions or local Ollama System One, available by default
+- Experimental typed decisions via OpenAI Decisions, OpenRouter Decisions, or local Ollama System One, available by default
 - Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()`
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
@@ -604,6 +604,16 @@ stable `getFeatures()` and `request()` remain chat-only.
   an alpha API that may change. The picker discovers all decision models via
   `GET /api/v1/models?output_modalities=decisions`, including Jev, D1, Tev1,
   Mercury Decide, Solar Decide, Span, and Kev models as available.
+- **OpenAI:** save your OpenAI key in **Options → Providers**, then choose
+  OpenAI and `gpt-6-luna` in Decisions. Requests use
+  [`POST /v1/decisions`](https://developers.openai.com/api/reference/resources/decisions/methods/create),
+  a beta API. The independent Decisions catalog currently contains only
+  `gpt-6-luna`, as documented in the [OpenAI guide](https://developers.openai.com/api/docs/guides/decisions).
+  String state is sent as text input; objects and arrays are serialized to JSON
+  text. `noul` maps to OpenAI's `predicate`, choices keep their string keys, and
+  scores use zero-based level indices. Optional `noul` criteria are included in
+  the predicate instructions. OpenAI's native image input and boolean choice
+  values are outside the Bridge's current JSON-state decision envelope.
 - **Local:** run **Ollama 0.35+**, install a model with `ollama pull nimble`
   (or `ollama pull tev1:0.8b`), and select Ollama and its installed decision model
   in Decisions. Requests use [`POST /v1/systemone`](https://docs.ollama.com/api/systemone).
@@ -612,11 +622,12 @@ stable `getFeatures()` and `request()` remain chat-only.
   Clef, and Clef Flash are supported; Clef models require **Ollama 0.35.1+**.
   No local API key is needed.
   OpenRouter works independently of whether Ollama is running.
-- OpenAI, Anthropic, On-device, and OpenAI-compatible providers do not support
-  this operation. There is no chat emulation or fallback. Discovered decision
-  models are excluded from chat routing.
+- Anthropic, On-device, and OpenAI-compatible providers do not support
+  this operation. There is no chat emulation or fallback. OpenRouter and Ollama
+  decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
+  also remains available for chat.
 
-Paste into a secure page's DevTools console. The same code works with either
+Paste into a secure page's DevTools console. The same code works with any
 backend selected in Options or approval:
 
 ```js
@@ -656,6 +667,9 @@ the user; pages cannot supply them or Ollama's `keep_alive`. A chat or speech
 Always-allow grant cannot authorize decisions. Review or revoke decisions grants
 in **Options → Site access**. Approval previews question ids/types and a truncated
 state summary; the selected provider receives the complete bounded state.
+OpenAI can refuse individual questions. Those answers have `{ type: "refusal" }`
+under the question's id; other answers are returned normally. Check the answer
+type before reading its probability, choice, or score.
 
 The three [TypeSafe primitives](https://docs.typesafe.ai/primitives) preserve
 upstream vocabulary: `noul` is a probability of yes between 0 and 1;
@@ -952,6 +966,7 @@ npm run package
 - [ ] Decisions are available immediately in experimental discovery; stable discovery is unchanged; stable `decide` fails before approval
 - [ ] Enabling/disabling speech leaves decisions available; the first decisions request prompts for separate site approval
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
+- [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
 - [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint
 - [ ] Decisions model pickers list only their separate catalogs; an empty local decision catalog disables Allow and explains `ollama pull nimble`
 - [ ] Approval previews truncated state and question ids/types; chat/speech grants do not skip decide approval; revoking decide leaves those grants intact

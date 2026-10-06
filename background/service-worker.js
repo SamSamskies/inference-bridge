@@ -782,6 +782,7 @@ async function handleDecideStart({
   }
   const preferred =
     capable.find((provider) => provider.id === storedDefault?.providerId) ||
+    capable.find((provider) => provider.id === "openrouter") ||
     capable[0];
   if (!preferred)
     throw inferenceError("unavailable", "No provider supports decisions.");
@@ -836,7 +837,7 @@ async function handleDecideStart({
       "unavailable",
       provider.id === "ollama"
         ? "No matching installed decision model. Use Ollama 0.35+, run ollama pull nimble, then choose it in Options."
-        : "Choose a model from the OpenRouter Decisions catalog."
+        : `Choose a model from the ${provider.label} Decisions catalog.`
     );
   }
   if (controller.signal.aborted || !activeStreams.has(streamId))
