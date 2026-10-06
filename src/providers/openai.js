@@ -19,6 +19,7 @@ import {
   streamOpenAICompatChat,
 } from "./openai-compat-stream.js";
 import { streamOpenAIResponsesChat } from "./openai-responses.js";
+import { decideOpenAI, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
 import {
   OPENAI_SYNTHESIS_MODELS,
   OPENAI_SYNTHESIS_VOICES,
@@ -81,6 +82,11 @@ export const openaiProvider = {
   defaultModel: "gpt-6-luna",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  decisions: {
+    defaultModel: OPENAI_DECISION_MODELS[0],
+    models: OPENAI_DECISION_MODELS,
+  },
+  decide: decideOpenAI,
   transcription: {
     defaultModel: OPENAI_TRANSCRIPTION_MODELS[0],
     models: OPENAI_TRANSCRIPTION_MODELS,

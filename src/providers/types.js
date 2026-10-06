@@ -204,6 +204,7 @@
  *   { type: "score", instructions: string, criteria: string[] }} DecideQuestion
  * @typedef {{ type: "noul", noul: number } |
  *   { type: "choice", choice: string, confidence: number, probabilities: Record<string, number> } |
- *   { type: "score", score: number, confidence: number, probabilities: Record<string, number>, legend: Record<string, string> }} DecideAnswer
+ *   { type: "score", score: number, confidence: number, probabilities: Record<string, number>, legend: Record<string, string> } |
+ *   { type: "refusal" }} DecideAnswer
  */
 export {};

@@ -54,12 +54,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("decisions catalogs", () => {
-  it("advertises exactly the two complete adapters and resolves an independent cloud catalog", async () => {
+  it("advertises complete adapters and resolves independent cloud catalogs", async () => {
     expect(
       filterProvidersForMethod(listProviders(), "decide").map(
         (provider) => provider.id
       )
-    ).toEqual(["openrouter", "ollama"]);
+    ).toEqual(["openai", "openrouter", "ollama"]);
     expect(providerSupportsMethod({ decisions: {} }, "decide")).toBe(false);
     expect(providerSupportsMethod({ decide() {} }, "decide")).toBe(false);
     expect(
@@ -76,7 +76,7 @@ describe("decisions catalogs", () => {
     );
     expect(
       await resolveProviderModels(listProviders()[0], { method: "decide" })
-    ).toEqual([]);
+    ).toEqual([{ id: "gpt-6-luna" }]);
     expect(fetch).toHaveBeenCalledExactlyOnceWith(decisionCatalogUrl, {
       signal: undefined,
     });

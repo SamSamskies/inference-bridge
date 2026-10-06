@@ -86,7 +86,7 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 - **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
 - **offscreen** — Host the browser Prompt API (`LanguageModel`) in an offscreen document for the On-device provider; the API is not reliable in the service worker.
-- **https://api.openai.com/**\* — Send chat/image requests and, only when locally enabled and separately approved, bounded transcription files or speech-synthesis text when the user selects OpenAI.
+- **https://api.openai.com/**\* — Send chat/image requests and separately approved decisions state and typed questions when the user selects OpenAI. Only when locally enabled and separately approved, send bounded transcription files or speech-synthesis text.
 - **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
 - **https://openrouter.ai/**\* — List models and send chat/image requests when the user selects OpenRouter. Separately approved decisions send state and typed questions. Locally enabled and separately approved speech sends bounded transcription files or speech-synthesis text.
 - **https://ollama.com/**\* — Run hosted web search / fetch via Ollama cloud when the user selects Ollama and requests `{ type: "web_search" }` (optional Ollama account API key).
@@ -100,7 +100,7 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 - User credentials (API keys) stored locally
 - Website content (prompt/messages) sent to the user-selected provider
 - Experimental speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
-- Experimental decisions JSON state and questions sent only to the selected OpenRouter or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
+- Experimental decisions JSON state and questions sent only to the selected OpenAI, OpenRouter, or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
 - Recordings can contain biometric voice data and sensitive bystander, location, health, background-conversation, or ambient information
 - Synthesis text sent to the selected provider and generated MP3 bytes returned directly to the requesting page
 - No storage of recordings, transcripts, or generated audio; no microphone/tab capture and no automatic playback
