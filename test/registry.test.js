@@ -134,13 +134,15 @@ describe("provider registry", () => {
     expect(anthropic.defaultModel).toBe("claude-sonnet-5-5");
     expect(typeof anthropic.listModels).toBe("undefined");
     const models = await resolveProviderModels(anthropic);
-    expect(models).toContainEqual({ id: "claude-fable-5-1" });
-    expect(models).toContainEqual({ id: "claude-fable-5" });
-    expect(models).toContainEqual({ id: "claude-opus-5-5" });
-    expect(models).toContainEqual({ id: "claude-sonnet-5-5" });
-    expect(models).toContainEqual({ id: "claude-sonnet-5" });
-    expect(models).toContainEqual({ id: "claude-haiku-5-5" });
-    expect(models).toContainEqual({ id: "claude-opus-5" });
+    expect(models).toEqual([
+      { id: "claude-fable-5-1" },
+      { id: "claude-fable-5" },
+      { id: "claude-opus-5-5" },
+      { id: "claude-opus-5" },
+      { id: "claude-sonnet-5-5" },
+      { id: "claude-sonnet-5" },
+      { id: "claude-haiku-5-5" },
+    ]);
   });
 });
 

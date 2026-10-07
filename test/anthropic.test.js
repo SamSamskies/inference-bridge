@@ -347,12 +347,15 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.requiresApiKey).toBe(true);
     expect(anthropicProvider.label).toBe("Anthropic");
     expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5-5");
-    expect(anthropicProvider.models).toContain("claude-fable-5-1");
-    expect(anthropicProvider.models).toContain("claude-fable-5");
-    expect(anthropicProvider.models).toContain("claude-sonnet-5-5");
-    expect(anthropicProvider.models).toContain("claude-sonnet-5");
-    expect(anthropicProvider.models).toContain("claude-haiku-5-5");
-    expect(anthropicProvider.models).not.toContain("claude-haiku-4-5");
+    expect(anthropicProvider.models).toEqual([
+      "claude-fable-5-1",
+      "claude-fable-5",
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-sonnet-5-5",
+      "claude-sonnet-5",
+      "claude-haiku-5-5",
+    ]);
     expect(anthropicProvider.supportsFunctionTools).toBe(true);
     expect(anthropicProvider.hostedTools).toEqual(["web_search"]);
   });
