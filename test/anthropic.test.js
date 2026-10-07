@@ -352,7 +352,7 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.models).toContain("claude-sonnet-5-5");
     expect(anthropicProvider.models).toContain("claude-sonnet-5");
     expect(anthropicProvider.models).toContain("claude-haiku-5-5");
-    expect(anthropicProvider.models).toContain("claude-haiku-4-5");
+    expect(anthropicProvider.models).not.toContain("claude-haiku-4-5");
     expect(anthropicProvider.supportsFunctionTools).toBe(true);
     expect(anthropicProvider.hostedTools).toEqual(["web_search"]);
   });
