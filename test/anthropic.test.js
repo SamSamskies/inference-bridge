@@ -347,10 +347,15 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.requiresApiKey).toBe(true);
     expect(anthropicProvider.label).toBe("Anthropic");
     expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5-5");
-    expect(anthropicProvider.models).toContain("claude-fable-5-1");
-    expect(anthropicProvider.models).toContain("claude-fable-5");
-    expect(anthropicProvider.models).toContain("claude-sonnet-5-5");
-    expect(anthropicProvider.models).toContain("claude-sonnet-5");
+    expect(anthropicProvider.models).toEqual([
+      "claude-fable-5-1",
+      "claude-fable-5",
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-sonnet-5-5",
+      "claude-sonnet-5",
+      "claude-haiku-5-5",
+    ]);
     expect(anthropicProvider.supportsFunctionTools).toBe(true);
     expect(anthropicProvider.hostedTools).toEqual(["web_search"]);
   });
@@ -1027,13 +1032,17 @@ describe("anthropicProvider", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBe(1);
   });
 
-  it("omits temperature on Sonnet 5.5 and Opus 5.5", async () => {
+  it("omits temperature on Sonnet 5.5, Haiku 5.5, and Opus 5.5", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse('data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n')
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    for (const model of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+    for (const model of [
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+      "claude-opus-5-5",
+    ]) {
       await anthropicProvider.streamChat({
         apiKey: "sk-ant-test",
         model,
@@ -1043,7 +1052,7 @@ describe("anthropicProvider", () => {
         onDelta: () => {},
       });
     }
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const [, init] of fetchMock.mock.calls) {
       expect(JSON.parse(init.body)).not.toHaveProperty("temperature");
     }

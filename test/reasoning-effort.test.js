@@ -101,6 +101,10 @@ describe("mapReasoningEffortForAnthropic", () => {
       thinking: { type: "adaptive" },
       output_config: { effort: "low" },
     });
+    expect(mapReasoningEffortForAnthropic("low", "claude-haiku-5-5")).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+    });
     expect(mapReasoningEffortForAnthropic("medium", "claude-sonnet-4-6")).toEqual(
       {
         thinking: { type: "adaptive" },
@@ -121,6 +125,12 @@ describe("mapReasoningEffortForAnthropic", () => {
       thinking: { type: "enabled", budget_tokens: 4096 },
     });
     expect(mapReasoningEffortForAnthropic("none", "claude-haiku-4-5")).toEqual({
+      thinking: { type: "disabled" },
+    });
+  });
+
+  it("disables thinking for none on Haiku 5.5", () => {
+    expect(mapReasoningEffortForAnthropic("none", "claude-haiku-5-5")).toEqual({
       thinking: { type: "disabled" },
     });
   });
