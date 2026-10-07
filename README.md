@@ -982,7 +982,7 @@ npm run package
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
-- [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s reviewed catalog
+- [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
 - [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
 - [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis

@@ -20,6 +20,12 @@
 export const COMPAT_MODEL_AUTOSUGGEST_THRESHOLD = 20;
 
 /**
+ * Operation-scoped catalogs (speech, decisions) stay on <select> up to this
+ * size in the approval dialog. Chat OpenRouter remains autosuggest always.
+ */
+export const OPERATION_MODEL_SELECT_MAX = 50;
+
+/**
  * @param {string} providerId
  * @param {ModelInfo[] | undefined} [models] Catalog used for compat:* mode
  * @returns {boolean}
