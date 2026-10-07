@@ -178,6 +178,29 @@ export async function listOpenRouterSynthesisModels(args = {}) {
 }
 
 /**
+ * Retry a catalog refresh; keep a previously fetched catalog on transient
+ * models-endpoint failures so speech requests are not blocked while
+ * /audio/* may still be healthy. Abort still fails closed.
+ * @template T
+ * @param {() => Promise<T>} refresh
+ * @param {() => boolean} hasStale
+ * @returns {Promise<T | undefined>}
+ */
+async function refreshSpeechCatalogOrKeepStale(refresh, hasStale) {
+  try {
+    return await refresh();
+  } catch (err) {
+    if (
+      hasStale() &&
+      !(err && /** @type {any} */ (err).code === "aborted")
+    ) {
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+/**
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
  * @returns {Promise<import("./types.js").VoiceInfo[]>}
@@ -188,7 +211,10 @@ export async function openRouterVoicesForModel(model, args = {}) {
     !synthesisCatalog ||
     Date.now() - synthesisCatalogListedAt >= SPEECH_CATALOG_MAX_AGE_MS
   ) {
-    await listOpenRouterSynthesisModels(args);
+    await refreshSpeechCatalogOrKeepStale(
+      () => listOpenRouterSynthesisModels(args),
+      () => Boolean(synthesisCatalog)
+    );
   }
   return (voicesByModel.get(model) || []).map((id) => ({ id }));
 }
@@ -210,7 +236,10 @@ async function ensureTranscriptionCatalog(args = {}) {
     !transcriptionCatalog ||
     Date.now() - transcriptionCatalogListedAt >= SPEECH_CATALOG_MAX_AGE_MS
   ) {
-    await listOpenRouterTranscriptionModels(args);
+    await refreshSpeechCatalogOrKeepStale(
+      () => listOpenRouterTranscriptionModels(args),
+      () => Boolean(transcriptionCatalog)
+    );
   }
   return transcriptionCatalog || [];
 }

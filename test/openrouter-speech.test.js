@@ -150,6 +150,66 @@ describe("OpenRouter speech catalogs", () => {
     ).toEqual([]);
     expect(await openRouterVoicesForModel("unknown/tts")).toEqual([]);
   });
+
+  it("keeps a stale transcription catalog when models refresh fails after TTL", async () => {
+    stubFetch();
+    await listOpenRouterTranscriptionModels();
+    const listedAt = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(listedAt + 60_001);
+
+    stubFetch(async (url) => {
+      if (url === TRANSCRIPTION_CATALOG_URL) {
+        return new Response("upstream down", { status: 503 });
+      }
+    });
+    expect(
+      await openRouterMediaTypesForModel({ model: "openai/gpt-transcribe" })
+    ).toContain("audio/wav");
+  });
+
+  it("keeps stale synthesis voices when models refresh fails after TTL", async () => {
+    stubFetch();
+    await listOpenRouterSynthesisModels();
+    const listedAt = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(listedAt + 60_001);
+
+    stubFetch(async (url) => {
+      if (url === SPEECH_CATALOG_URL) {
+        return new Response("upstream down", { status: 503 });
+      }
+      if (url === "https://openrouter.ai/api/v1/audio/speech") {
+        return new Response(Uint8Array.of(1, 2, 3), {
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
+    });
+
+    await expect(
+      synthesizeOpenRouter({
+        apiKey: "sk-or-test",
+        model: "mistralai/voxtral-mini-tts-2603",
+        voice: "en_paul_neutral",
+        text: "hello",
+        mediaType: "audio/mpeg",
+        signal: new AbortController().signal,
+        onAudioDelta: vi.fn(),
+      })
+    ).resolves.toMatchObject({
+      model: "mistralai/voxtral-mini-tts-2603",
+      audio: { mediaType: "audio/mpeg", byteLength: 3 },
+    });
+  });
+
+  it("still fails closed when there is no cached catalog to fall back to", async () => {
+    stubFetch(async (url) => {
+      if (url === TRANSCRIPTION_CATALOG_URL) {
+        return new Response("upstream down", { status: 503 });
+      }
+    });
+    await expect(
+      openRouterMediaTypesForModel({ model: "openai/gpt-transcribe" })
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
 });
 
 describe("OpenRouter transcription", () => {
