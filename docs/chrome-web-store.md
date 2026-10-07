@@ -83,15 +83,24 @@ https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md
 
 ## Permission justifications (paste into store form)
 
+Chrome Web Store caps each justification field at **1000 characters**. Host permissions usually share one field — keep the host block under that limit.
+
+### Non-host (separate fields)
+
 - **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
 - **offscreen** — Host the browser Prompt API (`LanguageModel`) in an offscreen document for the On-device provider; the API is not reliable in the service worker.
-- **https://api.openai.com/**\* — Send chat/image requests and separately approved decisions state and typed questions when the user selects OpenAI. Only when locally enabled and separately approved, send bounded transcription files or speech-synthesis text.
-- **https://api.anthropic.com/**\* — Send Messages API requests when the user selects Anthropic.
-- **https://openrouter.ai/**\* — List models and send chat/image requests when the user selects OpenRouter. Separately approved decisions send state and typed questions. Locally enabled and separately approved speech sends bounded transcription files or speech-synthesis text.
-- **https://ollama.com/**\* — Run hosted web search / fetch via Ollama cloud when the user selects Ollama and requests `{ type: "web_search" }` (optional Ollama account API key).
-- **http://localhost:11434/**\* and **http://127.0.0.1:11434/**\* — Talk to local Ollama only on its default port for chat, explicitly enabled/approved WAV transcription by an installed audio-capable model, or separately approved typed decisions by an installed decision model.
-- **optional_host_permissions (`http://*/*`, `https://*/*`)** — Not granted at install. When the user adds an OpenAI-compatible server in Options, the extension requests host access for **that origin only** (e.g. `http://127.0.0.1:1234/*`) so chat and model listing can reach the server they configured.
+
+### Host permissions (single paste block)
+
+```
+https://api.openai.com/* — Chat, images, separately approved decisions, and (if enabled/approved) speech when the user selects OpenAI.
+https://api.anthropic.com/* — Messages API when the user selects Anthropic.
+https://openrouter.ai/* — Models, chat/images, separately approved decisions, and (if enabled/approved) speech when the user selects OpenRouter.
+https://ollama.com/* — Hosted web search/fetch when the user selects Ollama and requests web_search (optional Ollama API key).
+http://localhost:11434/* and http://127.0.0.1:11434/* — Local Ollama on its default port for chat, approved speech, or approved decisions.
+optional http://*/* and https://*/* — Not granted at install. Requested only for each custom OpenAI-compatible origin the user saves in Options.
+```
 
 ## Data safety / privacy disclosures
 
