@@ -15,9 +15,12 @@ import {
 } from "./hosted-tools.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 import {
-  OPENROUTER_SYNTHESIS_MODELS,
+  OPENROUTER_DEFAULT_SYNTHESIS_MODEL,
+  OPENROUTER_DEFAULT_SYNTHESIS_VOICE,
+  OPENROUTER_DEFAULT_TRANSCRIPTION_MODEL,
   OPENROUTER_TRANSCRIPTION_MEDIA_TYPES,
-  OPENROUTER_TRANSCRIPTION_MODELS,
+  listOpenRouterSynthesisModels,
+  listOpenRouterTranscriptionModels,
   openRouterMediaTypesForModel,
   openRouterVoicesForModel,
   synthesizeOpenRouter,
@@ -318,20 +321,20 @@ export const openrouterProvider = {
     });
   },
   transcription: {
-    defaultModel: OPENROUTER_TRANSCRIPTION_MODELS[0].id,
-    models: OPENROUTER_TRANSCRIPTION_MODELS,
+    defaultModel: OPENROUTER_DEFAULT_TRANSCRIPTION_MODEL,
+    listModels: listOpenRouterTranscriptionModels,
     acceptedMediaTypes: OPENROUTER_TRANSCRIPTION_MEDIA_TYPES,
     maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
     listAcceptedMediaTypesForModel: openRouterMediaTypesForModel,
   },
   synthesis: {
-    defaultModel: OPENROUTER_SYNTHESIS_MODELS[0].id,
-    defaultVoice: "en_paul_neutral",
-    models: OPENROUTER_SYNTHESIS_MODELS,
-    voices: Object.freeze([{ id: "en_paul_neutral" }]),
-    async listVoices({ model } = {}) {
+    defaultModel: OPENROUTER_DEFAULT_SYNTHESIS_MODEL,
+    defaultVoice: OPENROUTER_DEFAULT_SYNTHESIS_VOICE,
+    listModels: listOpenRouterSynthesisModels,
+    async listVoices({ model, signal } = {}) {
       return openRouterVoicesForModel(
-        model || OPENROUTER_SYNTHESIS_MODELS[0].id
+        model || OPENROUTER_DEFAULT_SYNTHESIS_MODEL,
+        signal ? { signal } : {}
       );
     },
     outputMediaTypes: Object.freeze(["audio/mpeg"]),

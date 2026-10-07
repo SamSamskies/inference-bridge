@@ -10,79 +10,225 @@ const OPENROUTER_TRANSCRIPTION_URL =
   "https://openrouter.ai/api/v1/audio/transcriptions";
 const OPENROUTER_SYNTHESIS_URL =
   "https://openrouter.ai/api/v1/audio/speech";
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_TRANSCRIPTION_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=transcription`;
+const OPENROUTER_SPEECH_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=speech`;
 
-export const OPENROUTER_TRANSCRIPTION_MODELS = Object.freeze([
-  Object.freeze({ id: "openai/gpt-transcribe", label: "OpenAI: GPT Transcribe" }),
-  Object.freeze({
-    id: "openai/gpt-4o-mini-transcribe",
-    label: "OpenAI: GPT-4o Mini Transcribe",
-  }),
-  Object.freeze({
-    id: "openai/gpt-4o-transcribe",
-    label: "OpenAI: GPT-4o Transcribe",
-  }),
-]);
+/** Stable starters until the live catalogs are queried. */
+export const OPENROUTER_DEFAULT_TRANSCRIPTION_MODEL = "openai/gpt-transcribe";
+export const OPENROUTER_DEFAULT_SYNTHESIS_MODEL =
+  "mistralai/voxtral-mini-tts-2603";
+export const OPENROUTER_DEFAULT_SYNTHESIS_VOICE = "en_paul_neutral";
 
-export const OPENROUTER_SYNTHESIS_MODELS = Object.freeze([
-  Object.freeze({
-    id: "mistralai/voxtral-mini-tts-2603",
-    label: "Mistral: Voxtral Mini TTS",
-  }),
-  Object.freeze({
-    id: "x-ai/grok-voice-tts-1.0",
-    label: "xAI: Grok Voice TTS 1.0",
-  }),
-  Object.freeze({
-    id: "microsoft/mai-voice-2",
-    label: "Microsoft AI: MAI-Voice-2",
-  }),
-]);
+const SPEECH_CATALOG_MAX_AGE_MS = 60_000;
 
-const VOICES_BY_MODEL = Object.freeze({
-  "mistralai/voxtral-mini-tts-2603": Object.freeze(["en_paul_neutral"]),
-  "x-ai/grok-voice-tts-1.0": Object.freeze([
-    "eve",
-    "ara",
-    "rex",
-    "sal",
-    "leo",
-  ]),
-  "microsoft/mai-voice-2": Object.freeze(["en-US-Harper:MAI-Voice-2"]),
-});
+/** @type {import("./types.js").ModelInfo[] | null} */
+let transcriptionCatalog = null;
+let transcriptionCatalogListedAt = 0;
+/** @type {import("./types.js").ModelInfo[] | null} */
+let synthesisCatalog = null;
+let synthesisCatalogListedAt = 0;
+/** @type {Map<string, string[]>} */
+const voicesByModel = new Map();
 
-export const OPENROUTER_TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
+export const OPENROUTER_TRANSCRIPTION_AUDIO_MEDIA_TYPES = Object.freeze([
   "audio/mpeg",
   "audio/mp4",
   "audio/wav",
   "audio/webm",
+]);
+
+/** Provider-level union; per-model probing may narrow video away. */
+export const OPENROUTER_TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
+  ...OPENROUTER_TRANSCRIPTION_AUDIO_MEDIA_TYPES,
   "video/mp4",
   "video/webm",
 ]);
 
 /**
- * OpenRouter voices are provider/model-specific and are not exposed in the
- * general model catalog. Keep this reviewed list closed rather than treating
- * a chat/audio modality as proof of a usable voice.
- * @param {string} model
+ * @param {unknown} value
+ * @returns {string[]}
  */
-export function openRouterVoicesForModel(model) {
-  return (VOICES_BY_MODEL[model] || []).map((id) => ({ id }));
+function stringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v) => typeof v === "string" && v.trim());
 }
 
 /**
- * Video pass-through is enabled only for the curated OpenAI transcription
- * routes whose upstream endpoint accepts MP4/WebM containers.
- * @param {string} model
+ * @param {string} code
+ * @param {string} message
+ * @returns {never}
  */
-export async function openRouterMediaTypesForModel({ model }) {
+function throwInference(code, message) {
+  throw inferenceError(code, message);
+}
+
+/**
+ * Read a public model catalog without sending the stored API key.
+ * @param {string} url
+ * @param {{ signal?: AbortSignal }} [args]
+ * @returns {Promise<Array<Record<string, any>>>}
+ */
+async function fetchOpenRouterModelEntries(url, { signal } = {}) {
+  let response;
+  try {
+    response = await fetch(url, { signal });
+  } catch (err) {
+    if (
+      signal?.aborted ||
+      (err && /** @type {Error} */ (err).name === "AbortError")
+    ) {
+      throwInference("aborted", "Request aborted");
+    }
+    throwInference(
+      "unavailable",
+      err instanceof Error
+        ? err.message
+        : "Network error contacting OpenRouter while listing models"
+    );
+  }
+
+  if (!response.ok) {
+    throwInference(
+      response.status >= 500 ? "unavailable" : "provider_error",
+      `OpenRouter HTTP ${response.status} listing models`
+    );
+  }
+
+  let body;
+  try {
+    body = await response.json();
+  } catch (err) {
+    if (signal?.aborted || err?.name === "AbortError")
+      throwInference("aborted", "Request aborted");
+    throwInference(
+      "provider_error",
+      "OpenRouter returned invalid JSON for /api/v1/models"
+    );
+  }
+  if (signal?.aborted) throwInference("aborted", "Request aborted");
+
+  return Array.isArray(body?.data) ? body.data : [];
+}
+
+/**
+ * @param {Record<string, any>} entry
+ * @param {string} requiredOutput
+ * @returns {import("./types.js").ModelInfo | null}
+ */
+function modelInfoFromEntry(entry, requiredOutput) {
+  const id = typeof entry?.id === "string" ? entry.id.trim() : "";
+  if (!id) return null;
+  const output = stringList(entry?.architecture?.output_modalities);
+  if (!output.includes(requiredOutput)) return null;
+  const label =
+    typeof entry?.name === "string" && entry.name ? entry.name : undefined;
+  /** @type {import("./types.js").ModelInfo} */
+  const info = { id };
+  if (label) info.label = label;
+  const input = stringList(entry?.architecture?.input_modalities);
+  if (input.length) info.inputModalities = input;
+  if (output.length) info.outputModalities = output;
+  return info;
+}
+
+/** STT models from the public catalog (`output_modalities=transcription`). */
+export async function listOpenRouterTranscriptionModels(args = {}) {
+  const entries = await fetchOpenRouterModelEntries(
+    OPENROUTER_TRANSCRIPTION_MODELS_URL,
+    args
+  );
+  /** @type {import("./types.js").ModelInfo[]} */
+  const models = [];
+  for (const entry of entries) {
+    const info = modelInfoFromEntry(entry, "transcription");
+    if (info) models.push(info);
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  transcriptionCatalog = models;
+  transcriptionCatalogListedAt = Date.now();
+  return models.map((model) => ({ ...model }));
+}
+
+/**
+ * TTS models from the public catalog (`output_modalities=speech`).
+ * Only models with a non-empty `supported_voices` list are offered — Bridge
+ * requires a concrete voice id for `/audio/speech`.
+ */
+export async function listOpenRouterSynthesisModels(args = {}) {
+  const entries = await fetchOpenRouterModelEntries(
+    OPENROUTER_SPEECH_MODELS_URL,
+    args
+  );
+  /** @type {import("./types.js").ModelInfo[]} */
+  const models = [];
+  voicesByModel.clear();
+  for (const entry of entries) {
+    const info = modelInfoFromEntry(entry, "speech");
+    if (!info) continue;
+    const voices = stringList(entry?.supported_voices);
+    if (voices.length === 0) continue;
+    voicesByModel.set(info.id, voices);
+    models.push(info);
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  synthesisCatalog = models;
+  synthesisCatalogListedAt = Date.now();
+  return models.map((model) => ({ ...model }));
+}
+
+/**
+ * @param {string} model
+ * @param {{ signal?: AbortSignal }} [args]
+ * @returns {Promise<import("./types.js").VoiceInfo[]>}
+ */
+export async function openRouterVoicesForModel(model, args = {}) {
+  if (!model) return [];
   if (
-    !OPENROUTER_TRANSCRIPTION_MODELS.some(
-      (candidate) => candidate.id === model
-    )
+    !synthesisCatalog ||
+    Date.now() - synthesisCatalogListedAt >= SPEECH_CATALOG_MAX_AGE_MS
   ) {
+    await listOpenRouterSynthesisModels(args);
+  }
+  return (voicesByModel.get(model) || []).map((id) => ({ id }));
+}
+
+export function resetOpenRouterSpeechCatalogs() {
+  transcriptionCatalog = null;
+  transcriptionCatalogListedAt = 0;
+  synthesisCatalog = null;
+  synthesisCatalogListedAt = 0;
+  voicesByModel.clear();
+}
+
+/**
+ * Ensure the transcription catalog is fresh enough for membership checks.
+ * @param {{ signal?: AbortSignal }} [args]
+ */
+async function ensureTranscriptionCatalog(args = {}) {
+  if (
+    !transcriptionCatalog ||
+    Date.now() - transcriptionCatalogListedAt >= SPEECH_CATALOG_MAX_AGE_MS
+  ) {
+    await listOpenRouterTranscriptionModels(args);
+  }
+  return transcriptionCatalog || [];
+}
+
+/**
+ * Audio MIME types for any catalog STT model. Video containers stay limited to
+ * OpenAI transcription routes whose upstream endpoints accept MP4/WebM.
+ * @param {{ model: string, signal?: AbortSignal, apiKey?: string }} args
+ */
+export async function openRouterMediaTypesForModel({ model, signal }) {
+  const catalog = await ensureTranscriptionCatalog({ signal });
+  if (!catalog.some((entry) => entry.id === model)) {
     return [];
   }
-  return [...OPENROUTER_TRANSCRIPTION_MEDIA_TYPES];
+  if (typeof model === "string" && model.startsWith("openai/")) {
+    return [...OPENROUTER_TRANSCRIPTION_MEDIA_TYPES];
+  }
+  return [...OPENROUTER_TRANSCRIPTION_AUDIO_MEDIA_TYPES];
 }
 
 /**
@@ -97,7 +243,10 @@ export async function openRouterMediaTypesForModel({ model }) {
  */
 export async function transcribeOpenRouter(args) {
   const mediaType = normalizeTranscriptionMediaType(args.audio.mediaType);
-  const accepted = await openRouterMediaTypesForModel({ model: args.model });
+  const accepted = await openRouterMediaTypesForModel({
+    model: args.model,
+    signal: args.signal,
+  });
   if (!mediaType || !accepted.includes(mediaType)) {
     throw inferenceError(
       "unavailable",
@@ -195,11 +344,10 @@ export async function synthesizeOpenRouter(args) {
       'OpenRouter synthesis currently supports only "audio/mpeg".'
     );
   }
-  if (
-    !openRouterVoicesForModel(args.model).some(
-      (candidate) => candidate.id === args.voice
-    )
-  ) {
+  const voices = await openRouterVoicesForModel(args.model, {
+    signal: args.signal,
+  });
+  if (!voices.some((candidate) => candidate.id === args.voice)) {
     throw inferenceError(
       "unavailable",
       `OpenRouter synthesis voice is unavailable for ${args.model}: ${args.voice}.`

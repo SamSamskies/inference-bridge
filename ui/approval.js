@@ -2,6 +2,7 @@ import {
   isModelValid,
   populateModelInput,
   populateModelSelect,
+  OPERATION_MODEL_SELECT_MAX,
   usesModelAutosuggest,
 } from "./model-input.js";
 import {
@@ -405,12 +406,12 @@ function allowUnknownFor(providerId) {
  * @returns {boolean}
  */
 function usesApprovalModelAutosuggest(providerId, models) {
-  // OpenRouter chat has a large live catalog, while operation-scoped speech
-  // catalogs are deliberately small and clearer as a regular select.
+  // Speech/decisions catalogs are tens of models, not hundreds — keep a
+  // <select> until they grow past OPERATION_MODEL_SELECT_MAX.
   if (
     requestMethod !== "chat" &&
     Array.isArray(models) &&
-    models.length <= 20
+    models.length <= OPERATION_MODEL_SELECT_MAX
   ) {
     return false;
   }
