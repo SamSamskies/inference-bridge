@@ -133,17 +133,13 @@ async function message(payload) {
 
 describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
-  it.each([false, true])(
-    "offers decisions with speech enabled: %s",
-    async (enabled) => {
-      await storage.saveSettings({ experimentalSpeechEnabled: enabled });
-      const port = start();
-      await approve(port);
-      await outcome(port);
-      expect(port.messages.at(-1).chunk.type).toBe("done");
-    }
-  );
-  it("keeps the stable API chat-only", async () => {
+  it("offers decisions with separate approval", async () => {
+    const port = start();
+    await approve(port);
+    await outcome(port);
+    expect(port.messages.at(-1).chunk.type).toBe("done");
+  });
+  it("rejects decisions on the stable API", async () => {
     const stable = start({ experimental: false });
     await outcome(stable);
     expect(stable.messages[0].error.code).toBe("invalid_request");

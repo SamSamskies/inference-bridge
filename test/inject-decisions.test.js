@@ -70,7 +70,7 @@ function load() {
 }
 
 describe("page-side experimental decide", () => {
-  it("works before feature-state arrives, starts lazily, and yields typed answers", async () => {
+  it("starts lazily and yields typed answers without a feature-state handshake", async () => {
     const { inference, messages, warn, fetchMock } = load();
     const controller = new AbortController();
     const iterable = inference.experimental.request({

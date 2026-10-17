@@ -12,8 +12,8 @@ import {
   rawBase64ByteLength,
 } from "../src/speech.js";
 
-describe("experimental speech limits", () => {
-  it("centralizes the incubation and transfer bounds", () => {
+describe("Bridge speech limits", () => {
+  it("centralizes the input, output, and transfer bounds", () => {
     expect(TRANSCRIPTION_INPUT_MAX_BYTES).toBe(24_000_000);
     expect(SYNTHESIS_TEXT_MAX_CODE_POINTS).toBe(4_096);
     expect(SYNTHESIS_OUTPUT_MAX_BYTES).toBe(32_000_000);
@@ -55,6 +55,9 @@ describe("transcription media types", () => {
 });
 
 describe("raw transcription base64", () => {
+  it("validates base64 at the exact byte limit without overflowing the regexp stack", () => {
+    expect(rawBase64ByteLength("A".repeat(32_000_000))).toBe(24_000_000);
+  });
   it.each([
     ["Zg==", 1],
     ["Zm8=", 2],
@@ -70,6 +73,9 @@ describe("raw transcription base64", () => {
     "Zg===",
     "Zm=v",
     "Zm9v\n",
+    "AAA\n",
+    "AAA\r",
+    "AAA\u2028",
     "data:audio/mpeg;base64,Zg==",
   ])("rejects malformed or non-raw base64 %s", (input) => {
     expect(rawBase64ByteLength(input)).toBe(-1);

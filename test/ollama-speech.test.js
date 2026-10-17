@@ -104,6 +104,12 @@ describe("Ollama transcription", () => {
     onDelta: vi.fn(),
   });
 
+  it.each([null, {}, { text: 42 }])("rejects malformed transcript payload %j as provider_error", async (payload) => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => String(url).endsWith("/api/show")
+      ? jsonResponse({ capabilities: ["audio"] }) : jsonResponse(payload)));
+    await expect(transcribeOllama(request())).rejects.toMatchObject({ code: "provider_error" });
+  });
+
   it("re-checks capability immediately before multipart upload", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (String(url).endsWith("/api/show")) {

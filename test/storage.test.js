@@ -51,6 +51,17 @@ describe("hasStoredApiKey", () => {
 });
 
 describe("getSettings", () => {
+  it.each([false, true])("removes the retired speech toggle (%s) without changing grants or defaults", async (legacyEnabled) => {
+    const route = { providerId: "openai", model: "gpt-4o-mini-transcribe" };
+    await saveSettings({ operationDefaults: { transcribe: route } });
+    await grantOriginOperationAlways("https://app.example", "transcribe", route);
+    const before = await getSettings();
+    chromeMock.store.set("experimentalSpeechEnabled", legacyEnabled);
+    expect(await getSettings()).toEqual(before);
+    expect(chromeMock.store.has("experimentalSpeechEnabled")).toBe(false);
+    expect(await getSettings()).toEqual(before);
+  });
+
   it("returns defaults when storage is empty", async () => {
     await expect(getSettings()).resolves.toMatchObject({
       apiKeys: {},
@@ -65,7 +76,6 @@ describe("getSettings", () => {
       allowedOrigins: {},
       blockedOrigins: {},
       originLastUsed: {},
-      experimentalSpeechEnabled: false,
       operationDefaults: {},
       operationGrants: {},
       operationLastUsed: {},
@@ -217,9 +227,8 @@ describe("operation-scoped speech storage", () => {
     ).toBeNull();
   });
 
-  it("saves the opt-in and independent operation defaults", async () => {
+  it("saves independent speech operation defaults", async () => {
     await saveSettings({
-      experimentalSpeechEnabled: true,
       operationDefaults: {
         transcribe: {
           providerId: "openai",
@@ -234,7 +243,6 @@ describe("operation-scoped speech storage", () => {
     });
 
     const settings = await getSettings();
-    expect(settings.experimentalSpeechEnabled).toBe(true);
     expect(settings.operationDefaults).toEqual({
       transcribe: {
         providerId: "openai",
@@ -442,7 +450,8 @@ describe("operation-scoped speech storage", () => {
     });
 
     const settings = await getSettings();
-    expect(settings.experimentalSpeechEnabled).toBe(false);
+    expect(settings).not.toHaveProperty("experimentalSpeechEnabled");
+    expect(chromeMock.store.has("experimentalSpeechEnabled")).toBe(false);
     expect(settings.operationGrants).toEqual({
       "https://ok.example": {
         transcribe: {

@@ -294,13 +294,7 @@ export async function transcribeOpenRouter(args) {
   const body = new FormData();
   body.append("model", args.model);
   body.append("response_format", "json");
-  const language = openRouterLanguageHint(args.language);
-  if (args.language && !language) {
-    throw inferenceError(
-      "unavailable",
-      `OpenRouter cannot represent the transcription language hint "${args.language}" as ISO-639-1.`
-    );
-  }
+  const language = args.language ? openRouterLanguageHint(args.language) : "";
   if (language) body.append("language", language);
   body.append(
     "file",
@@ -332,8 +326,10 @@ export async function transcribeOpenRouter(args) {
       "OpenRouter returned malformed transcription JSON."
     );
   }
-  const text =
-    payload && typeof payload.text === "string" ? payload.text : "";
+  if (typeof payload?.text !== "string") {
+    throw inferenceError("provider_error", "OpenRouter returned a malformed transcript.");
+  }
+  const text = payload.text;
   if (!text.trim()) {
     throw inferenceError(
       "invalid_request",
@@ -470,10 +466,15 @@ export async function synthesizeOpenRouter(args) {
   };
 }
 
-function openRouterLanguageHint(language) {
-  if (typeof language !== "string") return "";
-  const primary = language.trim().split("-")[0].toLowerCase();
-  return /^[a-z]{2}$/.test(primary) ? primary : "";
+export function openRouterLanguageHint(language) {
+  // This endpoint accepts ISO-639-1, so do not silently discard BCP 47 subtags.
+  if (typeof language !== "string" || !/^[a-z]{2}$/i.test(language)) {
+    throw inferenceError(
+      "unavailable",
+      `OpenRouter cannot represent the transcription language hint "${language}" as ISO-639-1; omit it for detection or choose another route.`
+    );
+  }
+  return language.toLowerCase();
 }
 
 function extensionForMediaType(mediaType) {

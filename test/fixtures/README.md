@@ -6,6 +6,11 @@ roughly 5.3-second recording of “Why is the sky blue?”. It is copied from
 in the MIT-licensed Ollama repository and is used only by the opt-in local
 transcription integration test.
 
+`speech.mp3` is the deterministic MP3 transport fixture copied from
+[`inference-provider-api`](https://github.com/SamSamskies/inference-provider-api/blob/b6b883c0f8bfd8459aace9ca0e1f076639db461b/conformance/fixtures/speech.mp3)
+(MIT). It contains locally synthesized “The sky is blue.”, with no human
+recording. Mock providers replay its exact bytes; it is not a live TTS result.
+
 ## System One decisions fixtures
 
 `system-one-response.json` follows the three-primitives response example in the

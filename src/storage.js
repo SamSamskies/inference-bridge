@@ -50,7 +50,6 @@ const DEFAULTS = Object.freeze({
    * @type {Record<string, OriginLastUsed>}
    */
   originLastUsed: {},
-  experimentalSpeechEnabled: false,
   /** @type {Readonly<OperationDefaults>} */
   operationDefaults: Object.freeze({}),
   /** @type {Readonly<OperationGrants>} */
@@ -307,7 +306,6 @@ export function normalizeCompatEndpoints(value) {
  *   allowedOrigins: Record<string, OriginGrant>,
  *   blockedOrigins: Record<string, OriginBlock>,
  *   originLastUsed: Record<string, OriginLastUsed>,
- *   experimentalSpeechEnabled: boolean,
  *   operationDefaults: OperationDefaults,
  *   operationGrants: OperationGrants,
  *   operationLastUsed: OperationLastUsedByOrigin,
@@ -315,12 +313,13 @@ export function normalizeCompatEndpoints(value) {
  */
 export async function getSettings() {
   // Always read legacy keys even though they are no longer in DEFAULTS, so
-  // upgrades can migrate them (openaiApiKey → apiKeys, defaultModel → defaultModels).
+  // upgrades can migrate them and remove the retired speech toggle.
   const stored = await chrome.storage.local.get([
     ...Object.keys(DEFAULTS),
     "blockedOrigins",
     "openaiApiKey",
     "defaultModel",
+    "experimentalSpeechEnabled",
   ]);
   const allowedOrigins =
     stored.allowedOrigins && typeof stored.allowedOrigins === "object"
@@ -331,7 +330,6 @@ export async function getSettings() {
       ? /** @type {Record<string, OriginBlock>} */ ({ ...stored.blockedOrigins })
       : {};
   const originLastUsed = normalizeOriginLastUsed(stored.originLastUsed);
-  const experimentalSpeechEnabled = stored.experimentalSpeechEnabled === true;
   const operationDefaults = normalizeOperationDefaults(stored.operationDefaults);
   const operationGrants = /** @type {OperationGrants} */ (
     normalizeOperationOriginMap(stored.operationGrants, "allowedAt")
@@ -344,7 +342,8 @@ export async function getSettings() {
 
   // Drop opaque / file principals if a prior build stored grants under them.
   // Those keys are not stable site identities and must never authorize broadly.
-  let scrubbed = false;
+  const hasLegacySpeechToggle = "experimentalSpeechEnabled" in stored;
+  let scrubbed = hasLegacySpeechToggle;
   for (const key of Object.keys(allowedOrigins)) {
     if (key === "null" || key === "file://" || key.startsWith("file:")) {
       delete allowedOrigins[key];
@@ -362,12 +361,6 @@ export async function getSettings() {
       delete originLastUsed[key];
       scrubbed = true;
     }
-  }
-  if (
-    stored.experimentalSpeechEnabled !== undefined &&
-    typeof stored.experimentalSpeechEnabled !== "boolean"
-  ) {
-    scrubbed = true;
   }
   for (const [raw, normalized] of [
     [stored.operationDefaults, operationDefaults],
@@ -532,13 +525,13 @@ export async function getSettings() {
       operationDefaults,
       operationGrants,
       operationLastUsed,
-      experimentalSpeechEnabled,
     };
     await chrome.storage.local.set(patch);
     /** @type {string[]} */
     const toRemove = [];
     if (hasLegacyApiKey) toRemove.push("openaiApiKey");
     if (hasLegacyDefaultModel) toRemove.push("defaultModel");
+    if (hasLegacySpeechToggle) toRemove.push("experimentalSpeechEnabled");
     if (toRemove.length > 0) {
       await chrome.storage.local.remove(toRemove);
     }
@@ -553,7 +546,6 @@ export async function getSettings() {
     allowedOrigins,
     blockedOrigins,
     originLastUsed,
-    experimentalSpeechEnabled,
     operationDefaults,
     operationGrants,
     operationLastUsed,
@@ -580,7 +572,6 @@ function isPersistableOriginKey(origin) {
  *   defaultProviderId: string,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
- *   experimentalSpeechEnabled: boolean,
  *   operationDefaults: Partial<Record<ExperimentalOperation, OperationRoute | null>>,
  * }>} patch
  */
@@ -643,10 +634,6 @@ export async function saveSettings(patch) {
 
   if (modelsTouched || next.defaultProviderId) {
     next.defaultModels = nextDefaultModels;
-  }
-
-  if (typeof patch.experimentalSpeechEnabled === "boolean") {
-    next.experimentalSpeechEnabled = patch.experimentalSpeechEnabled;
   }
 
   if (

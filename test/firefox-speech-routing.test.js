@@ -37,7 +37,6 @@ beforeEach(async () => {
   ({ getPendingApproval, resolveApproval } = await import("../src/permissions.js"));
   await import("../background/service-worker.js");
   await saveSettings({
-    experimentalSpeechEnabled: true,
     apiKeys: { openai: "test-key" },
     operationDefaults: routes,
   });
@@ -57,7 +56,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function start(method, { experimental = true, transfer = true } = {}) {
+function start(method, { experimental = false, transfer = true } = {}) {
   const port = {
     name: "ipa-inference",
     sender: { tab: { id: 1 } },
@@ -105,25 +104,8 @@ async function waitForOutcome(port) {
 }
 
 describe.each(["transcribe", "synthesize"])("Firefox %s routing", (method) => {
-  it("requires opt-in before opening an approval or calling the provider", async () => {
-    await saveSettings({ experimentalSpeechEnabled: false });
-    const port = start(method);
-    await waitForOutcome(port);
-    expect(port.messages).toEqual([expect.objectContaining({
-      type: "error", error: expect.objectContaining({ code: "invalid_request" }),
-    })]);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("rejects speech on stable request", async () => {
-    const port = start(method, { experimental: false });
-    await waitForOutcome(port);
-    expect(port.messages[0].error.code).toBe("invalid_request");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("waits for operation-specific approval, then transfers audio", async () => {
-    const port = start(method);
+  it.each([false, true])("requires approval and transfers audio (experimental: %s)", async (experimental) => {
+    const port = start(method, { experimental });
     await vi.waitFor(() => expect(getPendingApproval(port.streamId)?.method).toBe(method));
     expect(fetch).not.toHaveBeenCalled();
     expect(port.messages.some((message) => message.type.startsWith("binary-"))).toBe(false);

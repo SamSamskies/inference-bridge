@@ -59,11 +59,8 @@ const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
 const siteAccessStatusEl = document.getElementById("siteAccessStatus");
-const experimentalSpeechEnabledInput = document.getElementById(
-  "experimentalSpeechEnabled",
-);
-const experimentalSpeechStatus = document.getElementById(
-  "experimentalSpeechStatus",
+const speechStatus = document.getElementById(
+  "speechStatus",
 );
 const experimentalDecisionsStatus = document.getElementById("experimentalDecisionsStatus");
 const decisionsProviderSelect = document.getElementById("decisionsProvider");
@@ -1706,8 +1703,8 @@ async function persistSpeechDefault(operation) {
       },
     },
   });
-  experimentalSpeechStatus.textContent = `${operation === "transcribe" ? "Transcription" : "Synthesis"} default saved.`;
-  experimentalSpeechStatus.className = "status ok";
+  speechStatus.textContent = `${operation === "transcribe" ? "Transcription" : "Synthesis"} default saved.`;
+  speechStatus.className = "status ok";
 }
 
 async function loadSpeechDefaultControls(settings) {
@@ -2036,8 +2033,6 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
-  experimentalSpeechEnabledInput.checked =
-    settings.experimentalSpeechEnabled === true;
   compatEndpoints = settings.compatEndpoints;
   await refreshProviderHostAccess();
   savedDefaultProviderId = settings.defaultProviderId;
@@ -2113,7 +2108,6 @@ async function persistDefaultSettings(providerId, model) {
     defaultProviderId: providerId,
     defaultModel: model,
     defaultModels: modelDrafts,
-    experimentalSpeechEnabled: experimentalSpeechEnabledInput.checked,
   });
   savedDefaultProviderId = providerId;
   if (refreshModelsAfterKeyChange) {
@@ -2122,15 +2116,15 @@ async function persistDefaultSettings(providerId, model) {
 }
 
 async function updateSpeechControl(operation, update) {
-  experimentalSpeechStatus.textContent = "Saving speech default…";
-  experimentalSpeechStatus.className = "status";
+  speechStatus.textContent = "Saving speech default…";
+  speechStatus.className = "status";
   try {
     await update();
     await persistSpeechDefault(operation);
   } catch (err) {
-    experimentalSpeechStatus.textContent =
+    speechStatus.textContent =
       err instanceof Error ? err.message : "Failed to save speech default.";
-    experimentalSpeechStatus.className = "status err";
+    speechStatus.className = "status err";
   }
 }
 
@@ -2193,27 +2187,6 @@ decisionsModelSelect.addEventListener("change", () => {
     experimentalDecisionsStatus.className = "status err";
   });
 });
-experimentalSpeechEnabledInput.addEventListener("change", async () => {
-  const enabled = experimentalSpeechEnabledInput.checked;
-  experimentalSpeechEnabledInput.disabled = true;
-  experimentalSpeechStatus.textContent = "Saving…";
-  experimentalSpeechStatus.className = "status";
-  try {
-    await saveSettings({ experimentalSpeechEnabled: enabled });
-    experimentalSpeechStatus.textContent = enabled
-      ? "Experimental speech methods enabled."
-      : "Experimental speech methods disabled.";
-    experimentalSpeechStatus.className = "status ok";
-  } catch (err) {
-    experimentalSpeechEnabledInput.checked = !enabled;
-    experimentalSpeechStatus.textContent =
-      err instanceof Error ? err.message : "Failed to save speech setting.";
-    experimentalSpeechStatus.className = "status err";
-  } finally {
-    experimentalSpeechEnabledInput.disabled = false;
-  }
-});
-
 saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
   try {

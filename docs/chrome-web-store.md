@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, experimental typed decisions, and explicitly enabled experimental speech to user-configured providers. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech is non-standard, default-off, and user-approved.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, experimental typed decisions, and separately approved speech to user-configured providers. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech follows IPA with separate operation-specific site approval.
 
 ## Versioning
 
@@ -66,7 +66,7 @@ Bring your own API keys for supported cloud providers, run a local model server,
 • Function tools and hosted web search on window.inference.request (page-executed function tools; keys stay in the extension)
 • Hosted web search when the selected provider supports it
 • Image input and output on window.inference.request when the selected model supports vision or image generation
-• Optional, default-off experimental bounded transcription and MP3 speech synthesis with separate per-site approval
+• Bounded transcription and MP3 speech synthesis with separate per-site approval
 • Experimental typed decisions on cloud or local decision models, available by default with separate per-site approval
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model in Options
@@ -94,9 +94,9 @@ Chrome Web Store caps each justification field at **1000 characters**. Host perm
 ### Host permissions (single paste block)
 
 ```
-https://api.openai.com/* — Chat, images, separately approved decisions, and (if enabled/approved) speech when the user selects OpenAI.
+https://api.openai.com/* — Chat, images, separately approved decisions, and separately approved speech when the user selects OpenAI.
 https://api.anthropic.com/* — Messages API when the user selects Anthropic.
-https://openrouter.ai/* — Models, chat/images, separately approved decisions, and (if enabled/approved) speech when the user selects OpenRouter.
+https://openrouter.ai/* — Models, chat/images, separately approved decisions, and separately approved speech when the user selects OpenRouter.
 https://ollama.com/* — Hosted web search/fetch when the user selects Ollama and requests web_search (optional Ollama API key).
 http://localhost:11434/* and http://127.0.0.1:11434/* — Local Ollama on its default port for chat, approved speech, or approved decisions.
 optional http://*/* and https://*/* — Not granted at install. Requested only for each custom OpenAI-compatible origin the user saves in Options.
@@ -108,7 +108,7 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 
 - User credentials (API keys) stored locally
 - Website content (prompt/messages) sent to the user-selected provider
-- Experimental speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
+- Speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
 - Experimental decisions JSON state and questions sent only to the selected OpenAI, OpenRouter, or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
 - Recordings can contain biometric voice data and sensitive bystander, location, health, background-conversation, or ambient information
 - Synthesis text sent to the selected provider and generated MP3 bytes returned directly to the requesting page

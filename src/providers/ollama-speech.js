@@ -159,7 +159,10 @@ export async function transcribeOllama(args) {
         "Ollama returned malformed transcription JSON."
       );
     }
-    text = typeof payload?.text === "string" ? payload.text : "";
+    if (typeof payload?.text !== "string") {
+      throw inferenceError("provider_error", "Ollama returned a malformed transcript.");
+    }
+    text = payload.text;
     language =
       typeof payload?.language === "string" && payload.language
         ? payload.language
