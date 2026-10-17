@@ -28,6 +28,7 @@
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
  *   acceptedMediaTypes: readonly string[],
  *   maxInputBytes?: number,
+ *   validateLanguageHint?: (language: string) => void,
  *   listAcceptedMediaTypesForModel?: (args: {
  *     model: string,
  *     signal?: AbortSignal,

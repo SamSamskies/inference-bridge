@@ -261,26 +261,19 @@
         <header class="settings-section-heading">
           <h2 id="speech-heading">Speech</h2>
           <p class="hint" id="speechDescription">
-            Configure the experimental speech capability and its defaults.
+            Configure bounded transcription, MP3 synthesis, and their defaults.
           </p>
         </header>
 
         <section
           class="panel stack"
           id="speechSettings"
-          aria-labelledby="experimental-speech-heading"
+          aria-labelledby="bounded-speech-heading"
         >
-          <h3 id="experimental-speech-heading">Experimental speech</h3>
-          <label class="field">
-            <span>
-              <input id="experimentalSpeechEnabled" type="checkbox" />
-              Enable experimental speech methods
-            </span>
-          </label>
+          <h3 id="bounded-speech-heading">Speech</h3>
           <p class="hint">
-            Exposes non-standard bounded transcription and speech synthesis
-            methods to pages. This incubation surface is default-off and may
-            change before any IPA proposal is accepted.
+            Lets websites request bounded transcription and MP3 speech synthesis.
+            Each website needs separate permission for each operation.
           </p>
           <div class="speech-defaults">
             <h4>Transcription default</h4>
@@ -310,7 +303,7 @@
           </div>
           <div
             class="status"
-            id="experimentalSpeechStatus"
+            id="speechStatus"
             role="status"
             aria-live="polite"
           ></div>

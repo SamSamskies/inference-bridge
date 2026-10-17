@@ -795,10 +795,22 @@ describe("validateExperimentalInferenceRequest", () => {
       reasoning: "why",
     });
   });
+  it("rejects speech fields on deprecated chat requests", () => {
+    expect(validateExperimentalInferenceRequest({
+      method: "chat",
+      messages: [{ role: "user", content: "hi" }],
+      media: { data: "Zm9v", mediaType: "audio/wav" },
+    }).ok).toBe(false);
+  });
+});
 
+describe.each([
+  ["stable", validateInferenceRequest],
+  ["deprecated alias", validateExperimentalInferenceRequest],
+])("%s speech validation", (_surface, validateSpeechRequest) => {
   it("validates and normalizes transcription requests", () => {
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "transcribe",
         media: { mediaType: "audio/x-wav; codecs=1", data: "Zm9v" },
         language: "en-US",
@@ -817,7 +829,7 @@ describe("validateExperimentalInferenceRequest", () => {
     });
 
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "transcribe",
         media: {
           sourceId: "media_blob",
@@ -838,7 +850,7 @@ describe("validateExperimentalInferenceRequest", () => {
     });
 
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "transcribe",
         media: { url: " https://media.example/test.mp3 " },
       })
@@ -851,7 +863,7 @@ describe("validateExperimentalInferenceRequest", () => {
     });
 
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "transcribe",
         media: {
           sourceId: "media_1",
@@ -929,13 +941,13 @@ describe("validateExperimentalInferenceRequest", () => {
       },
     ];
     for (const request of cases) {
-      expect(validateExperimentalInferenceRequest(request).ok).toBe(false);
+      expect(validateSpeechRequest(request).ok).toBe(false);
     }
   });
 
   it("validates MP3-only synthesis and Unicode code-point bounds", () => {
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "synthesize",
         text: "Hello",
       })
@@ -948,20 +960,20 @@ describe("validateExperimentalInferenceRequest", () => {
       },
     });
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "synthesize",
         text: "😀".repeat(4096),
         output: { mediaType: "audio/mpeg" },
       }).ok
     ).toBe(true);
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "synthesize",
         text: "😀".repeat(4097),
       }).ok
     ).toBe(false);
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "synthesize",
         text: "hello",
         output: { mediaType: "audio/wav" },
@@ -969,29 +981,22 @@ describe("validateExperimentalInferenceRequest", () => {
     ).toBe(false);
   });
 
-  it("rejects unknown methods and cross-method fields", () => {
+  it("rejects unknown methods and cross-method speech fields", () => {
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "unknown",
         messages: [],
       }).ok
     ).toBe(false);
     expect(
-      validateExperimentalInferenceRequest({
-        method: "chat",
-        messages: [{ role: "user", content: "hi" }],
-        media: { data: "Zm9v", mediaType: "audio/wav" },
-      }).ok
-    ).toBe(false);
-    expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "transcribe",
         media: { data: "Zm9v", mediaType: "audio/wav" },
         messages: [],
       }).ok
     ).toBe(false);
     expect(
-      validateExperimentalInferenceRequest({
+      validateSpeechRequest({
         method: "synthesize",
         text: "hello",
         tools: [],

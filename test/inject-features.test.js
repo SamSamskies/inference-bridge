@@ -31,53 +31,25 @@ function loadInference() {
   return window.inference;
 }
 
-function loadInferenceWithFeatureBridge() {
-  const filename = join(
-    dirname(fileURLToPath(import.meta.url)),
-    "../content/inject.js"
-  );
-  let initListener;
-  const window = {
-    addEventListener(type, listener) {
-      if (type === "message") initListener = listener;
-    },
-    removeEventListener() {},
-  };
-  window.top = window;
-  const pagePort = {};
-  vm.runInNewContext(readFileSync(filename, "utf8"), {
-    window,
-    Object,
-    Math,
-    Map,
-    Set,
-    Promise,
-    Error,
-    Symbol,
-  }, { filename });
-  initListener({
-    source: window,
-    data: { channel: "__ipa_inference__", direction: "init" },
-    ports: [pagePort],
-  });
-  return {
-    inference: window.inference,
-    setSpeechEnabled(enabled) {
-      pagePort.onmessage({
-        data: {
-          type: "feature-state",
-          experimentalSpeechEnabled: enabled,
-        },
-      });
-    },
-  };
-}
+const speechMethods = {
+  transcribe: {
+    acceptedMedia: [
+      { mediaType: "audio/mpeg" },
+      { mediaType: "audio/mp4" },
+      { mediaType: "audio/wav" },
+      { mediaType: "audio/webm" },
+      { mediaType: "video/mp4" },
+      { mediaType: "video/webm" },
+    ],
+  },
+  synthesize: true,
+};
 
 describe("window.inference.getFeatures", () => {
-  it("returns a snapshot with tools, images, and options flags", () => {
+  it("advertises speech synchronously before the relay connects without storage or I/O", () => {
     const inference = loadInference();
-    expect(typeof inference.getFeatures).toBe("function");
     expect(inference.getFeatures()).toEqual({
+      methods: speechMethods,
       toolCalling: true,
       webSearch: true,
       imageInput: true,
@@ -86,55 +58,29 @@ describe("window.inference.getFeatures", () => {
     });
   });
 
-  it("advertises decisions synchronously before the relay connects", () => {
+  it("keeps decisions experimental and mirrors speech for legacy callers", () => {
     const inference = loadInference();
     expect(inference.experimental.getFeatures().methods).toEqual({
       chat: true,
       decide: true,
+      ...speechMethods,
     });
-    expect(inference.getFeatures()).not.toHaveProperty("methods");
+    expect(inference.getFeatures().methods).not.toHaveProperty("decide");
+    expect(inference.getFeatures().methods).not.toHaveProperty("chat");
     expect(inference.experimental.decide).toBeUndefined();
+    expect(inference.transcribe).toBeUndefined();
+    expect(inference.synthesize).toBeUndefined();
   });
 
-  it("keeps decisions available when speech discovery changes", () => {
-    const { inference, setSpeechEnabled } = loadInferenceWithFeatureBridge();
-    const stable = inference.getFeatures();
-    expect(inference.experimental.getFeatures()).toEqual({
-      methods: {
-        chat: true,
-        decide: true,
-      },
-    });
-
-    setSpeechEnabled(true);
-    const enabled = inference.experimental.getFeatures();
-    expect(enabled).toEqual({
-      methods: {
-        chat: true,
-        decide: true,
-        transcribe: {
-          acceptedMedia: [
-            { mediaType: "audio/mpeg" },
-            { mediaType: "audio/mp4" },
-            { mediaType: "audio/wav" },
-            { mediaType: "audio/webm" },
-            { mediaType: "video/mp4" },
-            { mediaType: "video/webm" },
-          ],
-        },
-        synthesize: true,
-      },
-    });
-    enabled.methods.transcribe.acceptedMedia.length = 0;
-    expect(
-      inference.experimental.getFeatures().methods.transcribe.acceptedMedia
-    ).toHaveLength(6);
-
-    setSpeechEnabled(false);
-    expect(
-      inference.experimental.getFeatures().methods
-    ).toEqual({ chat: true, decide: true });
-    expect(inference.getFeatures()).toEqual(stable);
+  it("returns independent speech snapshots on both surfaces", () => {
+    const inference = loadInference();
+    const snapshot = inference.getFeatures();
+    snapshot.methods.transcribe.acceptedMedia.length = 0;
+    expect(inference.getFeatures().methods).toEqual(speechMethods);
+    const alias = inference.experimental.getFeatures();
+    alias.methods.transcribe.acceptedMedia[0].mediaType = "video/*";
+    expect(inference.getFeatures().methods).toEqual(speechMethods);
+    expect(inference.experimental.getFeatures().methods.transcribe).toEqual(speechMethods.transcribe);
   });
 });
 
@@ -165,6 +111,7 @@ describe("experimental.request deprecation", () => {
         Promise,
         Error,
         Symbol,
+        Blob, Uint8Array, AbortController, atob, btoa,
         console: { warn: consoleWarn },
       },
       { filename }
@@ -206,7 +153,7 @@ describe("experimental.request deprecation", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("uses a separate one-time notice for speech requests", async () => {
+  it("warns once toward stable request for legacy speech callers", async () => {
     const warnings = [];
     const inference = loadInferenceWithWarn({
       consoleWarn: (...args) => warnings.push(args.join(" ")),
@@ -217,19 +164,19 @@ describe("experimental.request deprecation", () => {
       media: { mediaType: "audio/wav", data: "Zm9v" },
     })[Symbol.asyncIterator]();
     await expect(transcribe.next()).rejects.toMatchObject({
-      code: "invalid_request",
+      code: "unavailable",
     });
     const synthesize = inference.experimental.request({
       method: "synthesize",
       text: "hello",
     })[Symbol.asyncIterator]();
     await expect(synthesize.next()).rejects.toMatchObject({
-      code: "invalid_request",
+      code: "unavailable",
     });
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/experimental, non-normative/);
-    expect(warnings[0]).not.toMatch(/deprecated/);
+    expect(warnings[0]).toMatch(/experimental\.request is deprecated/);
+    expect(warnings[0]).toMatch(/speech.*stable surface/);
   });
 
   it("rejects unknown methods lazily without falling through to chat", async () => {
@@ -257,6 +204,13 @@ describe("experimental.request deprecation", () => {
       tools: [{ type: "web_search" }],
     })[Symbol.asyncIterator]();
     await expect(iter.next()).rejects.toThrow();
+    for (const request of [
+      { method: "transcribe", media: { data: "Zm9v", mediaType: "audio/wav" } },
+      { method: "synthesize", text: "hello" },
+    ]) {
+      await expect(inference.request(request)[Symbol.asyncIterator]().next())
+        .rejects.toMatchObject({ code: "unavailable" });
+    }
     expect(warnings).toHaveLength(0);
   });
 });
@@ -288,6 +242,7 @@ describe("experimental.runTools deprecation", () => {
         Promise,
         Error,
         Symbol,
+        Blob, Uint8Array, AbortController, atob, btoa,
         console: { warn: consoleWarn },
       },
       { filename }

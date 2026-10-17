@@ -7,8 +7,8 @@ Canonical project context for AI coding agents (Codex, Cursor, Claude Code, Copi
 Manifest V3 Chrome extension implementing the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api). Injects `window.inference` into secure pages and routes chat to user-chosen providers (OpenAI, Anthropic, OpenRouter, Ollama, On-device Prompt API, OpenAI-compatible servers). API keys stay in the extension; page scripts never see them.
 
 - **Spec:** [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md)
-- **Stable API:** `window.inference.request()`, `window.inference.getFeatures()`
-- **Experimental:** `window.inference.experimental` — `request` is a deprecated alias of stable `request`; `runTools` (Bridge DevTools helper; shipped apps should use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools))
+- **Stable API:** `window.inference.request()` (chat and optional bounded transcription/MP3 synthesis), `window.inference.getFeatures()`
+- **Experimental:** `window.inference.experimental` — `request` is a deprecated alias for stable chat/speech and also accepts Bridge-only `decide`; `runTools` (Bridge DevTools helper; shipped apps should use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools))
 
 ## Commands
 

@@ -41,10 +41,6 @@ describe("Firefox binary bridge", () => {
         getManifest: () => ({ browser_specific_settings: { gecko: {} } }),
         connect: () => runtimePort,
       },
-      storage: {
-        local: { get: async () => ({ experimentalSpeechEnabled: true }) },
-        onChanged: { addListener() {} },
-      },
     };
 
     runInNewContext(script, {

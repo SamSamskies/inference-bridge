@@ -874,13 +874,6 @@ async function handleSpeechStart({
   controller,
 }) {
   let settings = await getSettings();
-  if (!settings.experimentalSpeechEnabled) {
-    throw inferenceError(
-      "invalid_request",
-      "Experimental speech methods are disabled in Inference Bridge Options."
-    );
-  }
-
   const method = request.method;
   const capabilityRequest =
     method === "transcribe"
@@ -997,6 +990,9 @@ async function handleSpeechStart({
     );
   }
   if (method === "transcribe") {
+    if (request.language !== undefined) {
+      provider.transcription.validateLanguageHint?.(request.language);
+    }
     const mediaTypes = await resolveTranscriptionMediaTypes(provider, {
       model,
       apiKey: settings.apiKeys[provider.id],

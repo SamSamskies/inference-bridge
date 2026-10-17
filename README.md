@@ -11,7 +11,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - `window.inference.request()` for streaming text chat, function tools, hosted `{ type: "web_search" }`, and images (`ImagePart` / `output.images`)
 - `window.inference.getFeatures()` (`toolCalling`, `webSearch`, `imageInput`, `imageOutput`, `options.reasoningEffort`, `options.temperature`)
 - Experimental typed decisions via OpenAI Decisions, OpenRouter Decisions, or local Ollama System One, available by default
-- Opt-in experimental bounded transcription and MP3 speech synthesis through `window.inference.experimental.request()`
+- Bounded transcription and MP3 speech synthesis through stable `window.inference.request()`
 - Per-origin Allow / Deny / Remember permission flow
 - User-controlled provider and model selection
 - OpenAI (BYOK), Anthropic (BYOK), OpenRouter (BYOK), local Ollama, and Chrome On-device (Prompt API) support
@@ -33,7 +33,7 @@ For local development or unreleased builds, use the load-unpacked steps below.
 
 Install from [Firefox Browser Add-ons](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/). Desktop Firefox 140+.
 
-The Firefox build supports the remote/local chat providers, custom OpenAI-compatible servers, and the same opt-in experimental transcription and speech synthesis as Chrome. Chrome's On-device Prompt API provider is unavailable. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
+The Firefox build supports the remote/local chat providers, custom OpenAI-compatible servers, and the same transcription and speech synthesis as Chrome. Chrome's On-device Prompt API provider is unavailable. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
 
 For local development or unreleased builds:
 
@@ -256,7 +256,7 @@ If you are building your own IPA extension with local providers, follow the Orig
 | Feature discovery | Implemented; `getFeatures()` returns `{ toolCalling: true, webSearch: true, imageInput: true, imageOutput: true, options: { reasoningEffort: true, temperature: true } }` |
 | Request options | Implemented; `options.reasoningEffort` / `options.temperature` on stable `request` (best-effort provider mapping) |
 | Tools | Implemented on stable `request` (`getFeatures().toolCalling` / `webSearch`) |
-| Vision / audio / embeddings | Vision on stable `request`; bounded speech is opt-in and experimental; embeddings remain a future candidate |
+| Vision / audio / embeddings | Vision on stable `request`; bounded speech is on stable `request`; embeddings remain a future candidate |
 
 The specification remains intentionally small. Provider-specific or advanced capabilities should land here as **experimental** features first, then be proposed for the specification only after real multi-provider experience.
 
@@ -301,12 +301,12 @@ Values outside `[0, 2]` or non-finite numbers are `invalid_request`. Mapping is 
 Stable `window.inference.request` accepts function tools, hosted `{ type: "web_search" }`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages:
 
 ```js
-window.inference.getFeatures()              // { toolCalling, webSearch, imageInput, imageOutput, options }
-window.inference.request(...)               // IPA-stable chat + tools + images + options
+window.inference.getFeatures()              // { toolCalling, webSearch, imageInput, imageOutput, options, methods }
+window.inference.request(...)               // IPA-stable chat + tools + images + options + bounded speech
 window.inference.experimental.runTools(...) // optional page-side agent loop helper (DevTools / no-bundler)
 ```
 
-For `method: "chat"`, `experimental.request()` is a deprecated forwarding alias of stable `request()` and emits a one-time deprecation warning — prefer `request()` for new chat code. For `method: "decide"`, `"transcribe"`, and `"synthesize"`, it is the Bridge experimental surface (separate non-normative notice; no stable IPA equivalents yet). Decisions are available by default; speech requires enabling it in Options.
+For `method: "chat"`, `"transcribe"`, and `"synthesize"`, `experimental.request()` is a deprecated compatibility alias and emits a one-time warning — prefer stable `request()` for new code. `method: "decide"` remains Bridge-experimental and emits its own non-normative notice. Decisions and speech are available by default, with separate operation-specific site approval.
 
 Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
 
@@ -586,9 +586,146 @@ console.log("[final]", final.message.content);
 
 Approval shows a Tools preview (function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**). If On-device is selected for a function-tools or hosted `web_search` request, Allow stays disabled with a hint to pick another provider. Always-allow origins still **re-prompt** when a request includes `tools` (or a wider tool set than the grant covers).
 
+## Bounded speech
+
+Bounded transcription and MP3 synthesis are optional IPA methods on stable
+`request`. Speech is available by default, with separate site approval for each
+operation. Configure provider/model/voice defaults in **Options → Speech** and
+feature-detect before use:
+
+```js
+const methods = window.inference.getFeatures().methods ?? {};
+console.log(methods.transcribe?.acceptedMedia);
+// [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
+console.log(Boolean(methods.synthesize)); // true in this build
+```
+
+Both methods are lazy `AsyncIterable` requests and retain the normal approval,
+abort, and `accepted` lifecycle. Provider, model, and synthesis voice are
+user-owned choices. A page cannot supply those IDs. Persistent speech grants
+are isolated by origin and operation and can be revoked separately in Options.
+
+Speech discovery reports supported API surface without exposing provider, model,
+voice, credentials, or site grants. A selected route can still be unavailable.
+The deprecated experimental alias uses the same operation grants.
+
+Current implementation limits (Bridge-specific, not IPA constants):
+
+- Transcription accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64
+  string, or page-fetched URL, up to 24,000,000 bytes.
+- The transcription source is `media`. Blob and URL media types can be inferred;
+  raw base64 requires an explicit `mediaType`.
+- URL input is fetched by the page under page CORS. The privileged extension
+  never fetches an arbitrary page-supplied media URL.
+- Files are passed through unchanged. For MP4/WebM, the complete container,
+  including visual bytes, can be uploaded to the selected provider; only its
+  audio track has transcription semantics.
+- Synthesis accepts up to 4,096 Unicode code points and returns only MP3
+  (`audio/mpeg`), capped at 32,000,000 bytes.
+- Language hints must be structurally valid BCP 47 tags. OpenRouter accepts
+  two-letter language hints; richer hints fail with `unavailable` before upload
+  instead of being reduced silently. Omit the hint for detection.
+- OpenAI and OpenRouter are supported through their dedicated transcription
+  and speech endpoints. Ollama transcription is opportunistically available
+  for installed models whose `/api/show` response reports `audio`. WAV is the
+  most compatible Ollama input; MP3 is currently offered only for the verified
+  `gemma4:e4b` model because other model/runtime combinations may reject it.
+  Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
+  synthesis are unavailable rather than emulated through chat.
+
+Paste-ready synthesis example:
+
+```js
+const parts = [];
+for await (const chunk of window.inference.request({
+  method: "synthesize",
+  text: "Hello from Inference Bridge."
+})) {
+  console.log(chunk);
+  if (chunk.type === "audio_delta") parts.push(chunk.data);
+}
+
+const audio = document.createElement("audio");
+audio.controls = true;
+audio.src = URL.createObjectURL(new Blob(parts, { type: "audio/mpeg" }));
+document.body.append(audio); // Playback remains an explicit user action.
+```
+
+Paste-ready transcription example:
+
+```js
+const picker = document.createElement("input");
+picker.type = "file";
+picker.accept = "audio/*,video/mp4,video/webm";
+document.body.append(picker); // Select a completed recording in the page.
+const file = await new Promise((resolve) => {
+  picker.addEventListener("change", () => resolve(picker.files[0]), { once: true });
+});
+picker.remove();
+
+for await (const chunk of window.inference.request({
+  method: "transcribe",
+  media: { data: file }
+})) {
+  console.log(chunk);
+  if (chunk.type === "done") console.log(chunk.transcript.text);
+}
+```
+
+Page-owned recording also stays bounded: record first, stop the microphone,
+then submit the completed `Blob`:
+
+```js
+const recordingType = ["audio/webm", "audio/mp4"].find((type) =>
+  MediaRecorder.isTypeSupported(type)
+);
+if (!recordingType) throw new Error("No supported recording format available.");
+const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+const recorder = new MediaRecorder(microphone, { mimeType: recordingType });
+const parts = [];
+recorder.ondataavailable = ({ data }) => {
+  if (data.size) parts.push(data);
+};
+const stopped = new Promise((resolve) => {
+  recorder.onstop = resolve;
+});
+
+recorder.start();
+await new Promise((resolve) => setTimeout(resolve, 5_000));
+recorder.stop();
+await stopped;
+microphone.getTracks().forEach((track) => track.stop());
+
+const recording = new Blob(parts, { type: recorder.mimeType });
+for await (const chunk of window.inference.request({
+  method: "transcribe",
+  media: { data: recording }
+})) {
+  console.log(chunk);
+}
+```
+
+Cancellation uses the same page-owned signal:
+
+```js
+const controller = new AbortController();
+const stream = window.inference.request({
+  method: "synthesize",
+  text: "Cancel this bounded request.",
+  signal: controller.signal
+});
+controller.abort();
+
+try {
+  for await (const chunk of stream) console.log(chunk);
+} catch (error) {
+  console.log(error.code); // "aborted"
+}
+```
+
 ## Experimental Features
 
-Experimental APIs are **Inference Bridge–specific**. They are not part of the IPA contract. Apps that depend on them should call `window.inference.experimental` so their use of experimental APIs is visible in source. Tools, hosted web search, and images have graduated to stable `request`. For `method: "chat"`, `experimental.request()` is a deprecated forwarding alias of stable `request()` (one-time deprecation warning). For `method: "decide"`, `"transcribe"`, and `"synthesize"`, it is the Bridge-only experimental surface and emits a separate non-normative notice; those methods do not yet have stable IPA equivalents. `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
+Experimental APIs are **Inference Bridge–specific**. Typed decisions remain on `window.inference.experimental`. Tools, hosted web search, images, and bounded speech have graduated to stable `request`. For `method: "chat"`, `"transcribe"`, and `"synthesize"`, `experimental.request()` is a deprecated compatibility alias (one-time warning). `experimental.runTools` remains for DevTools / no-bundler demos and logs a one-time `console.warn` nudging shipped apps toward [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) `runTools` with stable `request`.
 
 ### Typed decisions (System One)
 
@@ -596,7 +733,7 @@ Decisions are **Bridge-experimental, not normative IPA** and available by defaul
 Choose a decisions provider and model in **Options → Decisions** independently
 of your chat defaults. Each website needs your permission to use Decisions.
 `experimental.getFeatures()` synchronously advertises `methods.decide: true`;
-stable `getFeatures()` and `request()` remain chat-only.
+stable discovery does not advertise decisions, and stable `request()` rejects `decide`.
 
 - **Cloud:** save your OpenRouter key in **Options → Providers**, then choose
   OpenRouter and `typesafe/jev-1.13` in Decisions. Requests use
@@ -690,135 +827,6 @@ Unknown request/question fields, cycles, binary values, and non-JSON values are
 rejected with `invalid_request` before approval. There are no tools, images,
 audio, video, or URL fetching semantics in decision state.
 
-### Bounded speech
-
-Bounded transcription and synthesis are non-standard incubation methods. They
-are disabled by default. Enable **Experimental speech** in Options, reload the
-page, and feature-detect before use:
-
-```js
-const methods = window.inference.experimental.getFeatures().methods;
-console.log(methods.transcribe?.acceptedMedia);
-// [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
-console.log(Boolean(methods.synthesize)); // true when locally enabled
-```
-
-Both methods are lazy `AsyncIterable` requests and retain the normal approval,
-abort, and `accepted` lifecycle. Provider, model, and synthesis voice are
-user-owned choices. A page cannot supply those IDs. Persistent speech grants
-are isolated by origin and operation and can be revoked separately in Options.
-
-Current implementation limits:
-
-- Transcription accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64
-  string, or page-fetched URL, up to 24,000,000 bytes.
-- The transcription source is `media`. Blob and URL media types can be inferred;
-  raw base64 requires an explicit `mediaType`.
-- URL input is fetched by the page under page CORS. The privileged extension
-  never fetches an arbitrary page-supplied media URL.
-- Files are passed through unchanged. For MP4/WebM, the complete container,
-  including visual bytes, can be uploaded to the selected provider; only its
-  audio track has transcription semantics.
-- Synthesis accepts up to 4,096 Unicode code points and returns only MP3
-  (`audio/mpeg`), capped at 32,000,000 bytes.
-- OpenAI and OpenRouter are supported through their dedicated transcription
-  and speech endpoints. Ollama transcription is opportunistically available
-  for installed models whose `/api/show` response reports `audio`. WAV is the
-  most compatible Ollama input; MP3 is currently offered only for the verified
-  `gemma4:e4b` model because other model/runtime combinations may reject it.
-  Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
-  synthesis are unavailable rather than emulated through chat.
-
-Paste-ready synthesis example:
-
-```js
-const parts = [];
-for await (const chunk of window.inference.experimental.request({
-  method: "synthesize",
-  text: "Hello from Inference Bridge."
-})) {
-  console.log(chunk);
-  if (chunk.type === "audio_delta") parts.push(chunk.data);
-}
-
-const audio = document.createElement("audio");
-audio.controls = true;
-audio.src = URL.createObjectURL(new Blob(parts, { type: "audio/mpeg" }));
-document.body.append(audio); // Playback remains an explicit user action.
-```
-
-Paste-ready transcription example:
-
-```js
-const picker = document.createElement("input");
-picker.type = "file";
-picker.accept = "audio/*,video/mp4,video/webm";
-document.body.append(picker); // Select a completed recording in the page.
-const file = await new Promise((resolve) => {
-  picker.addEventListener("change", () => resolve(picker.files[0]), { once: true });
-});
-picker.remove();
-
-for await (const chunk of window.inference.experimental.request({
-  method: "transcribe",
-  media: { data: file }
-})) {
-  console.log(chunk);
-  if (chunk.type === "done") console.log(chunk.transcript.text);
-}
-```
-
-Page-owned recording also stays bounded: record first, stop the microphone,
-then submit the completed `Blob`:
-
-```js
-const recordingType = ["audio/webm", "audio/mp4"].find((type) =>
-  MediaRecorder.isTypeSupported(type)
-);
-if (!recordingType) throw new Error("No supported recording format available.");
-const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
-const recorder = new MediaRecorder(microphone, { mimeType: recordingType });
-const parts = [];
-recorder.ondataavailable = ({ data }) => {
-  if (data.size) parts.push(data);
-};
-const stopped = new Promise((resolve) => {
-  recorder.onstop = resolve;
-});
-
-recorder.start();
-await new Promise((resolve) => setTimeout(resolve, 5_000));
-recorder.stop();
-await stopped;
-microphone.getTracks().forEach((track) => track.stop());
-
-const recording = new Blob(parts, { type: recorder.mimeType });
-for await (const chunk of window.inference.experimental.request({
-  method: "transcribe",
-  media: { data: recording }
-})) {
-  console.log(chunk);
-}
-```
-
-Cancellation uses the same page-owned signal:
-
-```js
-const controller = new AbortController();
-const stream = window.inference.experimental.request({
-  method: "synthesize",
-  text: "Cancel this bounded request.",
-  signal: controller.signal
-});
-controller.abort();
-
-try {
-  for await (const chunk of stream) console.log(chunk);
-} catch (error) {
-  console.log(error.code); // "aborted"
-}
-```
-
 Named OpenAI-compatible servers are a first-class Bridge provider option (see [Supported Providers](#supported-providers)); they are not part of this experimental page API.
 
 ## Images
@@ -893,6 +901,8 @@ npm install
 npm test
 ```
 
+See [speech conformance](docs/speech-conformance.md) for the spec snapshot, automated coverage, and browser checks.
+
 Focused Node tests cover request validation (stable vs experimental), storage/grants, permission decisions (including tools re-prompt), provider registry, bounded binary transfer and cancellation, OpenAI speech multipart/streaming adapters, the page-side `runTools` loop, function-tool streaming for OpenAI / Anthropic / OpenRouter / Ollama / OpenAI-compatible, and hosted `web_search` mapping (OpenRouter / Anthropic / OpenAI Responses / Ollama Bridge-executed ollama.com loop) (no full MV3 e2e).
 
 Optional local Ollama transcription integration uses the checked-in 16 kHz
@@ -963,8 +973,8 @@ npm run package
 - [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the request-deprecation warn)
 - [ ] Stable `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
 - [ ] Stable `output.images: true` on OpenAI / OpenRouter; approval lists image input/output separately
-- [ ] Decisions are available immediately in experimental discovery; stable discovery is unchanged; stable `decide` fails before approval
-- [ ] Enabling/disabling speech leaves decisions available; the first decisions request prompts for separate site approval
+- [ ] Decisions are available immediately in experimental discovery; stable discovery omits `decide`; stable `decide` fails before approval
+- [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
 - [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
 - [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint
@@ -974,8 +984,8 @@ npm run package
 - [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF models with the `decision` capability, including Clef and custom names
 - [ ] Unknown fields, invalid JSON/question shapes, unsupported provider grants, and stale models fail closed; decision models never route through chat
 - [ ] Check Decisions controls and approval in both Chrome and Firefox; revoke Firefox host access during a decision request
-- [ ] Experimental speech is absent from stable `getFeatures()` and defaults to absent from `experimental.getFeatures().methods`
-- [ ] Enabling Experimental speech exposes normalized `methods.transcribe.acceptedMedia` constraints plus `methods.synthesize`; disabling it removes both and makes either request fail before approval
+- [ ] Speech is advertised immediately in stable `getFeatures().methods` and in the deprecated experimental discovery alias, without a settings handshake
+- [ ] Discovery exposes normalized `methods.transcribe.acceptedMedia` constraints plus `methods.synthesize`, with no provider/model/voice IDs; each operation still needs its own site approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
 - [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
 - [ ] Optional Ollama transcription lists only installed `/api/show` `audio` models, accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS
@@ -986,7 +996,7 @@ npm run package
 - [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
 - [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis
-- [ ] AbortSignal and iterator `return()` during upload/download throw `aborted`, stop provider transfer, and yield no `done`
+- [ ] AbortSignal rejects pending iteration with `aborted`; iterator `return()` closes it; both stop upload/download and yield no `done`
 - [ ] Navigating or closing the tab during approval, upload, or synthesis aborts without a stale approval or retained transfer
 - [ ] Empty/over-24,000,000-byte transcription and over-4,096-code-point synthesis fail before provider upload
 - [ ] Unsupported MIME, missing audio track, silent/no-speech input, and malformed provider output return actionable errors
@@ -994,7 +1004,7 @@ npm run package
 ### Current limitations
 
 - Built-in providers are OpenAI, Anthropic, OpenRouter, and local Ollama (Ollama fixed at `http://localhost:11434`); additional OpenAI-compatible servers are user-configured
-- Function tools, hosted web search, and images are on stable `request`; decisions and speech use `experimental.request`, with speech requiring an Options opt-in
+- Function tools, hosted web search, images, and bounded speech are on stable `request`; speech uses separate operation-specific site approval; decisions use `experimental.request`
 - No `file:` / opaque-origin pages
 - No cost estimate in the approval UI
 - Cross-realm errors are reconstructed as `Error` objects with a `code` property

@@ -146,8 +146,10 @@ export async function transcribeOpenAI(args) {
       "OpenAI returned malformed transcription JSON."
     );
   }
-  const text =
-    payload && typeof payload.text === "string" ? payload.text : "";
+  if (typeof payload?.text !== "string") {
+    throw inferenceError("provider_error", "OpenAI returned a malformed transcript.");
+  }
+  const text = payload.text;
   if (!text.trim()) {
     throw inferenceError(
       "invalid_request",
@@ -163,7 +165,7 @@ export async function transcribeOpenAI(args) {
         : {}),
     },
     ...(typeof payload.duration === "number" &&
-    Number.isFinite(payload.duration)
+    Number.isFinite(payload.duration) && payload.duration >= 0
       ? { usage: { inputSeconds: payload.duration } }
       : {}),
   };
@@ -196,6 +198,14 @@ async function readStreamingTranscription(response, args) {
         "provider_error",
         "OpenAI returned malformed transcription stream data."
       );
+    }
+    if (!event || typeof event !== "object") {
+      throw inferenceError("provider_error", "OpenAI returned malformed transcription stream data.");
+    }
+    if (event.type === "transcript.text.delta" || event.type === "transcript.text.done") {
+      if (finalEvent || typeof (event.type === "transcript.text.delta" ? event.delta : event.text) !== "string") {
+        throw inferenceError("provider_error", "OpenAI returned inconsistent transcription stream data.");
+      }
     }
     if (
       event.type === "transcript.text.delta" &&
@@ -230,7 +240,10 @@ async function readStreamingTranscription(response, args) {
     reader.releaseLock();
   }
 
-  const text = typeof finalEvent?.text === "string" ? finalEvent.text : "";
+  if (!finalEvent) {
+    throw inferenceError("provider_error", "OpenAI transcription stream ended without a final transcript.");
+  }
+  const text = finalEvent.text;
   if (!text.trim()) {
     throw inferenceError(
       "invalid_request",

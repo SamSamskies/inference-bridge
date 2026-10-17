@@ -3,6 +3,7 @@ import {
   listOpenRouterSynthesisModels,
   listOpenRouterTranscriptionModels,
   openRouterMediaTypesForModel,
+  openRouterLanguageHint,
   openRouterVoicesForModel,
   resetOpenRouterSpeechCatalogs,
   synthesizeOpenRouter,
@@ -213,6 +214,21 @@ describe("OpenRouter speech catalogs", () => {
 });
 
 describe("OpenRouter transcription", () => {
+  it.each(["en-US", "zh-Hant", "fil"])("rejects an unrepresentable language hint %s without dropping it", (language) => {
+    expect(() => openRouterLanguageHint(language)).toThrow(expect.objectContaining({ code: "unavailable" }));
+  });
+
+  it.each([null, {}, { text: 42 }])("rejects malformed transcript payload %j as provider_error", async (payload) => {
+    stubFetch(async (url) => url.endsWith("/audio/transcriptions") ? Response.json(payload) : undefined);
+    await expect(transcribeOpenRouter({
+      apiKey: "test-key",
+      model: "openai/gpt-transcribe",
+      audio: { data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }), mediaType: "audio/wav", byteLength: 1 },
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+    })).rejects.toMatchObject({ code: "provider_error" });
+  });
+
   it("passes original bytes through an OpenAI-compatible multipart request", async () => {
     const bytes = Uint8Array.from([1, 2, 3, 4]);
     const fetchMock = stubFetch(async (url) => {
@@ -232,7 +248,7 @@ describe("OpenRouter transcription", () => {
         mediaType: "audio/wav",
         byteLength: bytes.byteLength,
       },
-      language: "en-US",
+      language: "en",
       signal: new AbortController().signal,
       onDelta: vi.fn(),
     });

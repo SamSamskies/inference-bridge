@@ -229,7 +229,6 @@ describe("decisions settings", () => {
   it("keeps decisions defaults separate from speech and chat", async () => {
     installChromeMock();
     await saveSettings({
-      experimentalSpeechEnabled: true,
       operationDefaults: {
         transcribe: { providerId: "openai", model: "gpt-4o-mini-transcribe" },
       },
@@ -240,7 +239,6 @@ describe("decisions settings", () => {
       },
     });
     const settings = await getSettings();
-    expect(settings.experimentalSpeechEnabled).toBe(true);
     expect(settings.defaultProviderId).toBe("openai");
     expect(settings.operationDefaults).toEqual({
       transcribe: { providerId: "openai", model: "gpt-4o-mini-transcribe" },

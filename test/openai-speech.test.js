@@ -11,6 +11,45 @@ afterEach(() => {
 });
 
 describe("OpenAI transcription", () => {
+  it.each([null, {}, { text: 42 }])("rejects malformed transcript payload %j as provider_error", async (payload) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload)));
+    await expect(transcribeOpenAI({
+      model: "gpt-4o-mini-transcribe",
+      audio: { data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }), mediaType: "audio/wav", byteLength: 1 },
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+    })).rejects.toMatchObject({ code: "provider_error" });
+  });
+
+  it.each([
+    [{ type: "transcript.text.delta", delta: "partial" }],
+    [{ type: "transcript.text.done", text: "done" }, { type: "transcript.text.delta", delta: "late" }],
+    [{ type: "transcript.text.done", text: "one" }, { type: "transcript.text.done", text: "two" }],
+    [{ type: "transcript.text.delta", delta: 42 }],
+  ])("rejects an incomplete or inconsistent transcript stream %j", async (...events) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "Content-Type": "text/event-stream" } },
+    )));
+    await expect(transcribeOpenAI({
+      model: "gpt-4o-mini-transcribe",
+      audio: { data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }), mediaType: "audio/wav", byteLength: 1 },
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+    })).rejects.toMatchObject({ code: "provider_error" });
+  });
+
+  it("omits invalid negative duration usage", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ text: "hello", duration: -1 })));
+    const result = await transcribeOpenAI({
+      model: "gpt-4o-mini-transcribe",
+      audio: { data: new Blob([Uint8Array.of(1)], { type: "audio/wav" }), mediaType: "audio/wav", byteLength: 1 },
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+    });
+    expect(result).not.toHaveProperty("usage");
+  });
+
   it("uploads the original Blob with operation-specific multipart fields", async () => {
     const bytes = Uint8Array.from([1, 2, 3, 4]);
     const fetchMock = vi.fn(async () =>

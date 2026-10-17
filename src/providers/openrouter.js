@@ -22,6 +22,7 @@ import {
   listOpenRouterSynthesisModels,
   listOpenRouterTranscriptionModels,
   openRouterMediaTypesForModel,
+  openRouterLanguageHint,
   openRouterVoicesForModel,
   synthesizeOpenRouter,
   transcribeOpenRouter,
@@ -326,6 +327,7 @@ export const openrouterProvider = {
     acceptedMediaTypes: OPENROUTER_TRANSCRIPTION_MEDIA_TYPES,
     maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
     listAcceptedMediaTypesForModel: openRouterMediaTypesForModel,
+    validateLanguageHint: openRouterLanguageHint,
   },
   synthesis: {
     defaultModel: OPENROUTER_DEFAULT_SYNTHESIS_MODEL,

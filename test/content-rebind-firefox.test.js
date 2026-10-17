@@ -52,7 +52,6 @@ describe("Firefox event-page loss", () => {
     const runtimePorts = [];
     const pageMessages = [];
     let pagePort;
-    let storageChanged;
     const chrome = {
       runtime: {
         getManifest: () => ({ browser_specific_settings: { gecko: {} } }),
@@ -61,10 +60,6 @@ describe("Firefox event-page loss", () => {
           runtimePorts.push(port);
           return port;
         },
-      },
-      storage: {
-        local: { get: async () => ({ experimentalSpeechEnabled: true }) },
-        onChanged: { addListener(listener) { storageChanged = listener; } },
       },
     };
     const window = {
@@ -87,17 +82,7 @@ describe("Firefox event-page loss", () => {
       console,
     });
 
-    await vi.advanceTimersByTimeAsync(0);
-    expect(pageMessages.at(-1)).toEqual({
-      type: "feature-state",
-      experimentalSpeechEnabled: true,
-    });
-    storageChanged({ experimentalSpeechEnabled: { newValue: false } }, "local");
-    expect(pageMessages.at(-1)).toEqual({
-      type: "feature-state",
-      experimentalSpeechEnabled: false,
-    });
-    storageChanged({ experimentalSpeechEnabled: { newValue: true } }, "local");
+    expect(pageMessages).toEqual([]);
 
     pagePort.postMessage({
       type: "start",
@@ -117,9 +102,5 @@ describe("Firefox event-page loss", () => {
         error: expect.objectContaining({ code: "aborted" }),
       }),
     ]));
-    expect(pageMessages).toContainEqual({
-      type: "feature-state",
-      experimentalSpeechEnabled: true,
-    });
   });
 });

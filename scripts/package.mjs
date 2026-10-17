@@ -62,7 +62,7 @@ function firefoxManifest() {
     gecko: {
       id: "inference-bridge@samsamskies.github.io",
       strict_min_version: "140.0",
-      // Chat, page content, credentials, search terms, and opt-in speech
+      // Chat, page content, credentials, search terms, and separately approved speech
       // recordings can leave the browser only for the selected provider.
       data_collection_permissions: {
         required: [

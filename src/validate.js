@@ -400,6 +400,20 @@ function validateToolChoice(toolChoice) {
 
 /**
  * Validate an InferenceRequest from a page script (stable IPA surface).
+ * Speech sources are prepared in MAIN before crossing the extension boundary.
+ * @param {unknown} request
+ */
+export function validateInferenceRequest(request) {
+  if (request == null || typeof request !== "object" || Array.isArray(request)) {
+    return { ok: false, message: "Request must be an object." };
+  }
+  const req = /** @type {Record<string, unknown>} */ (request);
+  if (req.method === "transcribe") return validateTranscribeRequest(req);
+  if (req.method === "synthesize") return validateSynthesizeRequest(req);
+  return validateChatRequest(request);
+}
+
+/**
  * Accepts function tools, hosted `{ type: "web_search" }`, tool messages,
  * image content parts, and `output.images`.
  * @param {unknown} request
@@ -415,7 +429,7 @@ function validateToolChoice(toolChoice) {
  *   },
  * } | { ok: false, message: string }}
  */
-export function validateInferenceRequest(request) {
+function validateChatRequest(request) {
   if (request == null || typeof request !== "object" || Array.isArray(request)) {
     return { ok: false, message: "Request must be an object." };
   }
@@ -423,7 +437,7 @@ export function validateInferenceRequest(request) {
   const req = /** @type {Record<string, unknown>} */ (request);
 
   if (req.method !== "chat") {
-    return { ok: false, message: 'Only method "chat" is supported in this draft.' };
+    return { ok: false, message: 'method must be "chat", "transcribe", or "synthesize".' };
   }
 
   if (!Array.isArray(req.messages) || req.messages.length === 0) {
@@ -606,7 +620,7 @@ export function validateInferenceRequest(request) {
 
 /**
  * Closed discriminated-union validation for the experimental request surface.
- * Stable request validation remains chat-only and unchanged.
+ * Speech shares stable validation; decide remains experimental-only.
  * @param {unknown} request
  */
 export function validateExperimentalInferenceRequest(request) {
@@ -636,10 +650,10 @@ export function validateExperimentalInferenceRequest(request) {
     return validateDecideRequest(req);
   }
   if (req.method === "transcribe") {
-    return validateExperimentalTranscribeRequest(req);
+    return validateTranscribeRequest(req);
   }
   if (req.method === "synthesize") {
-    return validateExperimentalSynthesizeRequest(req);
+    return validateSynthesizeRequest(req);
   }
   return {
     ok: false,
@@ -660,7 +674,7 @@ function firstUnknownField(value, allowed) {
 /**
  * @param {Record<string, unknown>} req
  */
-function validateExperimentalTranscribeRequest(req) {
+function validateTranscribeRequest(req) {
   const unknown = firstUnknownField(req, [
     "method",
     "media",
@@ -813,7 +827,7 @@ function validateExperimentalTranscribeRequest(req) {
 /**
  * @param {Record<string, unknown>} req
  */
-function validateExperimentalSynthesizeRequest(req) {
+function validateSynthesizeRequest(req) {
   const unknown = firstUnknownField(req, [
     "method",
     "text",

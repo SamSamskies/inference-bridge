@@ -1,6 +1,6 @@
 /**
- * Provider-independent limits and format helpers for the experimental bounded
- * speech methods. These are Bridge incubation limits, not stable IPA limits.
+ * Provider-independent limits and format helpers for bounded speech.
+ * These are Bridge limits; the IPA spec does not fix numeric limits.
  */
 
 export const TRANSCRIPTION_INPUT_MAX_BYTES = 24_000_000;
@@ -50,14 +50,12 @@ export function rawBase64ByteLength(value) {
   if (typeof value !== "string" || value.length === 0 || value.length % 4 !== 0) {
     return -1;
   }
-  if (
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      value
-    )
-  ) {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  // Scan the alphabet without repeated regexp groups (large inputs can exhaust
+  // the regexp stack). Only the final one or two characters may be padding.
+  if (/[^A-Za-z0-9+/]/.test(value.slice(0, value.length - padding))) {
     return -1;
   }
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
   return (value.length / 4) * 3 - padding;
 }
 

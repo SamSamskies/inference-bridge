@@ -22,10 +22,6 @@
   const streamHandlers = new Map();
   /** One-shot deprecation notice for experimental.request (alias of request). */
   let warnedExperimentalRequest = false;
-  /** One-shot notice for non-normative speech methods. */
-  let warnedExperimentalSpeech = false;
-  /** Fail-closed cache populated by the isolated content script. */
-  let experimentalSpeechEnabled = false;
   /** One-shot notice for the non-normative decisions method. */
   let warnedExperimentalDecisions = false;
   /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
@@ -36,17 +32,8 @@
     warnedExperimentalRequest = true;
     console.warn(
       "[Inference Bridge] window.inference.experimental.request is deprecated; " +
-        "prefer window.inference.request(). Images, tools, and hosted " +
-        "web_search are on the stable surface (see getFeatures)."
-    );
-  }
-
-  function warnExperimentalSpeechOnce() {
-    if (warnedExperimentalSpeech) return;
-    warnedExperimentalSpeech = true;
-    console.warn(
-      "[Inference Bridge] Transcription and speech synthesis are experimental, " +
-        "non-normative Bridge methods and may change before IPA standardization."
+        "prefer window.inference.request(). Images, tools, hosted " +
+        "web_search, and speech are on the stable surface (see getFeatures)."
     );
   }
 
@@ -85,6 +72,8 @@
     "video/mp4",
     "video/webm",
   ]);
+  // Kept in sync with src/speech.js; MAIN cannot import extension modules.
+  const TRANSCRIPTION_INPUT_MAX_BYTES = 24_000_000;
 
   /**
    * @param {unknown} value
@@ -140,14 +129,19 @@
    * @returns {Blob}
    */
   function rawBase64ToBlob(data, mediaType) {
+    if (data.length > Math.ceil(TRANSCRIPTION_INPUT_MAX_BYTES / 3) * 4) {
+      throw makeError("invalid_request", "Transcription input exceeds 24,000,000 bytes.");
+    }
+    const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
     if (
       !data ||
       data.length % 4 !== 0 ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-        data
-      )
+      /[^A-Za-z0-9+/]/.test(data.slice(0, data.length - padding))
     ) {
       throw makeError("invalid_request", "media.data must be valid raw base64.");
+    }
+    if ((data.length / 4) * 3 - padding > TRANSCRIPTION_INPUT_MAX_BYTES) {
+      throw makeError("invalid_request", "Transcription input exceeds 24,000,000 bytes.");
     }
     const parts = [];
     // Keep slices quartet-aligned and temporary binary strings small.
@@ -204,12 +198,35 @@
     let source;
 
     if (typeof media.url === "string" && media.url.trim()) {
-      let response;
       try {
-        response = await fetch(
+        const response = await fetch(
           media.url.trim(),
           signal ? { signal } : undefined
         );
+        if (!response.ok) {
+          throw makeError("invalid_request", `Media URL returned HTTP ${response.status}.`);
+        }
+        if (!response.body) {
+          throw makeError("invalid_request", "Media URL returned an empty body.");
+        }
+        const reader = response.body.getReader();
+        const parts = [];
+        let byteLength = 0;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            byteLength += value.byteLength;
+            if (byteLength > TRANSCRIPTION_INPUT_MAX_BYTES) {
+              try { await reader.cancel(); } catch { /* preserve the size error */ }
+              throw makeError("invalid_request", "Transcription input exceeds 24,000,000 bytes.");
+            }
+            parts.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        source = new Blob(parts, { type: response.headers.get("Content-Type") || "" });
       } catch (err) {
         if (
           signal?.aborted ||
@@ -217,18 +234,12 @@
         ) {
           throw makeError("aborted", "Request aborted");
         }
+        if (err?.code === "invalid_request") throw err;
         throw makeError(
           "invalid_request",
           "Could not fetch media URL (network or CORS). The page must be allowed to read it."
         );
       }
-      if (!response.ok) {
-        throw makeError(
-          "invalid_request",
-          `Media URL returned HTTP ${response.status}.`
-        );
-      }
-      source = await response.blob();
     } else if (
       typeof Blob !== "undefined" &&
       media.data instanceof Blob
@@ -247,6 +258,9 @@
         "invalid_request",
         "media must include exactly one of data or url."
       );
+    }
+    if (!source.size || source.size > TRANSCRIPTION_INPUT_MAX_BYTES) {
+      throw makeError("invalid_request", "Transcription input must contain 1–24,000,000 bytes.");
     }
 
     const sourceId = `media_${nextMediaSourceId++}_${Math.random()
@@ -390,12 +404,6 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
 
-    if (data.type === "feature-state") {
-      experimentalSpeechEnabled =
-        data.experimentalSpeechEnabled === true;
-      return;
-    }
-
     if (typeof data.id === "string" && pending.has(data.id)) {
       const settle = pending.get(data.id);
       pending.delete(data.id);
@@ -473,6 +481,8 @@
         let startPromise = null;
         /** @type {Error | null} */
         let terminalError = null;
+        /** Cancels page-owned transcription URL work on abort/iterator close. */
+        let sourceController = null;
         /** @type {Blob | null} */
         let uploadSource = null;
         let uploadSequence = 0;
@@ -642,13 +652,24 @@
             throw makeError("aborted", "Request aborted");
           }
 
+          // Listen before resolving page-owned sources, not just before IPC.
+          if (signal) {
+            onAbort = () => {
+              sourceController?.abort();
+              abortRemote();
+              closeWithError(makeError("aborted", "Request aborted"));
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+
           let serializable =
             request && typeof request === "object" ? { ...request } : {};
           delete serializable.signal;
-          if (experimental && serializable.method === "transcribe") {
+          if (serializable.method === "transcribe") {
+            sourceController = new AbortController();
             const prepared = await prepareTranscriptionSource(
               serializable,
-              signal
+              sourceController.signal
             );
             serializable = prepared.request;
             uploadSource = prepared.source;
@@ -658,18 +679,11 @@
             serializable = await encodeRequestImages(serializable, signal);
           }
 
-          // Register AbortSignal before the round-trip so abort during start
-          // marks the iterator closed; abortRemote runs once streamId exists.
-          if (signal) {
-            if (signal.aborted) {
-              throw makeError("aborted", "Request aborted");
-            }
-            onAbort = () => {
-              abortRemote();
-              closeWithError(makeError("aborted", "Request aborted"));
-            };
-            signal.addEventListener("abort", onAbort, { once: true });
+          if (signal?.aborted) {
+            throw makeError("aborted", "Request aborted");
           }
+
+          if (state === "closed") return;
 
           const started = await sendToExtension({
             type: "start",
@@ -705,6 +719,7 @@
           terminalError = null;
           queue.length = 0;
           wake();
+          sourceController?.abort();
 
           if (startPromise) {
             try {
@@ -714,6 +729,7 @@
             }
           }
 
+          terminalError = null;
           abortRemote();
           cleanupListeners();
         }
@@ -724,6 +740,7 @@
               // Share one in-flight start across concurrent next() callers.
               if (!startPromise) {
                 startPromise = start().catch((err) => {
+                  sourceController?.abort();
                   state = "closed";
                   terminalError = err instanceof Error ? err : makeError("provider_error", String(err));
                   cleanupListeners();
@@ -974,13 +991,13 @@
     "output",
     "signal",
   ]);
-  const EXPERIMENTAL_TRANSCRIBE_FIELDS = new Set([
+  const TRANSCRIBE_FIELDS = new Set([
     "method",
     "media",
     "language",
     "signal",
   ]);
-  const EXPERIMENTAL_SYNTHESIZE_FIELDS = new Set([
+  const SYNTHESIZE_FIELDS = new Set([
     "method",
     "text",
     "output",
@@ -989,7 +1006,7 @@
   const EXPERIMENTAL_DECIDE_FIELDS = new Set([
     "method", "state", "questions", "signal",
   ]);
-  const EXPERIMENTAL_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
+  const TRANSCRIPTION_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
 
   /**
    * @param {any} request
@@ -1013,22 +1030,15 @@
    * Bounds and MIME normalization are repeated by the worker from src/speech.js.
    * @param {any} request
    */
-  function preflightExperimentalSpeechRequest(request) {
-    if (!experimentalSpeechEnabled) {
-      throw makeError(
-        "invalid_request",
-        "Experimental speech methods are disabled in Inference Bridge Options."
-      );
-    }
-
+  function preflightSpeechRequest(request) {
     if (request.method === "transcribe") {
-      assertClosedRequest(request, EXPERIMENTAL_TRANSCRIBE_FIELDS);
+      assertClosedRequest(request, TRANSCRIBE_FIELDS);
       const media = request.media;
       if (!media || typeof media !== "object" || Array.isArray(media)) {
         throw makeError("invalid_request", "media must be an object.");
       }
       const unknown = Object.keys(media).find(
-        (key) => !EXPERIMENTAL_MEDIA_FIELDS.has(key)
+        (key) => !TRANSCRIPTION_MEDIA_FIELDS.has(key)
       );
       if (unknown) {
         throw makeError(
@@ -1057,7 +1067,7 @@
         throw makeError("invalid_request", "language must be a BCP 47 string.");
       }
     } else {
-      assertClosedRequest(request, EXPERIMENTAL_SYNTHESIZE_FIELDS);
+      assertClosedRequest(request, SYNTHESIZE_FIELDS);
       if (typeof request.text !== "string" || !request.text.trim()) {
         throw makeError("invalid_request", "text must be a non-empty string.");
       }
@@ -1157,6 +1167,27 @@
   /**
    * @param {any} request
    */
+  function createStableStream(request) {
+    return createStream(request, {
+      preflight() {
+        const method = request && typeof request === "object" ? request.method : undefined;
+        if (method === "transcribe" || method === "synthesize") {
+          preflightSpeechRequest(request);
+        }
+      },
+    });
+  }
+
+  function getSpeechMethods() {
+    return {
+      transcribe: {
+        acceptedMedia: TRANSCRIPTION_MEDIA_TYPES.map((mediaType) => ({ mediaType })),
+      },
+      synthesize: true,
+    };
+  }
+
+  /** @param {any} request */
   function createExperimentalStream(request) {
     const method =
       request && typeof request === "object" ? request.method : undefined;
@@ -1184,13 +1215,8 @@
       });
     }
     if (method === "transcribe" || method === "synthesize") {
-      warnExperimentalSpeechOnce();
-      return createStream(request, {
-        experimental: true,
-        preflight() {
-          preflightExperimentalSpeechRequest(request);
-        },
-      });
+      warnExperimentalRequestOnce();
+      return createStableStream(request);
     }
     return createStream(request, {
       experimental: true,
@@ -1206,7 +1232,7 @@
   Object.defineProperty(window, "inference", {
     value: Object.freeze({
       request(request) {
-        return createStream(request);
+        return createStableStream(request);
       },
       /**
        * Snapshot of stable IPA surface. Sync; no prompt, permission, or I/O.
@@ -1216,6 +1242,7 @@
        */
       getFeatures() {
         return {
+          methods: getSpeechMethods(),
           toolCalling: true,
           webSearch: true,
           imageInput: true,
@@ -1232,16 +1259,7 @@
             methods: {
               chat: true,
               decide: true,
-              ...(experimentalSpeechEnabled
-                ? {
-                    transcribe: {
-                      acceptedMedia: TRANSCRIPTION_MEDIA_TYPES.map(
-                        (mediaType) => ({ mediaType })
-                      ),
-                    },
-                    synthesize: true,
-                  }
-                : {}),
+              ...getSpeechMethods(),
             },
           };
         },

@@ -46,6 +46,7 @@ function loadInference(fetchImpl = fetch) {
       Error,
       Symbol,
       Blob,
+      AbortController,
       Uint8Array,
       URL,
       atob,
@@ -65,18 +66,139 @@ function loadInference(fetchImpl = fetch) {
       ports: [port2],
     });
   }
-  // Apply synchronously — MessageChannel postMessage is async and raced
-  // with request() under CI load (speech still disabled → no bridge start).
-  port2.onmessage({
-    data: {
-      type: "feature-state",
-      experimentalSpeechEnabled: true,
-    },
-  });
   return { inference: window.inference, port: port1 };
 }
 
 describe("MAIN-world speech transport", () => {
+  it("validates the method present when lazy iteration starts", async () => {
+    const { inference, port } = loadInference();
+    const request = { method: "chat" };
+    const stream = inference.request(request);
+    Object.assign(request, { method: "transcribe", media: { data: "AQID", mediaType: "audio/wav", sourceId: "forged" } });
+    await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: "invalid_request" });
+    port.close();
+  });
+
+  it("closes during Blob preparation without opening an extension request", async () => {
+    const { inference, port } = loadInference();
+    const messages = [];
+    port.onmessage = (event) => messages.push(event.data);
+    const iterator = inference.request({ method: "transcribe", media: { data: new Blob(["abc"], { type: "audio/wav" }) } })[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await iterator.return();
+    expect(await pending).toEqual({ done: true, value: undefined });
+    await tick();
+    expect(messages.some((message) => message.type === "start")).toBe(false);
+    port.close();
+  });
+
+  it("prepares base64 at the exact input limit and rejects over-limit data before decoding", async () => {
+    const { inference, port } = loadInference();
+    let start;
+    port.onmessage = (event) => {
+      if (event.data.type !== "start") return;
+      start = event.data;
+      port.postMessage({ id: start.id, error: { code: "unavailable", message: "test complete" } });
+    };
+    const data = "A".repeat(32_000_000);
+    await expect(inference.request({ method: "transcribe", media: { data, mediaType: "audio/wav" } })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "unavailable", message: "test complete" });
+    expect(start.request.media.byteLength).toBe(24_000_000);
+    start = undefined;
+    await expect(inference.request({ method: "transcribe", media: { data: data + "AAAA", mediaType: "audio/wav" } })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "invalid_request" });
+    expect(start).toBeUndefined();
+    port.close();
+  });
+
+  it.each(["signal", "return"])("cancels the page URL fetch before headers on %s", async (operation) => {
+    let fetchSignal;
+    const { inference, port } = loadInference(async (_url, { signal }) => {
+      fetchSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    });
+    const controller = new AbortController();
+    const iterator = inference.request({ method: "transcribe", media: { url: "https://media.example/a.wav" }, signal: controller.signal })[Symbol.asyncIterator]();
+    const pending = expect(iterator.next()).rejects.toMatchObject({ code: "aborted" });
+    await waitFor(() => fetchSignal);
+    if (operation === "signal") controller.abort();
+    else {
+      expect(await iterator.return()).toEqual({ done: true, value: undefined });
+      expect(await iterator.next()).toEqual({ done: true, value: undefined });
+    }
+    await pending;
+    expect(fetchSignal.aborted).toBe(true);
+    port.close();
+  });
+
+  it("cancels the page URL body read when its iterator closes", async () => {
+    let bodyStarted = false;
+    let fetchSignal;
+    const { inference, port } = loadInference(async (_url, { signal }) => {
+      fetchSignal = signal;
+      return new Response(new ReadableStream({
+        start(controller) {
+          signal.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")), { once: true });
+        },
+        pull() { bodyStarted = true; },
+      }), { headers: { "Content-Type": "audio/wav" } });
+    });
+    const iterator = inference.request({ method: "transcribe", media: { url: "https://media.example/a.wav" } })[Symbol.asyncIterator]();
+    const pending = expect(iterator.next()).rejects.toMatchObject({ code: "aborted" });
+    await waitFor(() => bodyStarted);
+    expect(await iterator.return()).toEqual({ done: true, value: undefined });
+    await pending;
+    expect(fetchSignal.aborted).toBe(true);
+    port.close();
+  });
+
+  it("maps a URL body network failure to invalid_request before IPC", async () => {
+    const { inference, port } = loadInference(async () => new Response(new ReadableStream({
+      start(controller) { controller.error(new TypeError("Network interrupted")); },
+    })));
+    await expect(inference.request({ method: "transcribe", media: { url: "https://media.example/a.wav" } })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "invalid_request" });
+    port.close();
+  });
+
+  it("cancels oversized URL bodies at the input limit before IPC", async () => {
+    let cancelled = false;
+    const { inference, port } = loadInference(async () => new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(1_000_000)); },
+      cancel() { cancelled = true; },
+    }), { headers: { "Content-Type": "audio/wav" } }));
+    await expect(inference.request({ method: "transcribe", media: { url: "https://media.example/too-large.wav" } })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("24,000,000") });
+    expect(cancelled).toBe(true);
+    port.close();
+  });
+
+  it.each([
+    { method: "transcribe", media: { data: undefined, url: "https://media.example/a.wav" } },
+    { method: "transcribe", media: { data: "AQID" } },
+    { method: "transcribe", media: { data: "bad base64", mediaType: "audio/wav" } },
+    { method: "transcribe", media: { data: "AAA\n", mediaType: "audio/wav" } },
+    { method: "transcribe", media: { data: "AQID", mediaType: "audio/wav", sourceId: "forged" } },
+    { method: "transcribe", media: { data: "AQID", mediaType: "audio/wav", byteLength: 3 } },
+    { method: "transcribe", media: { data: "AQID", mediaType: "audio/wav" }, model: "page-selected" },
+    { method: "synthesize", text: "Hello", provider: "openai" },
+    { method: "synthesize", text: "Hello", voice: "alloy" },
+    { method: "synthesize", text: "Hello", messages: [] },
+    { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } },
+    { method: "synthesize", text: "Hello", output: { images: true } },
+  ])("rejects invalid stable speech fields before extension work: %j", async (request) => {
+    const { inference, port } = loadInference();
+    const messages = [];
+    port.onmessage = (event) => messages.push(event.data);
+    const stream = inference.request(request);
+    await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: "invalid_request" });
+    await tick();
+    expect(messages.some((message) => message.type === "start")).toBe(false);
+    port.close();
+  });
+
   it("sends Blob metadata first and serves ordered pull chunks", async () => {
     const { inference, port } = loadInference();
     await tick();
@@ -88,7 +210,7 @@ describe("MAIN-world speech transport", () => {
       }
     };
 
-    const iterator = inference.experimental
+    const iterator = inference
       .request({
         method: "transcribe",
         media: {
@@ -103,7 +225,7 @@ describe("MAIN-world speech transport", () => {
     const start = await waitFor(() =>
       messages.find((message) => message.type === "start")
     );
-    expect(start.experimental).toBe(true);
+    expect(start).not.toHaveProperty("experimental");
     expect(start.request.media).toMatchObject({
       byteLength: 5,
       mediaType: "audio/wav",
@@ -168,7 +290,7 @@ describe("MAIN-world speech transport", () => {
       }
     };
 
-    const iterator = inference.experimental
+    const iterator = inference
       .request({
         method: "transcribe",
         media: { url: "https://media.example/audio.mp3" },
@@ -199,7 +321,7 @@ describe("MAIN-world speech transport", () => {
     const messages = [];
     port.onmessage = (event) => messages.push(event.data);
 
-    const iterator = inference.experimental
+    const iterator = inference
       .request({
         method: "transcribe",
         media: { url: "https://media.example/private.wav" },
@@ -223,7 +345,7 @@ describe("MAIN-world speech transport", () => {
         port.postMessage({ id: event.data.id, streamId: "stream-download" });
       }
     };
-    const iterator = inference.experimental
+    const iterator = inference
       .request({ method: "synthesize", text: "Hello" })
       [Symbol.asyncIterator]();
     const next = iterator.next();
@@ -271,7 +393,7 @@ describe("MAIN-world speech transport", () => {
         port.postMessage({ id: event.data.id, streamId: "stream-close" });
       }
     };
-    const iterator = inference.experimental
+    const iterator = inference
       .request({ method: "synthesize", text: "Close me" })
       [Symbol.asyncIterator]();
     const first = iterator.next();
@@ -315,7 +437,7 @@ describe("MAIN-world speech transport", () => {
         port.postMessage({ id: event.data.id, streamId: "stream-abort" });
       }
     };
-    const iterator = inference.experimental
+    const iterator = inference
       .request({
         method: "transcribe",
         media: {
