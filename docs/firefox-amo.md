@@ -11,7 +11,7 @@ npm ci
 npm test
 npm run package:all
 npm run lint:firefox
-unzip -l dist/inference-bridge-firefox-*.zip
+unzip -l "dist/inference-bridge-firefox-$(node -p 'require("./manifest.json").version').zip"
 ```
 
 On a `vX.Y.Z`-tagged commit, also build the AMO reviewer source archive:
@@ -25,9 +25,7 @@ npm run package:firefox-source
 
 `npm run lint:firefox` invokes `web-ext lint --warnings-as-errors` on the staged root. The lint wrapper suppresses only Mozilla [web-ext issue #3561](https://github.com/mozilla/web-ext/issues/3561), an Android minimum-version warning emitted despite `gecko_android` being absent. Any other notice, warning, or error fails the job. Remove this exception after the upstream linter fixes the rule.
 
-On 2026-09-25, the staged artifact installed temporarily in Firefox 156.0.1. A localhost page observed `window.inference` in its first inline head script, `getFeatures()` was callable, a same-origin iframe had no bridge, experimental speech was absent, and an invalid chat request returned `invalid_request`. This smoke check does not cover the approval UI, provider networking, Firefox 140 itself, or a signed install.
-
-On 2026-09-30, an isolated headless Firefox 157.0 profile reproduced transcription aborting after `accepted`: reading a transferred page ArrayBuffer in the isolated content script threw `Permission denied to access property "constructor"`. After encoding bounded upload chunks in MAIN before crossing the MessagePort boundary, the browser smoke check passed a 600,000-byte multi-chunk Blob, the WAV fixture through a page-fetched localhost URL, raw-base64 transcription, and synthesis audio delivery. Mock provider responses isolated these checks to the real Firefox transport; cloud networking, playback, and a signed install were not exercised.
+`npm run dev:firefox` builds and launches a temporary development install. For a test build that survives Firefox restarts, use an AMO-signed unlisted XPI. Neither a temporary install nor mocked transport tests verify signed-install prompts or live provider behavior; run the acceptance checks below for each release.
 
 The `v*` tag workflow uploads a Chrome ZIP, an unsigned Firefox ZIP, and a reviewer source ZIP made with `git archive HEAD`. The source ZIP contains the source, lockfile, packaging/lint scripts, this document, CI configuration, and `firefox-build-info.txt` with the runner's tool versions. Run the commands above from that archive with the recorded Node, npm, and Info-ZIP versions before comparing the Firefox ZIP byte-for-byte. AMO signing/submission is manual; the tag workflow has no AMO credentials.
 
@@ -39,7 +37,7 @@ The Firefox manifest declares these required Mozilla data types for the supporte
 | --- | --- |
 | `authenticationInfo` | A selected cloud provider or custom endpoint receives its saved API key. |
 | `personalCommunications` | Chat prompts, replies, and speech content can be personal messages. |
-| `personallyIdentifyingInfo` | Separately enabled and approved transcription can send voice/video recordings to the selected provider. |
+| `personallyIdentifyingInfo` | Separately approved transcription can send voice/video recordings to the selected provider. |
 | `websiteContent` | A requesting page can provide text, images, or decisions state and questions for the selected provider. |
 | `searchTerms` | Hosted web search can transmit search queries to the selected provider or ollama.com. |
 
@@ -47,7 +45,7 @@ Firefox supports the same transcription and speech synthesis as Chrome. Speech u
 
 Before submission, compare this declaration against the actual packaged build, Firefox's install prompt, the AMO listing, and Mozilla's [data taxonomy](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/). Obtain AMO guidance if a classification remains unclear.
 
-## Draft AMO listing
+## AMO listing copy
 
 - **Name:** Inference Bridge
 - **Summary:** Let websites request AI through `window.inference` with per-site approval and your chosen provider.
@@ -55,11 +53,11 @@ Before submission, compare this declaration against the actual packaged build, F
 - **License:** MIT
 - **Privacy policy:** `https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md`
 - **Support site:** `https://github.com/SamSamskies/inference-bridge/issues`
-- **Categories, support contact, listing slug, screenshots, experimental flag, and pricing disclosure:** finalize in AMO Developer Hub before submission.
+- **Categories, support contact, screenshots, experimental status, and pricing disclosure:** review in AMO Developer Hub before each submission.
 
-## Reviewer notes draft
+## Reviewer notes
 
-The add-on's single purpose is to expose `window.inference` on top-level HTTPS and loopback pages, then route only user-approved requests to the selected provider. The all-sites content-script match is needed for this API to be available to web apps; code checks secure contexts. The add-on does not read page content automatically. `storage` holds local settings, keys, and grants. Built-in host permissions connect to the provider selected by the user; optional host permissions are requested during a user gesture when saving a custom server. Firefox host grants are portless because match patterns do not accept ports; requests remain bound to the saved URL/port. `declarativeNetRequestWithHostAccess` removes `Origin` and `Referer` only for loopback inference endpoints that reject extension origins. It does not strip headers for remote HTTPS APIs. The CSP permits packaged scripts and preserves loopback HTTP. Private browsing is disabled in this first release.
+The add-on's single purpose is to expose `window.inference` on top-level HTTPS and loopback pages, then route only user-approved requests to the selected provider. The all-sites content-script match is needed for this API to be available to web apps; code checks secure contexts. The add-on does not read page content automatically. `storage` holds local settings, keys, and grants. Built-in host permissions connect to the provider selected by the user; optional host permissions are requested during a user gesture when saving a custom server. Firefox host grants are portless because match patterns do not accept ports; requests remain bound to the saved URL/port. `declarativeNetRequestWithHostAccess` removes `Origin` and `Referer` only for loopback inference endpoints that reject extension origins. It does not strip headers for remote HTTPS APIs. The CSP permits packaged scripts and preserves loopback HTTP. Private browsing is disabled in the Firefox build.
 
 To exercise without an account, start local Ollama at `http://localhost:11434`, pull a chat model, select Ollama in Options, then open an HTTPS page and run a paste-ready request from the README in DevTools. Test Allow once, Always allow, Deny, and Site access revocation. Cloud provider paths require the reviewer's own key or separately supplied test credentials; no credentials are in the source/archive. The source archive from the same release tag reproduces the package using the commands above.
 
@@ -75,9 +73,6 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 - [ ] Restart Firefox with a packaged/signed install and verify storage, DNR rules, grants, and Options. Temporary installs do not prove install-time prompts or restart behavior.
 - [ ] Check install-time data and host permission wording, private-window exclusion, and the current Chrome manual checklist from its own ZIP.
 - [ ] Confirm Mozilla developer account and distribution agreement, listing metadata/screenshots, policy classification, reviewer notes, and a source archive that reproduces the submitted ZIP.
-- [x] Submit the first version manually as a listed add-on. After Mozilla signs and lists it, record the AMO URL/ID in this document and add the install link to the README.
+- [ ] Upload the new version to the existing AMO listing and verify the signed build after approval.
 
-**AMO listing:** https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/  
-**Add-on ID:** `inference-bridge@samsamskies.github.io`
-
-For limited beta testing before the listing, use a separately signed unlisted XPI. AMO does not provide a documented percentage rollout; rollback requires republishing the prior code at a higher version.
+For limited beta testing, use a separately signed unlisted XPI. To restore prior code, publish it at a higher version.
