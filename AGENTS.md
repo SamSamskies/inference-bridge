@@ -4,7 +4,7 @@ Canonical project context for AI coding agents (Codex, Cursor, Claude Code, Copi
 
 ## Project
 
-Manifest V3 Chrome extension implementing the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api). Injects `window.inference` into secure pages and routes chat to user-chosen providers (OpenAI, Anthropic, OpenRouter, Ollama, On-device Prompt API, OpenAI-compatible servers). API keys stay in the extension; page scripts never see them.
+Manifest V3 Chrome and Firefox extension implementing the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api). Injects `window.inference` into secure pages and routes requests to user-chosen providers (OpenAI, Anthropic, OpenRouter, Ollama, Chrome On-device Prompt API, OpenAI-compatible servers). API keys stay in the extension; page scripts never see them.
 
 - **Spec:** [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md)
 - **Stable API:** `window.inference.request()` (chat and optional bounded transcription/MP3 synthesis), `window.inference.getFeatures()`
@@ -16,9 +16,12 @@ Manifest V3 Chrome extension implementing the [Inference Provider API (IPA)](htt
 npm install          # install dev deps (vitest)
 npm test             # vitest unit tests
 npm run package      # Chrome Web Store ZIP → dist/inference-bridge-<version>.zip
+npm run dev:firefox  # build and launch a temporary Firefox install
+npm run package:all  # build both browser packages
+npm run lint:firefox # stage Firefox and run web-ext lint
 ```
 
-Release workflow: see `.agents/skills/ship-chrome-release/SKILL.md` and `docs/chrome-web-store.md`.
+Release workflows: see `.agents/skills/ship-chrome-release/SKILL.md` and `.agents/skills/ship-firefox-release/SKILL.md`, plus the store checklists in `docs/`.
 
 ## Layout
 

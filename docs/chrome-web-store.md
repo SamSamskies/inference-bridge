@@ -9,10 +9,10 @@ Inference Bridge provides a browser bridge for the Inference Provider API: injec
 ## Versioning
 
 1. Bump `"version"` in [`manifest.json`](../manifest.json) (Chrome Web Store requires a higher version than any previously uploaded package).
-2. Keep `package.json` aligned if you treat it as the project version.
-3. Tag the release as `vX.Y.Z` (example: `v0.1.0`) to trigger the release workflow ZIP artifact.
+2. Use the same version in `package.json` and update the root package version in `package-lock.json`. Chrome and Firefox share this version.
+3. Tag the release as `vX.Y.Z` to trigger the release workflow artifacts.
 
-Listing-only updates (copy, screenshots, privacy questionnaire) do not need a new ZIP. If a version already uploaded or in review needs a **code** change, branch from that `v*` tag, patch-bump, and package from the hotfix branch — do not package `main` if it has moved on. Merge the hotfix back to `main` afterward. A rejected version number cannot be reused.
+Listing-only updates (copy, screenshots, privacy questionnaire) do not need a new ZIP. For a code change to a previously uploaded version, branch from its `v*` tag, bump the patch version, and package from that hotfix branch. Bring the fix back to `main` through the normal review process.
 
 ## Package the extension
 
@@ -39,10 +39,10 @@ Excluded: tests, docs, `node_modules`, `.git`, scripts, CI config, README, priva
 Inspect before upload:
 
 ```bash
-unzip -l dist/inference-bridge-*.zip
+unzip -l "dist/inference-bridge-$(node -p 'require("./manifest.json").version').zip"
 ```
 
-## Store listing fields (draft)
+## Store listing copy
 
 | Field | Suggested content |
 | --- | --- |
@@ -51,7 +51,7 @@ unzip -l dist/inference-bridge-*.zip
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
-| Privacy policy URL | Hosted copy of [`PRIVACY.md`](../PRIVACY.md) (GitHub raw/pages or dedicated URL) |
+| Privacy policy URL | [PRIVACY.md on GitHub](https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md) |
 
 ### Description (paste into store form)
 
@@ -63,7 +63,7 @@ Inference Bridge lets websites use AI chat through window.inference — with you
 Bring your own API keys for supported cloud providers, run a local model server, use on-device browser AI when available, or point the extension at an OpenAI-compatible endpoint you configure. Keys stay in the extension; page scripts never see them.
 
 • Streaming chat via window.inference.request()
-• Function tools and hosted web search on window.inference.request (page-executed function tools; keys stay in the extension)
+• Function tools executed by the requesting website
 • Hosted web search when the selected provider supports it
 • Image input and output on window.inference.request when the selected model supports vision or image generation
 • Bounded transcription and MP3 speech synthesis with separate per-site approval
@@ -115,21 +115,21 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 - No storage of recordings, transcripts, or generated audio; no microphone/tab capture and no automatic playback
 - No sale of data; no remote Inference Bridge backend
 
-## Required visual assets (not in repo yet)
+## Store assets
 
-Create and attach before first submission:
+Review the assets attached to the store listing before submission:
 
-- [ ] Store icon (128×128; repo already has `icons/icon-128.png` as a starting point)
-- [ ] At least one screenshot (1280×800 or 640×400) showing Options and/or approval UI
+- [ ] Store icon: [`icons/icon-128.png`](../icons/icon-128.png) (128×128)
+- [ ] At least one current screenshot (1280×800 or 640×400) showing Options and/or approval UI; screenshots are not checked into this repository
 - [ ] Optional promotional tile images if desired
 
 Do not fabricate screenshots in CI; capture them from a real Chrome session after loading the packaged build.
 
 ## Manual verification before upload
 
-Run through the README manual checklist on a clean profile:
+Run through the [README manual checklist](../README.md#manual-checks) on a clean profile:
 
-1. Load the unpacked build or install from the ZIP via developer mode once for smoke testing.
+1. Load `build/chrome/` through **Load unpacked** on `chrome://extensions`, or extract the release ZIP and load that directory. Chrome does not install the store ZIP directly.
 2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
 4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
@@ -138,12 +138,12 @@ Run through the README manual checklist on a clean profile:
 
 1. Open [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 2. Pay the one-time developer fee if needed.
-3. Create a new item (or new version).
+3. Open the existing Inference Bridge item.
 4. Upload `dist/inference-bridge-<version>.zip`.
 5. Complete listing, privacy, and justification fields.
 6. Attach screenshots and icons.
 7. Submit for review.
-8. After publish, update this repo README Installation section with the store URL.
+8. After publication, verify the listing and install the store build for a smoke check.
 
 ## Out of scope for this repository automation
 

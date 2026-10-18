@@ -1,50 +1,23 @@
 # Working with AI coding agents
 
-This repository is set up so multiple agent harnesses can share the same instructions without duplicating content in tool-specific formats.
+Shared instructions live in [AGENTS.md](../AGENTS.md). Keep build commands, project conventions, and browser-first sample-code rules there.
 
-## One source of truth
+## Workflows
 
-**[AGENTS.md](../AGENTS.md)** at the repo root is the canonical file. It covers:
+Reusable workflows live in [`.agents/skills/`](../.agents/skills/):
 
-- What Inference Bridge is and how it relates to the IPA spec
-- `npm install`, `npm test`, `npm run package`
-- Key directories and where to add providers
-- IPA alignment and contribution expectations
-- Browser-first rules for sample code and README snippets
-
-Harnesses that read `AGENTS.md` include OpenAI Codex, Cursor, Claude Code, GitHub Copilot, OpenCode, and others following the [agents.md](https://agents.md) convention.
-
-## Skills (workflows)
-
-Reusable agent workflows live under **`.agents/skills/`**:
-
-```
-.agents/skills/
-  ship-chrome-release/
-    SKILL.md    # Chrome Web Store release checklist
-```
-
-| Harness | Project skills path |
+| Workflow | Purpose |
 | --- | --- |
-| Codex | `.agents/skills/` |
-| Cursor | `.agents/skills/` or `.cursor/skills/` |
-| Claude Code | `.agents/skills/` or `.claude/skills/` |
+| [ship-chrome-release](../.agents/skills/ship-chrome-release/SKILL.md) | Test, package, and prepare a Chrome Web Store release |
+| [ship-firefox-release](../.agents/skills/ship-firefox-release/SKILL.md) | Package and submit a listed Firefox release through AMO |
+| [firefox-persistent-install](../.agents/skills/firefox-persistent-install/SKILL.md) | Sign, install, and verify a persistent Firefox test build |
 
-Cursor also discovers `.codex/skills/` for compatibility. Prefer **`.agents/skills/`** for anything checked into git so one folder serves every skills-compatible tool.
+Keep shared workflows in this directory rather than maintaining copies for each agent tool.
 
-Invoke a skill by name when your harness supports it (for example `/ship-chrome-release` in Cursor, or `$ship-chrome-release` in Codex).
+## Tool-specific files
 
-## Cursor-only rules
-
-**`.cursor/rules/*.mdc`** files use Cursor’s YAML frontmatter (`alwaysApply`, `globs`). Other harnesses do not read them.
-
-The repo keeps a thin Cursor rule that points at `AGENTS.md` for browser-first sample code. Add new `.mdc` files only when you need Cursor-specific glob scoping (for example a rule that applies only under `src/providers/`).
-
-Do **not** put canonical project conventions only in `.cursor/rules/` — they would be invisible to Codex and most other agents.
-
-## Claude Code
-
-**[CLAUDE.md](../CLAUDE.md)** is a short pointer to `AGENTS.md`. Claude Code loads both; keep Claude-only permissions or session hooks in `CLAUDE.md` if you add them later.
+- [CLAUDE.md](../CLAUDE.md) points Claude Code to `AGENTS.md`.
+- [`.cursor/rules/`](../.cursor/rules/) contains a thin browser-sample-code rule that points to `AGENTS.md`. Add `.mdc` rules only when Cursor-specific scoping is needed.
 
 ## Adding or changing agent instructions
 
@@ -52,10 +25,4 @@ Do **not** put canonical project conventions only in `.cursor/rules/` — they w
 2. **Multi-step workflow** → add or edit a skill under `.agents/skills/<name>/SKILL.md`
 3. **Cursor glob scoping only** → add or edit `.cursor/rules/<name>.mdc` and reference `AGENTS.md` instead of duplicating prose
 
-After changing skills or rules, start a **new agent session** so the harness reloads its catalog.
-
-## What not to do
-
-- Renaming `.cursor/` to `.agents/` does **not** make Cursor rules portable — Codex does not read `.mdc` files
-- Do not maintain parallel copies of the same conventions in `AGENTS.md`, `CLAUDE.md`, and every `.mdc` file
-- Sample code in README, issues, and comments must stay **browser-first** (see `AGENTS.md`)
+Avoid copying the same conventions into several files. Tool-specific files should point back to the shared instructions.
