@@ -100,9 +100,22 @@ https://api.openai.com/* — Chat, images, separately approved decisions, and se
 https://api.anthropic.com/* — Messages API when the user selects Anthropic.
 https://openrouter.ai/* — Models, chat/images, separately approved decisions, and separately approved speech when the user selects OpenRouter.
 https://ollama.com/* — Hosted web search/fetch when the user selects Ollama and requests web_search (optional Ollama API key).
-http://localhost:11434/* and http://127.0.0.1:11434/* — Local Ollama on its default port for chat, approved speech, or approved decisions.
+http://localhost:11434/* — Built-in local Ollama for chat, approved speech, or approved decisions. Custom 127.0.0.1 endpoints use optional access on save.
 optional http://*/* and https://*/* — Not granted at install. Requested only for each custom OpenAI-compatible origin the user saves in Options.
 ```
+
+### Old browsing-history warning on development installs
+
+Bridge does not request `tabs`, `history`, or `webNavigation`. The unused `tabs`
+permission was removed in version 0.1.1. Chrome can still show **Read your browsing
+history** on an older unpacked install because its
+[Details page includes past grants](https://github.com/chromium/chromium/blob/main/chrome/browser/extensions/api/developer_private/extension_info_generator.cc),
+even when those permissions are no longer active. Check the running
+extension's service-worker console with
+`await chrome.permissions.contains({ permissions: ["tabs"] })`; it should return
+`false`. A fresh install starts without that old grant. Removing and reinstalling
+the extension clears its local settings, keys, and site approvals, so preserve
+anything needed before doing that.
 
 ## Data safety / privacy disclosures
 

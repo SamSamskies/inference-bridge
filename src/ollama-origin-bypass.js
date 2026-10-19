@@ -4,6 +4,8 @@
  * requiring users to set OLLAMA_ORIGINS.
  */
 
+// Also remove the old automatic 127.0.0.1 rule. Custom loopback endpoints
+// receive their own rule only when the user saves them in Options.
 const OLLAMA_ORIGIN_BYPASS_RULE_IDS = Object.freeze([11434, 11435]);
 
 /** @type {Promise<void> | null} */
@@ -60,21 +62,6 @@ async function installOllamaOriginBypass() {
       },
       condition: {
         urlFilter: "||localhost:11434^",
-        resourceTypes: ["xmlhttprequest", "other"],
-      },
-    },
-    {
-      id: 11435,
-      priority: 1,
-      action: {
-        type: "modifyHeaders",
-        requestHeaders: [
-          { header: "origin", operation: "remove" },
-          { header: "referer", operation: "remove" },
-        ],
-      },
-      condition: {
-        urlFilter: "||127.0.0.1:11434^",
         resourceTypes: ["xmlhttprequest", "other"],
       },
     },
