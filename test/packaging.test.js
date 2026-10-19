@@ -39,6 +39,11 @@ describe("browser packages", () => {
       const manifest = JSON.parse(command("unzip", ["-p", zip, "manifest.json"]));
       expect(manifest.version).toBe(packageJson.version);
       expect(manifest.name).toBe("Inference Bridge");
+      for (const permission of ["tabs", "history", "webNavigation"]) {
+        expect(manifest.permissions).not.toContain(permission);
+        expect(manifest.optional_permissions || []).not.toContain(permission);
+      }
+      expect(manifest.host_permissions.some((pattern) => pattern.includes("127.0.0.1"))).toBe(false);
       if (browser === "firefox") {
         expect(files.some((file) => file.startsWith("offscreen/"))).toBe(false);
         expect(manifest.permissions).not.toContain("offscreen");

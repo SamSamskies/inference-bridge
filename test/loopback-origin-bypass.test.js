@@ -86,6 +86,18 @@ describe("ensureLoopbackOriginBypass", () => {
     expect(rule.condition.urlFilter).toBe("||[::1]:1234^");
   });
 
+  it("supports a custom 127.0.0.1 Ollama endpoint after it is saved", async () => {
+    const update = vi.fn(async () => {});
+    globalThis.chrome.declarativeNetRequest.updateDynamicRules = update;
+
+    await ensureLoopbackOriginBypass("127.0.0.1", 11434);
+    await ensureOllamaOriginBypass();
+
+    const customRule = update.mock.calls[0][0].addRules[0];
+    expect(customRule.condition.urlFilter).toBe("||127.0.0.1:11434^");
+    expect(update.mock.calls[1][0].removeRuleIds).not.toContain(customRule.id);
+  });
+
   it("no-ops for non-loopback hosts", async () => {
     const update = vi.fn(async () => {});
     globalThis.chrome.declarativeNetRequest.updateDynamicRules = update;
@@ -95,7 +107,7 @@ describe("ensureLoopbackOriginBypass", () => {
 });
 
 describe("ensureOllamaOriginBypass", () => {
-  it("still installs reserved rules for localhost and 127.0.0.1 on 11434", async () => {
+  it("installs only the built-in localhost rule and removes the old 127.0.0.1 rule", async () => {
     const update = vi.fn(async () => {});
     globalThis.chrome.declarativeNetRequest.updateDynamicRules = update;
 
@@ -104,6 +116,10 @@ describe("ensureOllamaOriginBypass", () => {
     expect(update).toHaveBeenCalled();
     const arg = update.mock.calls[0][0];
     expect(arg.removeRuleIds).toEqual(expect.arrayContaining([11434, 11435]));
-    expect(arg.addRules.map((r) => r.id).sort()).toEqual([11434, 11435]);
+    expect(arg.addRules).toHaveLength(1);
+    expect(arg.addRules[0]).toMatchObject({
+      id: 11434,
+      condition: { urlFilter: "||localhost:11434^" },
+    });
   });
 });
