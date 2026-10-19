@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased
+## 0.18.0 — 2026-10-19
 
 Typed decisions (System One) now use stable `window.inference.request({ method:
 "decide", state, questions })`. Synchronous `getFeatures().methods.decide: true`
