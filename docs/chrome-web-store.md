@@ -8,7 +8,7 @@ Inference Bridge provides a browser bridge for the Inference Provider API: injec
 
 ## Versioning
 
-Use [release notes](release-notes.md) when preparing the next store update.
+Maintain release notes in [GitHub Releases](https://github.com/SamSamskies/inference-bridge/releases).
 
 1. Bump `"version"` in [`manifest.json`](../manifest.json) (Chrome Web Store requires a higher version than any previously uploaded package).
 2. Use the same version in `package.json` and update the root package version in `package-lock.json`. Chrome and Firefox share this version.
