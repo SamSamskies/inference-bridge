@@ -52,15 +52,19 @@ export async function requestSystemOne({
         response,
         `${label} HTTP ${response.status}`
       );
-      const code = [400, 413, 422].includes(response.status)
-        ? "invalid_request"
-        : response.status === 404 || response.status >= 500
+      const obsoleteOllamaFormat =
+        label === "Ollama" && response.status === 400 &&
+        detail.includes("was downloaded in a format that is no longer supported");
+      const code =
+        obsoleteOllamaFormat || response.status === 404 || response.status >= 500
           ? "unavailable"
-          : "provider_error";
+          : [400, 413, 422].includes(response.status)
+            ? "invalid_request"
+            : "provider_error";
       fail(
         code,
         label === "Ollama" && response.status === 404
-          ? `Ollama System One is unavailable. Upgrade to Ollama 0.35+ and install a local GGUF decision model (Clef requires 0.35.1+). ${detail}`
+          ? `Ollama System One is unavailable. Upgrade to Ollama 0.35+ and install a local decision model (Clef requires 0.35.1+). ${detail}`
           : detail
       );
     }

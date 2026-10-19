@@ -34,7 +34,7 @@ function ollamaMetadata(model) {
       model === "chat-model" || model.startsWith("gemma4")
         ? ["completion"]
         : ["decision"],
-    details: { format: "gguf" },
+    details: { format: model === "nimble:latest" ? "safetensors" : "gguf" },
   };
 }
 beforeEach(() => {
@@ -81,7 +81,7 @@ describe("decisions catalogs", () => {
       signal: undefined,
     });
   });
-  it("offers installed GGUF decision models, including Clef and custom names", async () => {
+  it("offers installed GGUF and MLX decision models, including custom names", async () => {
     const names = [
       "gemma4:latest",
       "nimble:latest",
@@ -95,6 +95,7 @@ describe("decisions catalogs", () => {
       "nimble-imposter:latest",
       "tev1:cloud",
       "clef:mlx",
+      "unsupported-format:latest",
       "broken:latest",
     ];
     fetch.mockImplementation(async (url, options) => {
@@ -110,7 +111,7 @@ describe("decisions catalogs", () => {
           model === "gemma4:latest" || model === "nimble-imposter:latest"
             ? ["completion"]
             : ["decision"],
-        details: { format: model === "clef:mlx" ? "safetensors" : "gguf" },
+        details: { format: model === "clef:mlx" ? "safetensors" : model === "unsupported-format:latest" ? "onnx" : "gguf" },
         ...(model === "remote-alias:latest"
           ? { remote_host: "https://ollama.com" }
           : {}),
@@ -120,6 +121,7 @@ describe("decisions catalogs", () => {
       [
         "clef-flash:latest",
         "clef:latest",
+        "clef:mlx",
         "library/tev1:latest",
         "my-cloud-check:latest",
         "my-decider:latest",
@@ -375,4 +377,13 @@ it("requires the existing OpenRouter key", async () => {
     openrouterProvider.decide({ ...request, model: "typesafe/jev-1.13" })
   ).rejects.toMatchObject({ code: "unavailable" });
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("reports obsolete Ollama model formats as unavailable and keeps the re-pull hint", async () => {
+  const message = "'clef:latest' was downloaded in a format that is no longer supported. To re-download, run 'ollama pull clef:latest'";
+  decisionResponse = () => Response.json({ error: message }, { status: 400 });
+  await expect(ollamaProvider.decide({
+    ...request, model: "clef:latest", signal: new AbortController().signal,
+  })).rejects.toMatchObject({ code: "unavailable", message });
+  expect(decisionCalls()).toHaveLength(1);
 });

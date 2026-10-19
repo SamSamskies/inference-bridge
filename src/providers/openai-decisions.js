@@ -1,4 +1,4 @@
-/** OpenAI Decisions beta adapter for the Bridge's experimental decide envelope. */
+/** OpenAI Decisions beta adapter for the IPA decide envelope. */
 import {
   DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,

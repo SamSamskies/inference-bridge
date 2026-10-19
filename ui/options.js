@@ -62,7 +62,7 @@ const siteAccessStatusEl = document.getElementById("siteAccessStatus");
 const speechStatus = document.getElementById(
   "speechStatus",
 );
-const experimentalDecisionsStatus = document.getElementById("experimentalDecisionsStatus");
+const decisionsStatus = document.getElementById("decisionsStatus");
 const decisionsProviderSelect = document.getElementById("decisionsProvider");
 const decisionsModelSelect = document.getElementById("decisionsModel");
 const decisionsModelHint = document.getElementById("decisionsModelHint");
@@ -1632,13 +1632,13 @@ async function loadDecisionModels(providerId, preferredModel) {
       ? "Uses your saved OpenAI API key and the Decisions beta service with gpt-6-luna."
       : providerId === "openrouter"
         ? "Uses your saved OpenRouter API key and the Decisions alpha service."
-        : "Uses installed local decision models on Ollama 0.35+ (Clef requires 0.35.1+)."
+        : "Uses installed local decision models on Ollama 0.35+ (Clef: 0.35.1+; MLX: 0.40+)."
     : response?.error?.message ||
       (providerId === "openai"
         ? "No OpenAI decision models are available."
         : providerId === "openrouter"
           ? "No decision models are currently listed by OpenRouter."
-          : "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+.");
+          : "No installed decision models. Run ollama pull nimble. GGUF requires Ollama 0.35+ (Clef: 0.35.1+); MLX requires 0.40+.");
 }
 
 async function loadDecisionDefaultControls(settings) {
@@ -1667,8 +1667,8 @@ async function persistDecisionDefault() {
   const model = decisionsModelSelect.value;
   if (!providerId || !model || decisionsModelSelect.disabled) return;
   await saveSettings({ operationDefaults: { decide: { providerId, model } } });
-  experimentalDecisionsStatus.textContent = "Decisions default saved.";
-  experimentalDecisionsStatus.className = "status ok";
+  decisionsStatus.textContent = "Decisions default saved.";
+  decisionsStatus.className = "status ok";
 }
 
 async function loadSynthesisVoices(providerId, model, preferredVoice) {
@@ -2175,16 +2175,16 @@ decisionsProviderSelect.addEventListener("change", async () => {
     if (providerId === decisionsProviderSelect.value)
       await persistDecisionDefault();
   } catch (err) {
-    experimentalDecisionsStatus.textContent =
+    decisionsStatus.textContent =
       err instanceof Error ? err.message : "Could not save decisions default.";
-    experimentalDecisionsStatus.className = "status err";
+    decisionsStatus.className = "status err";
   }
 });
 decisionsModelSelect.addEventListener("change", () => {
   void persistDecisionDefault().catch((err) => {
-    experimentalDecisionsStatus.textContent =
+    decisionsStatus.textContent =
       err instanceof Error ? err.message : "Could not save decisions default.";
-    experimentalDecisionsStatus.className = "status err";
+    decisionsStatus.className = "status err";
   });
 });
 saveButton.addEventListener("click", async () => {

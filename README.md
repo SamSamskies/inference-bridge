@@ -4,13 +4,13 @@ Official reference implementation of the [Inference Provider API (IPA)](https://
 
 Inference Bridge is a Chrome and Firefox extension that lets websites request AI through `window.inference`. You choose the provider and model, then approve each website. API keys stay in the extension; page scripts never see them.
 
-The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the portable API. Bridge also offers clearly labeled experimental features, including typed decisions.
+The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the portable API. Typed decisions and bounded speech are optional IPA methods; Bridge also offers an experimental page-side tool-loop helper.
 
 ## Features
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
 - Bounded transcription and MP3 speech synthesis, with separate approval for each operation
-- Experimental typed decisions through OpenAI, OpenRouter, or local Ollama
+- Typed decisions through stable `request()`, using OpenAI, OpenRouter, or local Ollama
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
 - Synchronous capability discovery through `window.inference.getFeatures()`
@@ -206,11 +206,11 @@ See [AGENTS.md](AGENTS.md#layout) for the directory map.
 | Spec contract (`window.inference.request`, `getFeatures`, streaming, abort, errors) | Implemented |
 | Text chat | Implemented |
 | Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Feature discovery | Synchronous `getFeatures()` reports tools, search, images, request options, and `methods.transcribe` / `methods.synthesize` |
+| Feature discovery | Synchronous `getFeatures()` reports tools, search, images, request options, and `methods.decide` / `methods.transcribe` / `methods.synthesize` |
 | Request options | Implemented; `options.reasoningEffort` / `options.temperature` on stable `request` (best-effort provider mapping) |
 | Tools | Implemented on stable `request` (`getFeatures().toolCalling` / `webSearch`) |
 | Images and bounded speech | Implemented on stable `request`; actual support depends on the selected provider/model |
-| Typed decisions | Bridge-only experimental API |
+| Typed decisions | Implemented on stable `request`; separate decision routes and site approval |
 
 Discovery describes the API Bridge implements, independently of credentials or site approval. It does not guarantee that the selected provider/model supports every feature.
 
@@ -614,17 +614,14 @@ try {
 }
 ```
 
-## Experimental Features
+## Typed decisions (System One)
 
-Typed decisions use `window.inference.experimental` and may change independently of IPA. Use stable `request()` for chat, tools, images, and speech. Existing `experimental.request()` calls for chat or speech still work and log a one-time deprecation warning. The [`runTools` helper](#experimentalruntools-helper) is also experimental.
-
-### Typed decisions (System One)
-
-Decisions are **Bridge-experimental, not normative IPA** and available by default.
+Decisions implement the optional [IPA typed decisions contract](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md#typed-decisions-system-one) through stable `window.inference.request()` and are available by default.
 Choose a decisions provider and model in **Options → Decisions** independently
 of your chat defaults. Each website needs your permission to use Decisions.
-`experimental.getFeatures()` synchronously advertises `methods.decide: true`;
-stable discovery does not advertise decisions, and stable `request()` rejects `decide`.
+`getFeatures()` synchronously advertises identity-free `methods.decide: true`,
+without credentials, permissions, or network I/O. An incompatible selected route
+fails with `unavailable`; discovery does not promise provider availability.
 
 - **Cloud:** save your OpenRouter key in **Options → Providers**, then choose
   OpenRouter and `typesafe/jev-1.13` in Decisions. Requests use
@@ -644,10 +641,14 @@ stable discovery does not advertise decisions, and stable `request()` rejects `d
   (or `ollama pull tev1:0.8b`), and select Ollama and its installed decision model
   in Decisions. Requests use [`POST /v1/systemone`](https://docs.ollama.com/api/systemone).
   The picker checks installed models' `/api/show` metadata for the `decision`
-  capability and local GGUF format, including custom names. Nimble, Tev1,
+  capability and a local GGUF or MLX/Safetensors format, including custom names.
+  MLX System One requires Ollama 0.40+. Nimble, Tev1,
   Clef, and Clef Flash are supported; Clef models require **Ollama 0.35.1+**.
   No local API key is needed.
   OpenRouter works independently of whether Ollama is running.
+  After upgrading Ollama, an older model may need to be pulled again if the
+  server reports an obsolete format. A saved site grant keeps its approved
+  model: revoke that Decisions grant in Site access to choose another route.
 - Anthropic, On-device, and OpenAI-compatible providers do not support
   this operation. There is no chat emulation or fallback. OpenRouter and Ollama
   decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
@@ -657,11 +658,11 @@ Paste into a secure page's DevTools console. The same code works with any
 backend selected in Options or approval:
 
 ```js
-if (!window.inference?.experimental?.getFeatures().methods.decide) {
+if (!window.inference?.getFeatures?.().methods?.decide) {
   throw new Error("This page needs an Inference Bridge version that supports decisions.");
 }
 const controller = new AbortController();
-for await (const chunk of window.inference.experimental.request({
+for await (const chunk of window.inference.request({
   method: "decide",
   state: { ticket: "My checkout page is blank after Pay." },
   questions: {
@@ -693,9 +694,9 @@ the user; pages cannot supply them or Ollama's `keep_alive`. A chat or speech
 Always-allow grant cannot authorize decisions. Review or revoke decisions grants
 in **Options → Site access**. Approval previews question ids/types and a truncated
 state summary; the selected provider receives the complete bounded state.
-OpenAI can refuse individual questions. Those answers have `{ type: "refusal" }`
-under the question's id; other answers are returned normally. Check the answer
-type before reading its probability, choice, or score.
+Providers can refuse individual questions. Those answers have `{ type: "refusal" }`
+under the question's id; other answers are returned normally. All-refusal results
+also complete successfully. Check the answer type before reading its probability, choice, or score.
 
 The three [TypeSafe primitives](https://docs.typesafe.ai/primitives) preserve
 upstream vocabulary: `noul` is a probability of yes between 0 and 1;
@@ -715,6 +716,20 @@ model in Ollama's 64 KiB request limit), with at most 64 JSON nesting levels.
 Unknown request/question fields, cycles, binary values, and non-JSON values are
 rejected with `invalid_request` before approval. There are no tools, images,
 audio, video, or URL fetching semantics in decision state.
+
+Bridge validates the complete result before `done`. Choices must select a maximum
+probability option (ties are allowed); scores must match the normalized weighted
+level index within 0.02 and preserve the requested legend. Distributions must sum
+to 1 within 0.02. Malformed answers fail with `provider_error`, without a `done`;
+Bridge does not repair them, turn them into refusals, or fall back to chat.
+
+## Experimental compatibility
+
+`experimental.request()` remains a deprecated alias for chat, decisions, and
+speech, with one deprecation warning per page. `experimental.getFeatures()`
+continues to expose the same optional methods, plus its legacy `chat: true`
+entry. Use stable `request()` and `getFeatures()` for new code. The
+[`runTools` helper](#experimentalruntools-helper) remains experimental.
 
 ## Images
 
@@ -818,7 +833,7 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 #### Page API and permissions
 
 - [ ] `window.inference` exists on `https://example.com` after install
-- [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, and speech methods, without prompting or doing network I/O
+- [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, decisions, and speech methods, without prompting or doing network I/O
 - [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
 - [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)
 - [ ] Invalid `options.reasoningEffort` or `options.temperature` → `invalid_request`
@@ -873,17 +888,23 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 
 #### Decisions
 
-- [ ] Decisions are available immediately in experimental discovery; stable discovery omits `decide`; stable `decide` fails before approval
+For opt-in checks against installed local models (separate from browser checks):
+
+```bash
+OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:latest,tev1:0.8b npm test -- test/ollama-decisions.integration.test.js
+```
+
+- [ ] Stable discovery immediately reports `methods.decide: true`; stable `request({ method: "decide", ... })` works, and the deprecated experimental alias reports the same optional methods
 - [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
 - [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
 - [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint
 - [ ] Decisions model pickers list only their separate catalogs; an empty local decision catalog disables Allow and explains `ollama pull nimble`
 - [ ] Approval previews truncated state and question ids/types; chat/speech grants do not skip decide approval; revoking decide leaves those grants intact
-- [ ] Decision streams contain only `accepted` and typed `done.answers`; usage is camelCase; abort during approval/fetch cancels without a `done`
-- [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF models with the `decision` capability, including Clef and custom names
+- [ ] Decision streams contain exactly `accepted` → typed `done.answers`; usage is camelCase; mixed/all refusals complete; abort or iterator closure during approval/fetch cancels without a `done`
+- [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF and MLX/Safetensors models with the `decision` capability, including Clef and custom names
 - [ ] Unknown fields, invalid JSON/question shapes, unsupported provider grants, and stale models fail closed; decision models never route through chat
-- [ ] Check Decisions controls and approval in both Chrome and Firefox; revoke Firefox host access during a decision request
+- [ ] Run the stable three-primitives example in both Chrome and Firefox with each configured supported backend; record live results separately from synthetic conformance checks, and revoke Firefox host access during a decision request
 
 #### Speech
 

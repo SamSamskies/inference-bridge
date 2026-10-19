@@ -22,8 +22,6 @@
   const streamHandlers = new Map();
   /** One-shot deprecation notice for experimental.request (alias of request). */
   let warnedExperimentalRequest = false;
-  /** One-shot notice for the non-normative decisions method. */
-  let warnedExperimentalDecisions = false;
   /** One-shot nudge: prefer ipa-tools runTools in shipped apps. */
   let warnedExperimentalRunTools = false;
 
@@ -33,7 +31,7 @@
     console.warn(
       "[Inference Bridge] window.inference.experimental.request is deprecated; " +
         "prefer window.inference.request(). Images, tools, hosted " +
-        "web_search, and speech are on the stable surface (see getFeatures)."
+        "web_search, decisions, and speech are on the stable surface (see getFeatures)."
     );
   }
 
@@ -673,7 +671,7 @@
             );
             serializable = prepared.request;
             uploadSource = prepared.source;
-          } else if (experimental && serializable.method === "decide") {
+          } else if (serializable.method === "decide") {
             serializable = snapshotDecisionRequest(serializable);
           } else {
             serializable = await encodeRequestImages(serializable, signal);
@@ -1003,7 +1001,7 @@
     "output",
     "signal",
   ]);
-  const EXPERIMENTAL_DECIDE_FIELDS = new Set([
+  const DECIDE_FIELDS = new Set([
     "method", "state", "questions", "signal",
   ]);
   const TRANSCRIPTION_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
@@ -1173,13 +1171,21 @@
         const method = request && typeof request === "object" ? request.method : undefined;
         if (method === "transcribe" || method === "synthesize") {
           preflightSpeechRequest(request);
+        } else if (method === "decide") {
+          assertClosedRequest(request, DECIDE_FIELDS);
+        } else if (method !== "chat") {
+          throw makeError(
+            "invalid_request",
+            'method must be "chat", "decide", "transcribe", or "synthesize".'
+          );
         }
       },
     });
   }
 
-  function getSpeechMethods() {
+  function getOptionalMethods() {
     return {
+      decide: true,
       transcribe: {
         acceptedMedia: TRANSCRIPTION_MEDIA_TYPES.map((mediaType) => ({ mediaType })),
       },
@@ -1200,21 +1206,7 @@
         },
       });
     }
-    if (method === "decide") {
-      if (!warnedExperimentalDecisions) {
-        warnedExperimentalDecisions = true;
-        console.warn(
-          "[Inference Bridge] Decisions are experimental, non-normative Bridge methods and may change before IPA standardization."
-        );
-      }
-      return createStream(request, {
-        experimental: true,
-        preflight() {
-          assertClosedRequest(request, EXPERIMENTAL_DECIDE_FIELDS);
-        },
-      });
-    }
-    if (method === "transcribe" || method === "synthesize") {
+    if (method === "decide" || method === "transcribe" || method === "synthesize") {
       warnExperimentalRequestOnce();
       return createStableStream(request);
     }
@@ -1242,7 +1234,7 @@
        */
       getFeatures() {
         return {
-          methods: getSpeechMethods(),
+          methods: getOptionalMethods(),
           toolCalling: true,
           webSearch: true,
           imageInput: true,
@@ -1258,8 +1250,7 @@
           return {
             methods: {
               chat: true,
-              decide: true,
-              ...getSpeechMethods(),
+              ...getOptionalMethods(),
             },
           };
         },

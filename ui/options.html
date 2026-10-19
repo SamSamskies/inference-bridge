@@ -322,10 +322,10 @@
           <h2>Decisions</h2>
           <p class="hint">Evaluate state with typed yes/no, choice, and score questions.</p>
         </header>
-        <section class="panel stack" aria-labelledby="experimental-decisions-heading">
-          <h3 id="experimental-decisions-heading">Experimental decisions</h3>
+        <section class="panel stack" aria-labelledby="decisions-heading">
+          <h3 id="decisions-heading">Typed decisions</h3>
           <p class="hint">
-            Available to websites through the experimental API. Each website
+            Available to websites through the stable IPA request API. Each website
             needs your permission to use Decisions. Choose a provider and model below.
             OpenAI Decisions is a beta cloud service; OpenRouter Decisions is an
             alpha cloud service. Cloud providers may incur charges.
@@ -338,9 +338,9 @@
           <p class="hint" id="decisionsModelHint">
             OpenAI and OpenRouter use your saved API keys. Local decisions require Ollama
             0.35+ and an installed decision model (for example, ollama pull nimble).
-            Clef and Clef Flash require Ollama 0.35.1+.
+            GGUF Clef and Clef Flash require Ollama 0.35.1+; MLX models require 0.40+.
           </p>
-          <div class="status" id="experimentalDecisionsStatus" role="status" aria-live="polite"></div>
+          <div class="status" id="decisionsStatus" role="status" aria-live="polite"></div>
         </section>
       </section>
 

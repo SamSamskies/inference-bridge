@@ -65,7 +65,12 @@ export async function ollamaModelHasDecision(model, { signal } = {}) {
       return false;
     }
     decisionModelIds.add(model);
-    return payload?.details?.format === "gguf" && !payload.remote_host;
+    // Ollama supports GGUF and MLX/Safetensors System One models. The
+    // decision capability, rather than the model family/name, is authoritative.
+    return (
+      ["gguf", "safetensors"].includes(payload?.details?.format) &&
+      !payload.remote_host
+    );
   } catch (err) {
     if (
       signal?.aborted ||
@@ -707,7 +712,7 @@ export const ollamaProvider = {
     if (!(await ollamaModelHasDecision(args.model, { signal: args.signal })))
       throwInference(
         "unavailable",
-        "Select an installed local GGUF model with Ollama's decision capability."
+        "Select an installed local model with Ollama's decision capability."
       );
     await ensureOllamaOriginBypass();
     return requestSystemOne({
@@ -733,7 +738,7 @@ export const ollamaProvider = {
     if (isOllamaDecisionModel(model)) {
       throwInference(
         "unavailable",
-        "Decision models require experimental method decide, not chat."
+        "Decision models require method decide, not chat."
       );
     }
     if (hostedWebSearchActive(tools, toolChoice)) {

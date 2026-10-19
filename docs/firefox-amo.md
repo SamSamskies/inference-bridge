@@ -31,7 +31,7 @@ The `v*` tag workflow uploads a Chrome ZIP, an unsigned Firefox ZIP, and a revie
 
 ## Firefox privacy declaration
 
-The Firefox manifest declares these required Mozilla data types for the supported chat, experimental decisions, and speech flows:
+The Firefox manifest declares these required Mozilla data types for the supported chat, typed decisions, and speech flows:
 
 | Type | Reason |
 | --- | --- |
@@ -49,7 +49,7 @@ Before submission, compare this declaration against the actual packaged build, F
 
 - **Name:** Inference Bridge
 - **Summary:** Let websites request AI through `window.inference` with per-site approval and your chosen provider.
-- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Experimental decisions are available by default for separately approved typed questions over JSON state via cloud OpenAI, OpenRouter, or local Ollama. Configure speech defaults in Options for separately approved transcription and MP3 speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
+- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Typed decisions are available by default for separately approved typed questions over JSON state via cloud OpenAI, OpenRouter, or local Ollama. Configure speech defaults in Options for separately approved transcription and MP3 speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
 - **License:** MIT
 - **Privacy policy:** `https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md`
 - **Support site:** `https://github.com/SamSamskies/inference-bridge/issues`
