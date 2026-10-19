@@ -4,9 +4,11 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, experimental typed decisions, and separately approved speech to user-configured providers. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech follows IPA with separate operation-specific site approval.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, typed decisions, and separately approved speech to user-configured providers. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech follows IPA with separate operation-specific site approval.
 
 ## Versioning
+
+Use [release notes](release-notes.md) when preparing the next store update.
 
 1. Bump `"version"` in [`manifest.json`](../manifest.json) (Chrome Web Store requires a higher version than any previously uploaded package).
 2. Use the same version in `package.json` and update the root package version in `package-lock.json`. Chrome and Firefox share this version.
@@ -109,7 +111,7 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 - User credentials (API keys) stored locally
 - Website content (prompt/messages) sent to the user-selected provider
 - Speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
-- Experimental decisions JSON state and questions sent only to the selected OpenAI, OpenRouter, or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
+- Typed decisions JSON state and questions sent only to the selected OpenAI, OpenRouter, or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
 - Recordings can contain biometric voice data and sensitive bystander, location, health, background-conversation, or ambient information
 - Synthesis text sent to the selected provider and generated MP3 bytes returned directly to the requesting page
 - No storage of recordings, transcripts, or generated audio; no microphone/tab capture and no automatic playback

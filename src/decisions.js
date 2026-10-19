@@ -1,10 +1,13 @@
-/** Bridge-experimental decision envelope shared by provider adapters. */
+/** IPA typed decision envelope shared by provider adapters. */
 export const DECISION_PAYLOAD_MAX_BYTES = 63 * 1024;
 export const DECISION_BODY_MAX_BYTES = 64 * 1024;
 export const DECISION_MAX_QUESTIONS = 64;
 export const DECISION_MAX_CHOICES = 26;
 // The common envelope: TypeSafe scores currently accept at most ten levels.
 export const DECISION_MAX_SCORE_LEVELS = 10;
+
+// Account for floating point arithmetic at the absolute rounding boundary.
+const DECISION_ROUNDING_TOLERANCE = 0.02 + 1e-12;
 
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const record = (value) => {
@@ -166,8 +169,17 @@ export function normalizeDecisionResponse(body, questions) {
     Object.entries(questions).map(([id, question]) => {
       const answer = own(body.answers, id) ? body.answers[id] : null;
       if (!record(answer)) invalid();
-      if (answer.type === "refusal") return [id, { type: "refusal" }];
+      if (answer.type === "refusal") {
+        if (Object.keys(answer).some((key) => key !== "type")) invalid();
+        return [id, { type: "refusal" }];
+      }
       if (answer.type !== question.type) invalid();
+      const otherFields = {
+        noul: ["confidence", "probabilities", "choice", "score", "legend"],
+        choice: ["noul", "score", "legend"],
+        score: ["noul", "choice"],
+      };
+      if (otherFields[question.type].some((key) => own(answer, key))) invalid();
       if (question.type === "noul") {
         if (!probability(answer.noul)) invalid();
         return [id, { type: "noul", noul: answer.noul }];
@@ -191,7 +203,7 @@ export function normalizeDecisionResponse(body, questions) {
         (sum, key) => sum + answer.probabilities[key],
         0
       );
-      if (Math.abs(total - 1) > 0.02) invalid();
+      if (Math.abs(total - 1) > DECISION_ROUNDING_TOLERANCE) invalid();
       const shared = {
         type: question.type,
         confidence: answer.confidence,
@@ -200,7 +212,12 @@ export function normalizeDecisionResponse(body, questions) {
         ),
       };
       if (question.type === "choice") {
-        if (typeof answer.choice !== "string" || !keys.includes(answer.choice))
+        if (
+          typeof answer.choice !== "string" ||
+          !keys.includes(answer.choice) ||
+          answer.probabilities[answer.choice] !==
+            Math.max(...keys.map((key) => answer.probabilities[key]))
+        )
           invalid();
         return [id, { ...shared, choice: answer.choice }];
       }
@@ -213,9 +230,16 @@ export function normalizeDecisionResponse(body, questions) {
         Object.keys(answer.legend).length !== keys.length ||
         keys.some(
           (key) =>
-            !own(answer.legend, key) || typeof answer.legend[key] !== "string"
+            !own(answer.legend, key) ||
+            answer.legend[key] !== question.criteria[Number(key)]
         )
       )
+        invalid();
+      const weightedScore = keys.reduce(
+        (sum, key, index) => sum + index * answer.probabilities[key],
+        0
+      ) / total;
+      if (Math.abs(answer.score - weightedScore) > DECISION_ROUNDING_TOLERANCE)
         invalid();
       return [
         id,

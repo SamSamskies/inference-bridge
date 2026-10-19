@@ -69,11 +69,11 @@ function load() {
   return { inference: window.inference, messages, warn, fetchMock };
 }
 
-describe("page-side experimental decide", () => {
+describe("page-side stable decide", () => {
   it("starts lazily and yields typed answers without a feature-state handshake", async () => {
     const { inference, messages, warn, fetchMock } = load();
     const controller = new AbortController();
-    const iterable = inference.experimental.request({
+    const iterable = inference.request({
       method: "decide",
       ...request,
       signal: controller.signal,
@@ -86,22 +86,31 @@ describe("page-side experimental decide", () => {
       { type: "done", model: fixture.model, answers: fixture.answers },
     ]);
     expect(messages.find((message) => message.type === "start")).toMatchObject({
-      experimental: true,
       request: { method: "decide", ...request },
     });
     expect(
       messages.find((message) => message.type === "start").request
     ).not.toHaveProperty("signal");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(messages.find((message) => message.type === "start")).not.toHaveProperty("experimental");
+  });
+  it("keeps the deprecated alias on the same stable transport and warns only once", async () => {
+    const { inference, messages, warn } = load();
+    for (let i = 0; i < 2; i++) {
+      for await (const _chunk of inference.experimental.request({ method: "decide", ...request })) { /* consume */ }
+    }
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/experimental, non-normative/);
+    expect(warn.mock.calls[0][0]).toMatch(/experimental.request is deprecated/);
+    expect(warn.mock.calls[0][0]).toMatch(/decisions.*stable surface/);
+    expect(messages.filter((message) => message.type === "start").every((message) => !("experimental" in message))).toBe(true);
   });
   it.each(["model", "provider", "keep_alive", "messages"])(
     "rejects page-supplied %s before transport",
     async (field) => {
       const { inference, messages } = load();
       await expect(
-        inference.experimental
+        inference
           .request({ method: "decide", ...request, [field]: "bad" })
           [Symbol.asyncIterator]()
           .next()
@@ -120,7 +129,7 @@ describe("page-side experimental decide", () => {
   ])("rejects lossy or oversized JSON before transport", async (state) => {
     const { inference, messages } = load();
     await expect(
-      inference.experimental
+      inference
         .request({ method: "decide", ...request, state })
         [Symbol.asyncIterator]()
         .next()
@@ -132,7 +141,7 @@ describe("page-side experimental decide", () => {
     const cycle = {};
     cycle.self = cycle;
     await expect(
-      inference.experimental
+      inference
         .request({ method: "decide", ...request, state: cycle })
         [Symbol.asyncIterator]()
         .next()
@@ -140,7 +149,7 @@ describe("page-side experimental decide", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(
-      inference.experimental
+      inference
         .request({ method: "decide", ...request, signal: controller.signal })
         [Symbol.asyncIterator]()
         .next()

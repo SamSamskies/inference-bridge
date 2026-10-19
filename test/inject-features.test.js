@@ -31,7 +31,8 @@ function loadInference() {
   return window.inference;
 }
 
-const speechMethods = {
+const optionalMethods = {
+  decide: true,
   transcribe: {
     acceptedMedia: [
       { mediaType: "audio/mpeg" },
@@ -46,10 +47,10 @@ const speechMethods = {
 };
 
 describe("window.inference.getFeatures", () => {
-  it("advertises speech synchronously before the relay connects without storage or I/O", () => {
+  it("advertises decisions and speech synchronously before the relay connects without storage or I/O", () => {
     const inference = loadInference();
     expect(inference.getFeatures()).toEqual({
-      methods: speechMethods,
+      methods: optionalMethods,
       toolCalling: true,
       webSearch: true,
       imageInput: true,
@@ -58,29 +59,30 @@ describe("window.inference.getFeatures", () => {
     });
   });
 
-  it("keeps decisions experimental and mirrors speech for legacy callers", () => {
+  it("mirrors optional methods for legacy callers", () => {
     const inference = loadInference();
     expect(inference.experimental.getFeatures().methods).toEqual({
       chat: true,
       decide: true,
-      ...speechMethods,
+      ...optionalMethods,
     });
-    expect(inference.getFeatures().methods).not.toHaveProperty("decide");
+    expect(inference.getFeatures().methods.decide).toBe(true);
     expect(inference.getFeatures().methods).not.toHaveProperty("chat");
     expect(inference.experimental.decide).toBeUndefined();
     expect(inference.transcribe).toBeUndefined();
     expect(inference.synthesize).toBeUndefined();
   });
 
-  it("returns independent speech snapshots on both surfaces", () => {
+  it("returns independent method snapshots on both surfaces", () => {
     const inference = loadInference();
     const snapshot = inference.getFeatures();
     snapshot.methods.transcribe.acceptedMedia.length = 0;
-    expect(inference.getFeatures().methods).toEqual(speechMethods);
+    snapshot.methods.decide = false;
+    expect(inference.getFeatures().methods).toEqual(optionalMethods);
     const alias = inference.experimental.getFeatures();
     alias.methods.transcribe.acceptedMedia[0].mediaType = "video/*";
-    expect(inference.getFeatures().methods).toEqual(speechMethods);
-    expect(inference.experimental.getFeatures().methods.transcribe).toEqual(speechMethods.transcribe);
+    expect(inference.getFeatures().methods).toEqual(optionalMethods);
+    expect(inference.experimental.getFeatures().methods.transcribe).toEqual(optionalMethods.transcribe);
   });
 });
 

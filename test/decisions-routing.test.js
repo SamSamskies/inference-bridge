@@ -84,7 +84,7 @@ afterEach(() => {
   for (const port of ports) port.onDisconnect.emit();
   vi.unstubAllGlobals();
 });
-function start({ payload = decide, experimental = true } = {}) {
+function start({ payload = decide, experimental = false } = {}) {
   const port = {
     name: "ipa-inference",
     sender: { tab: { id: 1 } },
@@ -139,11 +139,11 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     await outcome(port);
     expect(port.messages.at(-1).chunk.type).toBe("done");
   });
-  it("rejects decisions on the stable API", async () => {
-    const stable = start({ experimental: false });
-    await outcome(stable);
-    expect(stable.messages[0].error.code).toBe("invalid_request");
-    expect(fetch).not.toHaveBeenCalled();
+  it("continues to accept the legacy experimental transport", async () => {
+    const legacy = start({ experimental: true });
+    await approve(legacy);
+    await outcome(legacy);
+    expect(legacy.messages.at(-1).chunk.type).toBe("done");
   });
   it("validates unknown fields before approval or networking", async () => {
     const port = start({ payload: { ...decide, provider: "openrouter" } });

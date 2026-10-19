@@ -733,7 +733,7 @@ export const ollamaProvider = {
     if (isOllamaDecisionModel(model)) {
       throwInference(
         "unavailable",
-        "Decision models require experimental method decide, not chat."
+        "Decision models require method decide, not chat."
       );
     }
     if (hostedWebSearchActive(tools, toolChoice)) {

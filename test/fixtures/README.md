@@ -30,3 +30,10 @@ both protocols return the same Bridge answers. It is not a live API recording.
 metadata from the public [OpenRouter decisions catalog](https://openrouter.ai/api/v1/models?output_modalities=decisions),
 captured on 2026-10-03. The regular models response defaults to text output;
 decision models require the `output_modalities=decisions` query.
+
+`../helpers/decisions-conformance.mjs` is copied unchanged from the IPA
+[decision stream assertions](https://github.com/SamSamskies/inference-provider-api/blob/29fb1dc/packages/ipa-tools/test/conformance/decisions.mjs)
+(MIT). `decisions-conformance.test.js` runs those assertions against Bridge's
+MAIN script, isolated relay, worker, and all three decision adapters with synthetic
+provider responses. Chrome/Firefox test labels select mocked browser APIs; they
+do not certify live browsers, provider availability, or model accuracy.

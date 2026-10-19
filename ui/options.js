@@ -62,7 +62,7 @@ const siteAccessStatusEl = document.getElementById("siteAccessStatus");
 const speechStatus = document.getElementById(
   "speechStatus",
 );
-const experimentalDecisionsStatus = document.getElementById("experimentalDecisionsStatus");
+const decisionsStatus = document.getElementById("decisionsStatus");
 const decisionsProviderSelect = document.getElementById("decisionsProvider");
 const decisionsModelSelect = document.getElementById("decisionsModel");
 const decisionsModelHint = document.getElementById("decisionsModelHint");
@@ -1667,8 +1667,8 @@ async function persistDecisionDefault() {
   const model = decisionsModelSelect.value;
   if (!providerId || !model || decisionsModelSelect.disabled) return;
   await saveSettings({ operationDefaults: { decide: { providerId, model } } });
-  experimentalDecisionsStatus.textContent = "Decisions default saved.";
-  experimentalDecisionsStatus.className = "status ok";
+  decisionsStatus.textContent = "Decisions default saved.";
+  decisionsStatus.className = "status ok";
 }
 
 async function loadSynthesisVoices(providerId, model, preferredVoice) {
@@ -2175,16 +2175,16 @@ decisionsProviderSelect.addEventListener("change", async () => {
     if (providerId === decisionsProviderSelect.value)
       await persistDecisionDefault();
   } catch (err) {
-    experimentalDecisionsStatus.textContent =
+    decisionsStatus.textContent =
       err instanceof Error ? err.message : "Could not save decisions default.";
-    experimentalDecisionsStatus.className = "status err";
+    decisionsStatus.className = "status err";
   }
 });
 decisionsModelSelect.addEventListener("change", () => {
   void persistDecisionDefault().catch((err) => {
-    experimentalDecisionsStatus.textContent =
+    decisionsStatus.textContent =
       err instanceof Error ? err.message : "Could not save decisions default.";
-    experimentalDecisionsStatus.className = "status err";
+    decisionsStatus.className = "status err";
   });
 });
 saveButton.addEventListener("click", async () => {

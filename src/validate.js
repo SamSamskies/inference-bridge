@@ -408,6 +408,7 @@ export function validateInferenceRequest(request) {
     return { ok: false, message: "Request must be an object." };
   }
   const req = /** @type {Record<string, unknown>} */ (request);
+  if (req.method === "decide") return validateDecideRequest(req);
   if (req.method === "transcribe") return validateTranscribeRequest(req);
   if (req.method === "synthesize") return validateSynthesizeRequest(req);
   return validateChatRequest(request);
@@ -437,7 +438,7 @@ function validateChatRequest(request) {
   const req = /** @type {Record<string, unknown>} */ (request);
 
   if (req.method !== "chat") {
-    return { ok: false, message: 'method must be "chat", "transcribe", or "synthesize".' };
+    return { ok: false, message: 'method must be "chat", "decide", "transcribe", or "synthesize".' };
   }
 
   if (!Array.isArray(req.messages) || req.messages.length === 0) {
@@ -620,7 +621,7 @@ function validateChatRequest(request) {
 
 /**
  * Closed discriminated-union validation for the experimental request surface.
- * Speech shares stable validation; decide remains experimental-only.
+ * Compatibility path: optional methods share stable validation.
  * @param {unknown} request
  */
 export function validateExperimentalInferenceRequest(request) {
@@ -646,19 +647,7 @@ export function validateExperimentalInferenceRequest(request) {
     }
     return validateInferenceRequest(request);
   }
-  if (req.method === "decide") {
-    return validateDecideRequest(req);
-  }
-  if (req.method === "transcribe") {
-    return validateTranscribeRequest(req);
-  }
-  if (req.method === "synthesize") {
-    return validateSynthesizeRequest(req);
-  }
-  return {
-    ok: false,
-    message: 'method must be "chat", "decide", "transcribe", or "synthesize".',
-  };
+  return validateInferenceRequest(request);
 }
 
 /**

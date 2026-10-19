@@ -34,9 +34,9 @@ const request = (state = { ticket: "Checkout is blank" }) => ({
   state,
   questions,
 });
-const validate = validateExperimentalInferenceRequest;
+const validate = validateInferenceRequest;
 
-describe("experimental decide validation", () => {
+describe("stable decide validation", () => {
   it.each([
     "A ticket",
     { nested: [1, null, true, { text: "hi" }] },
@@ -45,7 +45,7 @@ describe("experimental decide validation", () => {
     const result = validate(request(state));
     expect(result).toEqual({ ok: true, value: request(state) });
     expect(result.value.questions).not.toBe(questions);
-    expect(validateInferenceRequest(request(state)).ok).toBe(false);
+    expect(validateExperimentalInferenceRequest(request(state))).toEqual(result);
   });
   it.each([
     "provider",
@@ -178,6 +178,64 @@ describe("System One response mapping", () => {
         questions
       )
     ).not.toHaveProperty("usage");
+  });
+  it("rejects a requested choice that is not a maximum", () => {
+    const body = structuredClone(fixture);
+    body.answers.team.choice = "frontend";
+    expect(() => normalizeDecisionResponse(body, questions)).toThrow(
+      expect.objectContaining({ code: "provider_error" })
+    );
+  });
+  it("allows either tied maximum without changing probabilities", () => {
+    for (const choice of ["frontend", "payments"]) {
+      const body = structuredClone(fixture);
+      Object.assign(body.answers.team, {
+        choice, probabilities: { account: 0, frontend: 0.5, payments: 0.5 },
+      });
+      expect(normalizeDecisionResponse(body, questions).answers.team).toEqual(body.answers.team);
+    }
+  });
+  it("rejects a bounded score that contradicts its distribution", () => {
+    const body = structuredClone(fixture);
+    body.answers.urgency.score = 0;
+    expect(() => normalizeDecisionResponse(body, questions)).toThrow(
+      expect.objectContaining({ code: "provider_error" })
+    );
+  });
+  it("rejects a string legend that changes the requested rubric", () => {
+    const body = structuredClone(fixture);
+    body.answers.urgency.legend["0"] = "Replacement criterion";
+    expect(() => normalizeDecisionResponse(body, questions)).toThrow(
+      expect.objectContaining({ code: "provider_error" })
+    );
+  });
+  it.each([0.98, 1, 1.02])("accepts rounded distributions totaling %s and normalized weighted scores", (total) => {
+    const body = structuredClone(fixture);
+    body.answers.urgency.probabilities = { 0: 0, 1: total / 2, 2: total / 2 };
+    body.answers.urgency.score = 1.52; // Exactly 0.02 from the normalized mean.
+    expect(normalizeDecisionResponse(body, questions).answers.urgency).toEqual(body.answers.urgency);
+    body.answers.urgency.score = 1.521;
+    expect(() => normalizeDecisionResponse(body, questions)).toThrow(
+      expect.objectContaining({ code: "provider_error" })
+    );
+  });
+  it.each([false, true])("preserves typed refusals (all: %s)", (all) => {
+    const body = structuredClone(fixture);
+    for (const id of all ? Object.keys(questions) : ["is_bug"]) body.answers[id] = { type: "refusal" };
+    expect(normalizeDecisionResponse(body, questions).answers).toEqual(body.answers);
+  });
+  it.each([
+    ["is_bug", "confidence", 0.5],
+    ["team", "score", 1],
+    ["urgency", "choice", "payments"],
+    ["is_bug", "refusal", true],
+  ])("rejects other-primitive fields on %s", (id, field, value) => {
+    const body = structuredClone(fixture);
+    if (field === "refusal") body.answers[id] = { type: "refusal", noul: 0 };
+    else body.answers[id][field] = value;
+    expect(() => normalizeDecisionResponse(body, questions)).toThrow(
+      expect.objectContaining({ code: "provider_error" })
+    );
   });
   it.each([
     (body) => {
