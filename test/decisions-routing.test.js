@@ -59,7 +59,7 @@ async function setup(firefox) {
             JSON.parse(options.body).model === "gemma4:latest"
               ? ["completion"]
               : ["decision"],
-          details: { format: "gguf" },
+          details: { format: "safetensors", runner: "mlx" },
         });
       if (url.endsWith("/alpha/decisions"))
         return Response.json({

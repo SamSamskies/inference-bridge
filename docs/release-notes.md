@@ -26,3 +26,9 @@ The [README decisions example](../README.md#typed-decisions-system-one) and
 conformance uses the companion IPA assertions with synthetic provider responses;
 it does not establish live provider availability or model accuracy. Chrome and
 Firefox checks with live backends remain required before release.
+
+Ollama decision discovery now includes local MLX/Safetensors models as well as
+GGUF models, using the server's explicit `decision` capability. Ollama 0.40+
+supports MLX System One. Obsolete model-format errors preserve Ollama's re-pull
+instructions and report `unavailable`; saved routes are not changed or retried
+with another model.

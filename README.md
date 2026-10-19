@@ -641,10 +641,14 @@ fails with `unavailable`; discovery does not promise provider availability.
   (or `ollama pull tev1:0.8b`), and select Ollama and its installed decision model
   in Decisions. Requests use [`POST /v1/systemone`](https://docs.ollama.com/api/systemone).
   The picker checks installed models' `/api/show` metadata for the `decision`
-  capability and local GGUF format, including custom names. Nimble, Tev1,
+  capability and a local GGUF or MLX/Safetensors format, including custom names.
+  MLX System One requires Ollama 0.40+. Nimble, Tev1,
   Clef, and Clef Flash are supported; Clef models require **Ollama 0.35.1+**.
   No local API key is needed.
   OpenRouter works independently of whether Ollama is running.
+  After upgrading Ollama, an older model may need to be pulled again if the
+  server reports an obsolete format. A saved site grant keeps its approved
+  model: revoke that Decisions grant in Site access to choose another route.
 - Anthropic, On-device, and OpenAI-compatible providers do not support
   this operation. There is no chat emulation or fallback. OpenRouter and Ollama
   decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
@@ -884,6 +888,12 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 
 #### Decisions
 
+For opt-in checks against installed local models (separate from browser checks):
+
+```bash
+OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:latest,tev1:0.8b npm test -- test/ollama-decisions.integration.test.js
+```
+
 - [ ] Stable discovery immediately reports `methods.decide: true`; stable `request({ method: "decide", ... })` works, and the deprecated experimental alias reports the same optional methods
 - [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
@@ -892,7 +902,7 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 - [ ] Decisions model pickers list only their separate catalogs; an empty local decision catalog disables Allow and explains `ollama pull nimble`
 - [ ] Approval previews truncated state and question ids/types; chat/speech grants do not skip decide approval; revoking decide leaves those grants intact
 - [ ] Decision streams contain exactly `accepted` → typed `done.answers`; usage is camelCase; mixed/all refusals complete; abort or iterator closure during approval/fetch cancels without a `done`
-- [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF models with the `decision` capability, including Clef and custom names
+- [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF and MLX/Safetensors models with the `decision` capability, including Clef and custom names
 - [ ] Unknown fields, invalid JSON/question shapes, unsupported provider grants, and stale models fail closed; decision models never route through chat
 - [ ] Run the stable three-primitives example in both Chrome and Firefox with each configured supported backend; record live results separately from synthetic conformance checks, and revoke Firefox host access during a decision request
 

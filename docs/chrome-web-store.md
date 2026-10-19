@@ -69,7 +69,7 @@ Bring your own API keys for supported cloud providers, run a local model server,
 • Hosted web search when the selected provider supports it
 • Image input and output on window.inference.request when the selected model supports vision or image generation
 • Bounded transcription and MP3 speech synthesis with separate per-site approval
-• Experimental typed decisions on cloud or local decision models, available by default with separate per-site approval
+• Typed decisions on cloud or local decision models, available by default with separate per-site approval
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model in Options
 • Optional host access is requested only for each custom server origin you save

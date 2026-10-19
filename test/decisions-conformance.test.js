@@ -74,7 +74,7 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (url.endsWith("?output_modalities=decisions")) return Response.json(catalog);
       if (url.endsWith("/api/tags")) return Response.json({ models: [{ name: routes.ollama.model }] });
-      if (url.endsWith("/api/show")) return Response.json({ capabilities: ["decision"], details: { format: "gguf" } });
+      if (url.endsWith("/api/show")) return Response.json({ capabilities: ["decision"], details: { format: "safetensors", runner: "mlx" } });
       if (url === "https://api.openai.com/v1/decisions") return Response.json(openaiFixture);
       if (url.endsWith("/alpha/decisions") || url.endsWith("/v1/systemone")) return Response.json(fixture);
       throw new Error(`Unexpected privileged fetch: ${url}`);

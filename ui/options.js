@@ -1632,13 +1632,13 @@ async function loadDecisionModels(providerId, preferredModel) {
       ? "Uses your saved OpenAI API key and the Decisions beta service with gpt-6-luna."
       : providerId === "openrouter"
         ? "Uses your saved OpenRouter API key and the Decisions alpha service."
-        : "Uses installed local decision models on Ollama 0.35+ (Clef requires 0.35.1+)."
+        : "Uses installed local decision models on Ollama 0.35+ (Clef: 0.35.1+; MLX: 0.40+)."
     : response?.error?.message ||
       (providerId === "openai"
         ? "No OpenAI decision models are available."
         : providerId === "openrouter"
           ? "No decision models are currently listed by OpenRouter."
-          : "No installed decision models. Use Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+.");
+          : "No installed decision models. Run ollama pull nimble. GGUF requires Ollama 0.35+ (Clef: 0.35.1+); MLX requires 0.40+.");
 }
 
 async function loadDecisionDefaultControls(settings) {
