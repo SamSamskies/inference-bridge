@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   listOllamaTranscriptionModels,
   OLLAMA_BASE_URL,
+  ollamaProvider,
 } from "../src/providers/ollama.js";
 import {
   OLLAMA_MP3_TRANSCRIPTION_MODELS,
   OLLAMA_MULTIPART_MAX_BYTES,
   OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
-  ollamaModelHasAudio,
+  ollamaModelSupportsTranscription,
   ollamaTranscriptionMediaTypesForModel,
   transcribeOllama,
 } from "../src/providers/ollama-speech.js";
@@ -23,13 +24,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Ollama audio capability", () => {
-  it("requires an explicit audio capability from /api/show", async () => {
+describe("Ollama transcription capability", () => {
+  it("requires explicit audio and completion capabilities from /api/show", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ capabilities: ["completion", "audio"] })
     );
     vi.stubGlobal("fetch", fetchMock);
-    await expect(ollamaModelHasAudio("gemma4:e2b")).resolves.toBe(true);
+    await expect(ollamaModelSupportsTranscription("gemma4:e2b")).resolves.toBe(true);
     expect(fetchMock.mock.calls[0][0]).toBe(`${OLLAMA_BASE_URL}/api/show`);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       model: "gemma4:e2b",
@@ -46,29 +47,51 @@ describe("Ollama audio capability", () => {
         .mockResolvedValueOnce(new Response("not json"))
         .mockRejectedValueOnce(new TypeError("offline"))
     );
-    await expect(ollamaModelHasAudio("text-only")).resolves.toBe(false);
-    await expect(ollamaModelHasAudio("malformed")).resolves.toBe(false);
-    await expect(ollamaModelHasAudio("offline")).resolves.toBe(false);
+    await expect(ollamaModelSupportsTranscription("text-only")).resolves.toBe(false);
+    await expect(ollamaModelSupportsTranscription("malformed")).resolves.toBe(false);
+    await expect(ollamaModelSupportsTranscription("offline")).resolves.toBe(false);
+  });
+
+  it.each([
+    ["embeddinggemma-2:latest", ["embedding", "vision", "audio"]],
+    ["custom-audio-encoder", ["embedding", "audio"]],
+    ["audio-only", ["audio"]],
+    ["audio-decision", ["decision", "audio"]],
+  ])("does not offer %s for transcription", async (model, capabilities) => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ capabilities })));
+    await expect(ollamaModelSupportsTranscription(model)).resolves.toBe(false);
+    await expect(
+      ollamaProvider.transcription.listAcceptedMediaTypesForModel({ model })
+    ).resolves.toEqual([]);
   });
 
   it("filters installed models through individual fresh capability probes", async () => {
     const fetchMock = vi.fn(async (url, init) => {
       if (String(url).endsWith("/api/tags")) {
         return jsonResponse({
-          models: [{ name: "gemma4:e2b" }, { name: "llama3.2" }],
+          models: [
+            { name: "gemma4:e2b" },
+            { name: "llama3.2" },
+            { name: "embeddinggemma-2:latest" },
+            { name: "custom-transcriber" },
+          ],
         });
       }
       const model = JSON.parse(init.body).model;
       return jsonResponse({
-        capabilities:
-          model === "gemma4:e2b" ? ["completion", "audio"] : ["completion"],
+        capabilities: model === "embeddinggemma-2:latest"
+          ? ["embedding", "vision", "audio"]
+          : model === "llama3.2"
+            ? ["completion"]
+            : ["completion", "audio"],
       });
     });
     vi.stubGlobal("fetch", fetchMock);
     await expect(listOllamaTranscriptionModels()).resolves.toEqual([
+      { id: "custom-transcriber" },
       { id: "gemma4:e2b" },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("advertises MP3 only for the verified model while keeping WAV universal", () => {
@@ -106,14 +129,14 @@ describe("Ollama transcription", () => {
 
   it.each([null, {}, { text: 42 }])("rejects malformed transcript payload %j as provider_error", async (payload) => {
     vi.stubGlobal("fetch", vi.fn(async (url) => String(url).endsWith("/api/show")
-      ? jsonResponse({ capabilities: ["audio"] }) : jsonResponse(payload)));
+      ? jsonResponse({ capabilities: ["completion", "audio"] }) : jsonResponse(payload)));
     await expect(transcribeOllama(request())).rejects.toMatchObject({ code: "provider_error" });
   });
 
   it("re-checks capability immediately before multipart upload", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (String(url).endsWith("/api/show")) {
-        return jsonResponse({ capabilities: ["audio"] });
+        return jsonResponse({ capabilities: ["completion", "audio"] });
       }
       return jsonResponse({
         text: "Why is the sky blue?",
@@ -145,7 +168,7 @@ describe("Ollama transcription", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["completion", "audio"] }))
         .mockResolvedValueOnce(
           new Response("plain transcript", {
             headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -167,7 +190,7 @@ describe("Ollama transcription", () => {
     };
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+      .mockResolvedValueOnce(jsonResponse({ capabilities: ["completion", "audio"] }))
       .mockResolvedValueOnce(jsonResponse({ text: "MP3 transcript" }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -186,9 +209,25 @@ describe("Ollama transcription", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(transcribeOllama(request())).rejects.toMatchObject({
       code: "unavailable",
-      message: expect.stringContaining('"audio" capability'),
+      message: expect.stringContaining('"audio" and "completion" capabilities'),
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a saved audio embedding model before uploading audio", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ capabilities: ["embedding", "vision", "audio"] })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(transcribeOllama({
+      ...request(),
+      model: "embeddinggemma-2:latest",
+    })).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining('"audio" and "completion" capabilities'),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${OLLAMA_BASE_URL}/api/show`);
   });
 
   it("keeps model-gated media support and lower Bridge limits authoritative", async () => {
@@ -211,7 +250,7 @@ describe("Ollama transcription", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["completion", "audio"] }))
         .mockResolvedValueOnce(
           jsonResponse({ error: "unrecognized audio format" }, 400)
         )
@@ -225,7 +264,7 @@ describe("Ollama transcription", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["completion", "audio"] }))
         .mockResolvedValueOnce(jsonResponse({ text: "  " }))
     );
     await expect(transcribeOllama(request())).rejects.toMatchObject({
@@ -237,7 +276,7 @@ describe("Ollama transcription", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse({ capabilities: ["audio"] }))
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["completion", "audio"] }))
         .mockResolvedValueOnce(
           new Response("not json", {
             headers: { "Content-Type": "application/json" },
