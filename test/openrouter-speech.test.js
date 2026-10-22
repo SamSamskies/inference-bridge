@@ -414,6 +414,20 @@ describe("OpenRouter transcription", () => {
 });
 
 describe("OpenRouter synthesis", () => {
+  it.each(["google/gemini-3.1-flash-tts-preview", "mistralai/voxtral-mini-tts-2603"])("passes best-effort instructions separately with %s", async (model) => {
+    const fetchMock = vi.fn(async (url) => url === SPEECH_CATALOG_URL
+      ? Response.json({ data: [{ id: model, architecture: { input_modalities: ["text"], output_modalities: ["speech"] }, supported_voices: ["test-voice"] }] })
+      : new Response(Uint8Array.of(1, 2), { headers: { "Content-Type": "audio/mpeg" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const instructions = "Speak softly.\nKeep a relaxed pace.";
+    const signal = new AbortController().signal;
+    await synthesizeOpenRouter({ model, voice: "test-voice", text: "Hello", instructions,
+      mediaType: "audio/mpeg", signal, onAudioDelta() {} });
+    const [, init] = fetchMock.mock.calls.find(([url]) => url.endsWith("/audio/speech"));
+    expect(JSON.parse(init.body)).toEqual({ model, voice: "test-voice", input: "Hello", instructions, response_format: "mp3" });
+    expect(init.signal).toBe(signal);
+  });
+
   it("streams MP3 bytes with backpressure and exact result metadata", async () => {
     const stream = new ReadableStream({
       start(controller) {

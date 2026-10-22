@@ -70,6 +70,7 @@ import {
  *   mediaType?: string,
  *   byteLength?: number,
  *   text?: string,
+ *   instructions?: string,
  *   stateSummary?: string,
  *   questionSummaries?: Array<{ id: string, type: string }>,
  * }} ApprovalRequest
@@ -481,6 +482,7 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output) 
  *   mediaType?: string,
  *   byteLength?: number,
  *   text?: string,
+ *   instructions?: string,
  *   stateSummary?: string,
  *   questionSummaries?: Array<{ id: string, type: string }>,
  * }} args
@@ -569,6 +571,8 @@ export async function ensureOperationPermission(args) {
       ? { byteLength: args.byteLength }
       : {}),
     ...(typeof args.text === "string" ? { text: args.text } : {}),
+    ...(args.method === "synthesize" && typeof args.instructions === "string"
+      ? { instructions: args.instructions } : {}),
     ...(args.method === "decide"
       ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries }
       : {}),

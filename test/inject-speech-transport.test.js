@@ -186,6 +186,9 @@ describe("MAIN-world speech transport", () => {
     { method: "synthesize", text: "Hello", provider: "openai" },
     { method: "synthesize", text: "Hello", voice: "alloy" },
     { method: "synthesize", text: "Hello", messages: [] },
+    ...[null, 42, {}, [], "", "  ", "😀".repeat(4097)].map((instructions) => ({
+      method: "synthesize", text: "Hello", instructions,
+    })),
     { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } },
     { method: "synthesize", text: "Hello", output: { images: true } },
   ])("rejects invalid stable speech fields before extension work: %j", async (request) => {

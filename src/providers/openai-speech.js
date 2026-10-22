@@ -3,6 +3,7 @@ import {
   SYNTHESIS_OUTPUT_MAX_BYTES,
   SYNTHESIS_TEXT_MAX_CODE_POINTS,
   TRANSCRIPTION_INPUT_MAX_BYTES,
+  isValidSynthesisInstructions,
   normalizeTranscriptionMediaType,
 } from "../speech.js";
 
@@ -14,9 +15,15 @@ export const OPENAI_TRANSCRIPTION_MODELS = Object.freeze([
 
 export const OPENAI_SYNTHESIS_MODELS = Object.freeze([
   "gpt-4o-mini-tts",
+  "gpt-4o-mini-tts-2025-12-15",
   "tts-1",
   "tts-1-hd",
 ]);
+
+// Delivery guidance is best effort; legacy TTS models get ordinary speech.
+function openAIModelSupportsSynthesisInstructions(model) {
+  return model === "gpt-4o-mini-tts" || model === "gpt-4o-mini-tts-2025-12-15";
+}
 
 export const OPENAI_SYNTHESIS_VOICES = Object.freeze([
   "alloy",
@@ -270,12 +277,16 @@ async function readStreamingTranscription(response, args) {
  *   model: string,
  *   voice: string,
  *   text: string,
+ *   instructions?: string,
  *   mediaType: "audio/mpeg",
  *   signal: AbortSignal,
  *   onAudioDelta: (data: Uint8Array) => void | Promise<void>,
  * }} args
  */
 export async function synthesizeOpenAI(args) {
+  if (args.instructions !== undefined && !isValidSynthesisInstructions(args.instructions)) {
+    throw inferenceError("invalid_request", "Invalid synthesis instructions.");
+  }
   if (args.mediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE) {
     throw inferenceError(
       "unavailable",
@@ -311,6 +322,9 @@ export async function synthesizeOpenAI(args) {
       body: JSON.stringify({
         model: args.model,
         input: args.text,
+        ...(args.instructions !== undefined && openAIModelSupportsSynthesisInstructions(args.model)
+          ? { instructions: args.instructions }
+          : {}),
         voice: args.voice,
         response_format: "mp3",
       }),

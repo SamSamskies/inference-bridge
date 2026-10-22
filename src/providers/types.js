@@ -163,6 +163,7 @@
  *     model: string,
  *     voice: string,
  *     text: string,
+ *     instructions?: string,
  *     mediaType: "audio/mpeg",
  *     signal: AbortSignal,
  *     onAudioDelta: (data: Uint8Array) => void | Promise<void>,

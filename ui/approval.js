@@ -995,7 +995,9 @@ function renderPreview(messages) {
 
 function updateRememberHint() {
   rememberHint.textContent = rememberInput.checked
-    ? "Allow always, or never allow this site again."
+    ? requestMethod === "synthesize"
+      ? "Allow future text and best-effort delivery instructions with this provider, model, and voice, or never allow this site again."
+      : "Allow always, or never allow this site again."
     : "Allow once, or deny only this request.";
 }
 
@@ -1202,6 +1204,18 @@ async function load() {
         typeof request.text === "string" ? request.text : "";
     }
     previewEl.append(preview);
+    if (requestMethod === "synthesize" && typeof request.instructions === "string") {
+      const heading = document.createElement("h3");
+      heading.textContent = "Delivery instructions (best effort)";
+      const guidance = document.createElement("div");
+      guidance.className = "preview-msg";
+      guidance.textContent = request.instructions;
+      previewEl.append(heading, guidance);
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "The selected model may ignore delivery instructions. The text to speak and selected voice stay separate from this guidance.";
+      previewEl.append(hint);
+    }
   }
   updateRememberHint();
 

@@ -5,6 +5,7 @@
 
 export const TRANSCRIPTION_INPUT_MAX_BYTES = 24_000_000;
 export const SYNTHESIS_TEXT_MAX_CODE_POINTS = 4_096;
+export const SYNTHESIS_INSTRUCTIONS_MAX_CODE_POINTS = 4_096;
 export const SYNTHESIS_OUTPUT_MAX_BYTES = 32_000_000;
 export const AUDIO_TRANSFER_CHUNK_BYTES = 256 * 1024;
 export const SYNTHESIS_OUTPUT_MEDIA_TYPE = "audio/mpeg";
@@ -105,5 +106,18 @@ export function isValidSynthesisText(value) {
     typeof value === "string" &&
     value.trim().length > 0 &&
     countUnicodeCodePoints(value) <= SYNTHESIS_TEXT_MAX_CODE_POINTS
+  );
+}
+
+/**
+ * Omission preserves basic synthesis; provided instructions must be nonblank.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isValidSynthesisInstructions(value) {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    countUnicodeCodePoints(value) <= SYNTHESIS_INSTRUCTIONS_MAX_CODE_POINTS
   );
 }

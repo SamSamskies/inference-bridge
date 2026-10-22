@@ -4,6 +4,7 @@ import {
   TRANSCRIPTION_INPUT_MAX_BYTES,
   isStructurallyValidLanguageTag,
   isValidSynthesisText,
+  isValidSynthesisInstructions,
   isValidTranscriptionByteLength,
   normalizeTranscriptionMediaType,
   rawBase64ByteLength,
@@ -820,6 +821,7 @@ function validateSynthesizeRequest(req) {
   const unknown = firstUnknownField(req, [
     "method",
     "text",
+    "instructions",
     "output",
     "signal",
   ]);
@@ -833,6 +835,12 @@ function validateSynthesizeRequest(req) {
     return {
       ok: false,
       message: "text must be non-empty and at most 4096 Unicode code points.",
+    };
+  }
+  if (req.instructions !== undefined && !isValidSynthesisInstructions(req.instructions)) {
+    return {
+      ok: false,
+      message: "instructions must be non-empty and at most 4096 Unicode code points.",
     };
   }
 
@@ -868,6 +876,7 @@ function validateSynthesizeRequest(req) {
     value: {
       method: "synthesize",
       text: req.text,
+      ...(req.instructions !== undefined ? { instructions: req.instructions } : {}),
       output: { mediaType: SYNTHESIS_OUTPUT_MEDIA_TYPE },
     },
   };

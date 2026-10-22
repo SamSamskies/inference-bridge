@@ -945,6 +945,19 @@ describe.each([
     }
   });
 
+  it("validates and preserves optional delivery guidance without changing the text", () => {
+    const instructions = "  Speak warmly.\n😀  ";
+    expect(validateSpeechRequest({ method: "synthesize", text: "Hello", instructions })).toEqual({
+      ok: true,
+      value: { method: "synthesize", text: "Hello", instructions, output: { mediaType: "audio/mpeg" } },
+    });
+    expect(validateSpeechRequest({ method: "synthesize", text: "Hello", instructions: "😀".repeat(4096) }).ok).toBe(true);
+    for (const instructions of [null, 42, {}, [], "", " \n ", "😀".repeat(4097)]) {
+      expect(validateSpeechRequest({ method: "synthesize", text: "Hello", instructions }).ok).toBe(false);
+    }
+    expect(validateSpeechRequest({ method: "transcribe", media: { data: "AQID", mediaType: "audio/wav" }, instructions }).ok).toBe(false);
+  });
+
   it("validates MP3-only synthesis and Unicode code-point bounds", () => {
     expect(
       validateSpeechRequest({

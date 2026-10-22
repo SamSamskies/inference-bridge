@@ -122,6 +122,77 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     expect(packets.find((message) => message.type === "start")).not.toHaveProperty("experimental");
   });
 
+  it.each(["gpt-4o-mini-tts", "tts-1"])("preserves instructions through the stable transport with best-effort %s delivery", async (model) => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", { ...routes.synthesize, model });
+    const instructions = "  Speak warmly.\nKeep the exact text. 😀  ";
+    const stream = inference.request({ method: "synthesize", text: "Hello", instructions });
+    expect(packets).toEqual([]);
+    await assertSpeechStream("synthesize", stream, { expectedAudio: mp3 });
+    expect(packets.find((packet) => packet.type === "start").request.instructions).toBe(instructions);
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.input).toBe("Hello");
+    expect(body.voice).toBe("alloy");
+    if (model === "gpt-4o-mini-tts") expect(body.instructions).toBe(instructions);
+    else expect(body).not.toHaveProperty("instructions");
+    expect(packets.find((packet) => packet.type === "start")).not.toHaveProperty("experimental");
+    expect(inference.getFeatures().methods.synthesize).toBe(true);
+    expect(inference.getFeatures()).not.toHaveProperty("synthesisInstructions");
+  });
+
+  it.each(["google/gemini-3.1-flash-tts-preview", "mistralai/voxtral-mini-tts-2603"])("forwards best-effort guidance to OpenRouter %s", async (model) => {
+    await storage.saveSettings({ apiKeys: { openrouter: "test-key" } });
+    await storage.grantOriginOperationAlways(origin, "synthesize", { providerId: "openrouter", model, voice: "test-voice" });
+    fetch.mockImplementation(async (url) => url.includes("/models?")
+      ? Response.json({ data: [{ id: model, architecture: { input_modalities: ["text"], output_modalities: ["speech"] }, supported_voices: ["test-voice"] }] })
+      : new Response(mp3, { headers: { "Content-Type": "audio/mpeg" } }));
+    await assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "Hello", instructions: "Speak softly." }), { expectedAudio: mp3 });
+    const [, init] = fetch.mock.calls.find(([url]) => url.endsWith("/audio/speech"));
+    expect(JSON.parse(init.body)).toEqual({ model, input: "Hello", voice: "test-voice", instructions: "Speak softly.", response_format: "mp3" });
+  });
+
+  it("previews instructions separately and reuses only the remembered synthesis route", async () => {
+    vi.spyOn(chrome.windows, "create");
+    await storage.revokeOriginOperation(origin, "synthesize");
+    const instructions = "Speak warmly. <script>untrusted</script>";
+    const outcome = assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "Hello", instructions }), { expectedAudio: mp3 });
+    let start;
+    await vi.waitFor(() => {
+      start = packets.find((packet) => packet.type === "started");
+      expect(start && permissions.getPendingApproval(start.streamId)).toMatchObject({ text: "Hello", instructions });
+    });
+    permissions.resolveApproval(start.streamId, { decision: "always", ...routes.synthesize, model: "gpt-4o-mini-tts" });
+    await outcome;
+    const grant = await storage.getOriginOperationGrant(origin, "synthesize");
+    expect(grant).toMatchObject({ ...routes.synthesize, model: "gpt-4o-mini-tts" });
+    expect(grant).not.toHaveProperty("instructions");
+    expect(grant).not.toHaveProperty("text");
+    await assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "Goodbye", instructions: "Speak briskly." }), { expectedAudio: mp3 });
+    expect(chrome.windows.create).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ model: "gpt-4o-mini-tts", voice: "alloy", input: "Goodbye", instructions: "Speak briskly." });
+  });
+
+  it("propagates abort to an instructed synthesis provider", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", { ...routes.synthesize, model: "gpt-4o-mini-tts" });
+    fetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const controller = new AbortController();
+    const iterator = inference.request({ method: "synthesize", text: "Hello", instructions: "Speak slowly.", signal: controller.signal })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value.type).toBe("accepted");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    controller.abort();
+    await expect(iterator.next()).rejects.toMatchObject({ code: "aborted" });
+    await vi.waitFor(() => expect(fetch.mock.calls[0][1].signal.aborted).toBe(true));
+  });
+
+  it("propagates an instructed provider failure without retrying or dropping guidance", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", { ...routes.synthesize, model: "gpt-4o-mini-tts" });
+    fetch.mockImplementation(async () => Response.json({ error: { message: "Provider failed" } }, { status: 500 }));
+    await expect(assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "Hello", instructions: "Speak warmly." }))).rejects.toMatchObject({ code: "provider_error" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetch.mock.calls[0][1].body).instructions).toBe("Speak warmly.");
+  });
+
   it.each(["blob", "base64", "url"])("transcribes a %s source through the stable path", async (source) => {
     const bytes = new Uint8Array(600_000).fill(42);
     const media = source === "blob"

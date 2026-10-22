@@ -526,6 +526,32 @@ Current implementation limits (Bridge-specific, not IPA constants):
   Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
   synthesis are unavailable rather than emulated through chat.
 
+This branch also accepts an optional `instructions` string on stable synthesis
+requests while [IPA issue #62](https://github.com/SamSamskies/inference-provider-api/issues/62)
+is being evaluated. Delivery guidance is **best effort**, like chat generation
+options: a model may ignore it, and an unsupported model still generates ordinary
+speech. There is no separate support flag; `methods.synthesize` stays `true`.
+Omit `instructions` for ordinary synthesis. If provided, it must be nonblank and
+at most 4,096 Unicode code points; `null` and structured controls are invalid.
+Bridge preserves `text` and `instructions` separately and never prepends guidance
+to the text or uses it to choose a provider, model, or voice. The approval dialog
+shows guidance separately. Existing synthesis grants cover future text and
+instructions on the same approved route; instruction content is not saved in
+grants. Singing, melody, exact timing, and verbatim model output are not guaranteed.
+
+```js
+const stream = window.inference.request({
+  method: "synthesize",
+  text: "Welcome back. Your next chapter starts here.",
+  instructions: "Speak warmly, with a relaxed pace and a short pause between sentences.",
+});
+// Consume accepted / audio_delta / done as in the example below.
+```
+
+The [delivery comparison page](examples/synthesis-instructions/index.html) lets you
+listen to baseline and instructed MP3s. See the [implementation evidence and
+validation notes](docs/synthesis-instructions.md) before updating the IPA spec.
+
 Paste-ready synthesis example:
 
 ```js

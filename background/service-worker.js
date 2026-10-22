@@ -925,7 +925,10 @@ async function handleSpeechStart({
           mediaType: request.media.mediaType,
           byteLength: request.media.byteLength,
         }
-      : { text: request.text }),
+      : {
+          text: request.text,
+          ...(request.instructions !== undefined ? { instructions: request.instructions } : {}),
+        }),
   });
 
   let entry = activeStreams.get(streamId);
@@ -1086,6 +1089,7 @@ async function handleSpeechStart({
       model,
       voice: permission.voice,
       text: request.text,
+      ...(request.instructions !== undefined ? { instructions: request.instructions } : {}),
       mediaType: "audio/mpeg",
       signal: controller.signal,
       onAudioDelta: async (data) => {

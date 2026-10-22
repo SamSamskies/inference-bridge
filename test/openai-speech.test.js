@@ -10,6 +10,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("OpenAI synthesis instructions", () => {
+  it.each(["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"])("uses best-effort guidance with %s", async (model) => {
+    const fetchMock = vi.fn(async () => new Response(Uint8Array.of(1, 2, 3), {
+      headers: { "Content-Type": "audio/mpeg" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const instructions = "Speak warmly. Do not read this guidance aloud.";
+    const signal = new AbortController().signal;
+    await synthesizeOpenAI({ model, voice: "alloy", text: "Hello", instructions,
+      mediaType: "audio/mpeg", signal, onAudioDelta() {} });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.input).toBe("Hello");
+    expect(body.voice).toBe("alloy");
+    if (model.startsWith("gpt-4o-mini-tts")) expect(body.instructions).toBe(instructions);
+    else expect(body).not.toHaveProperty("instructions");
+    expect(fetchMock.mock.calls[0][1].signal).toBe(signal);
+  });
+});
+
 describe("OpenAI transcription", () => {
   it.each([null, {}, { text: 42 }])("rejects malformed transcript payload %j as provider_error", async (payload) => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload)));

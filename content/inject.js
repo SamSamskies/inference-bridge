@@ -72,6 +72,7 @@
   ]);
   // Kept in sync with src/speech.js; MAIN cannot import extension modules.
   const TRANSCRIPTION_INPUT_MAX_BYTES = 24_000_000;
+  const SYNTHESIS_INSTRUCTIONS_MAX_CODE_POINTS = 4_096;
 
   /**
    * @param {unknown} value
@@ -998,6 +999,7 @@
   const SYNTHESIZE_FIELDS = new Set([
     "method",
     "text",
+    "instructions",
     "output",
     "signal",
   ]);
@@ -1068,6 +1070,17 @@
       assertClosedRequest(request, SYNTHESIZE_FIELDS);
       if (typeof request.text !== "string" || !request.text.trim()) {
         throw makeError("invalid_request", "text must be a non-empty string.");
+      }
+      if (
+        request.instructions !== undefined &&
+        (typeof request.instructions !== "string" ||
+          !request.instructions.trim() ||
+          [...request.instructions].length > SYNTHESIS_INSTRUCTIONS_MAX_CODE_POINTS)
+      ) {
+        throw makeError(
+          "invalid_request",
+          "instructions must be non-empty and at most 4096 Unicode code points."
+        );
       }
       if (request.output !== undefined) {
         if (

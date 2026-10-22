@@ -3,6 +3,7 @@ import {
   SYNTHESIS_OUTPUT_MEDIA_TYPE,
   SYNTHESIS_TEXT_MAX_CODE_POINTS,
   TRANSCRIPTION_INPUT_MAX_BYTES,
+  isValidSynthesisInstructions,
   normalizeTranscriptionMediaType,
 } from "../speech.js";
 
@@ -357,12 +358,16 @@ export async function transcribeOpenRouter(args) {
  *   model: string,
  *   voice: string,
  *   text: string,
+ *   instructions?: string,
  *   mediaType: "audio/mpeg",
  *   signal: AbortSignal,
  *   onAudioDelta: (data: Uint8Array) => void | Promise<void>,
  * }} args
  */
 export async function synthesizeOpenRouter(args) {
+  if (args.instructions !== undefined && !isValidSynthesisInstructions(args.instructions)) {
+    throw inferenceError("invalid_request", "Invalid synthesis instructions.");
+  }
   if (args.mediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE) {
     throw inferenceError(
       "unavailable",
@@ -397,6 +402,8 @@ export async function synthesizeOpenRouter(args) {
       body: JSON.stringify({
         model: args.model,
         input: args.text,
+        // OpenRouter accepts this best-effort field; some underlying models ignore it.
+        ...(args.instructions !== undefined ? { instructions: args.instructions } : {}),
         voice: args.voice,
         response_format: "mp3",
       }),

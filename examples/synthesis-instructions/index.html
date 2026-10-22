@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speech delivery comparison</title>
+<style>
+  :root { color-scheme: light dark; font: 17px/1.5 system-ui, sans-serif; }
+  body { max-width: 48rem; margin: 3rem auto; padding: 0 1.25rem; }
+  label { display: block; margin: 1.25rem 0; }
+  textarea { box-sizing: border-box; display: block; width: 100%; font: inherit; padding: .75rem; margin-top: .4rem; }
+  button { font: inherit; padding: .6rem 1rem; margin: 0 .5rem .5rem 0; }
+  audio { display: block; width: 100%; }
+  output { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+  li { margin-bottom: 1.5rem; }
+</style>
+<h1>Speech delivery comparison</h1>
+<p>Choose a synthesis provider, model, and voice in Bridge Options. Generate a
+baseline and an instructed sample, then listen using the audio controls.
+Delivery instructions are best effort; some models ignore them. Audio is synthetic.</p>
+<p>This page uses stable <code>window.inference.request()</code>. Generated audio
+stays in this tab; your selected provider receives the text and supported guidance.</p>
+<label>Text to speak
+  <textarea id="text" rows="3">Welcome back. Your next chapter starts here.</textarea>
+</label>
+<label>Delivery instructions
+  <textarea id="instructions" rows="3">Speak warmly, with a relaxed pace and a short pause between sentences.</textarea>
+</label>
+<button id="baseline">Generate baseline</button>
+<button id="instructed">Generate with instructions</button>
+<button id="cancel" disabled>Cancel</button>
+<output id="status" role="status">Ready. Requires a Bridge build with delivery instructions.</output>
+<ol id="results"></ol>
+<script type="module">
+  const text = document.querySelector("#text");
+  const instructions = document.querySelector("#instructions");
+  const baseline = document.querySelector("#baseline");
+  const instructed = document.querySelector("#instructed");
+  const cancel = document.querySelector("#cancel");
+  const status = document.querySelector("#status");
+  const results = document.querySelector("#results");
+  const urls = [];
+  let controller;
+  async function generate(withInstructions) {
+    if (controller) return;
+    if (!window.inference?.getFeatures().methods?.synthesize) {
+      status.textContent = "Bridge synthesis is unavailable. Install or reload the test build, then reload this page.";
+      return;
+    }
+    controller = new AbortController();
+    baseline.disabled = instructed.disabled = true;
+    cancel.disabled = false;
+    const spokenText = text.value;
+    const guidance = withInstructions ? instructions.value : undefined;
+    const chunks = [];
+    let accepted = false;
+    let done;
+    let byteLength = 0;
+    status.textContent = "Waiting for approval and synthesis…";
+    try {
+      for await (const chunk of window.inference.request({
+        method: "synthesize", text: spokenText,
+        ...(withInstructions ? { instructions: guidance } : {}),
+        signal: controller.signal,
+      })) {
+        if (done) throw new Error("Received a chunk after done.");
+        if (chunk.type === "accepted") {
+          if (accepted) throw new Error("Received duplicate accepted.");
+          accepted = true;
+          status.textContent = "Generating MP3…";
+        } else if (chunk.type === "audio_delta") {
+          if (!accepted || chunk.mediaType !== "audio/mpeg" || !(chunk.data instanceof Uint8Array) || !chunk.data.byteLength) {
+            throw new Error("Invalid audio chunk.");
+          }
+          chunks.push(chunk.data);
+          byteLength += chunk.data.byteLength;
+        } else if (chunk.type === "done") {
+          if (!accepted || chunk.audio?.mediaType !== "audio/mpeg" || chunk.audio.byteLength !== byteLength || !byteLength) {
+            throw new Error("MP3 byte count or stream order did not match.");
+          }
+          done = chunk;
+        } else throw new Error("Unexpected synthesis chunk.");
+      }
+      if (!done) throw new Error("Synthesis ended without done.");
+      const url = URL.createObjectURL(new Blob(chunks, { type: "audio/mpeg" }));
+      urls.push(url);
+      const result = document.createElement("li");
+      const caption = document.createElement("p");
+      caption.textContent = `${withInstructions ? "With instructions" : "Baseline"} · ${done.model} · ${byteLength.toLocaleString()} bytes\nText: ${spokenText}${withInstructions ? `\nInstructions: ${guidance}` : ""}`;
+      caption.style.whiteSpace = "pre-wrap";
+      const player = document.createElement("audio");
+      player.controls = true;
+      player.src = url;
+      result.append(caption, player);
+      results.append(result);
+      status.textContent = "MP3 ready. Press play to listen.";
+    } catch (error) {
+      status.textContent = `${error.code || error.name || "Error"}: ${error.message}`;
+    } finally {
+      controller = undefined;
+      baseline.disabled = instructed.disabled = false;
+      cancel.disabled = true;
+    }
+  }
+  baseline.addEventListener("click", () => generate(false));
+  instructed.addEventListener("click", () => generate(true));
+  cancel.addEventListener("click", () => controller?.abort());
+  window.addEventListener("pagehide", () => {
+    controller?.abort();
+    urls.forEach((url) => URL.revokeObjectURL(url));
+  });
+</script>
+</html>
