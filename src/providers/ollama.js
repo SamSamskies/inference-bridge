@@ -21,7 +21,7 @@ import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 import { mapTemperatureForOllama } from "./temperature.js";
 import {
   OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
-  ollamaModelHasAudio,
+  ollamaModelSupportsTranscription,
   ollamaTranscriptionMediaTypesForModel,
   transcribeOllama,
 } from "./ollama-speech.js";
@@ -208,7 +208,8 @@ export async function listOllamaModels({ signal } = {}) {
 
 /**
  * List only installed models whose fresh `/api/show` response advertises the
- * `audio` capability. A plain installed/chat model is never offered for STT.
+ * `audio` and `completion` capabilities. Audio embedding models cannot
+ * transcribe speech and must not appear in this catalog.
  * @param {{ signal?: AbortSignal }} [args]
  */
 export async function listOllamaTranscriptionModels({ signal } = {}) {
@@ -216,7 +217,7 @@ export async function listOllamaTranscriptionModels({ signal } = {}) {
   const support = await Promise.all(
     installed.map(async (model) => ({
       model,
-      supported: await ollamaModelHasAudio(model.id, { signal }),
+      supported: await ollamaModelSupportsTranscription(model.id, { signal }),
     }))
   );
   return support
@@ -695,7 +696,7 @@ export const ollamaProvider = {
     acceptedMediaTypes: OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
     maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
     async listAcceptedMediaTypesForModel({ model, signal }) {
-      return (await ollamaModelHasAudio(model, { signal }))
+      return (await ollamaModelSupportsTranscription(model, { signal }))
         ? ollamaTranscriptionMediaTypesForModel(model)
         : [];
     },

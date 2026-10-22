@@ -12,13 +12,13 @@ export const OLLAMA_TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
   "audio/mpeg",
 ]);
 
-// Ollama exposes only a coarse `audio` capability, not accepted input formats.
+// Ollama's `audio` capability does not declare accepted input formats.
 // Keep compressed formats fail-closed until a model/runtime combination has
 // been exercised against /v1/audio/transcriptions.
 export const OLLAMA_MP3_TRANSCRIPTION_MODELS = Object.freeze(["gemma4:e4b"]);
 
 /**
- * Potential media support before the fresh `/api/show` audio-capability probe.
+ * Potential media support before the fresh `/api/show` transcription probe.
  * @param {string} model
  * @returns {string[]}
  */
@@ -31,13 +31,15 @@ export function ollamaTranscriptionMediaTypesForModel(model) {
 }
 
 /**
- * Fail-closed model probe. Calls are intentionally not cached: the worker
+ * Ollama transcription needs both audio input and text generation. Audio
+ * embedding models also advertise `audio` but cannot produce a transcript.
+ * Calls are intentionally not cached: the worker
  * probes while listing and again immediately before upload because local
  * models and the Ollama daemon can change independently.
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
  */
-export async function ollamaModelHasAudio(model, { signal } = {}) {
+export async function ollamaModelSupportsTranscription(model, { signal } = {}) {
   if (!model) return false;
   await ensureOllamaOriginBypass();
   let response;
@@ -59,7 +61,8 @@ export async function ollamaModelHasAudio(model, { signal } = {}) {
     const payload = await response.json();
     return (
       Array.isArray(payload?.capabilities) &&
-      payload.capabilities.includes("audio")
+      payload.capabilities.includes("audio") &&
+      payload.capabilities.includes("completion")
     );
   } catch {
     return false;
@@ -101,10 +104,10 @@ export async function transcribeOllama(args) {
       "Transcription exceeds Ollama's multipart upload limit."
     );
   }
-  if (!(await ollamaModelHasAudio(args.model, { signal: args.signal }))) {
+  if (!(await ollamaModelSupportsTranscription(args.model, { signal: args.signal }))) {
     throw inferenceError(
       "unavailable",
-      `Ollama model "${args.model}" does not report the required "audio" capability.`
+      `Ollama model "${args.model}" does not report the required "audio" and "completion" capabilities for transcription. Select an audio-capable text-generation model.`
     );
   }
 
