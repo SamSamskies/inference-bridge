@@ -7,6 +7,7 @@ import {
 import {
   geminiCapabilities,
   geminiRequestWarning,
+  mapGeminiReasoningEffort,
 } from "../src/providers/gemini-capabilities.js";
 import { geminiFetch, readGeminiEvents } from "../src/providers/gemini-api.js";
 
@@ -92,6 +93,11 @@ describe("Gemini discovery and capability boundaries", () => {
               metadata(model),
               metadata("gemini-2.5-flash"),
               metadata("gemini-3.1-flash-lite-preview"),
+              metadata("gemini-3.1-pro-preview"),
+              metadata("gemini-3.1-pro-preview-customtools"),
+              metadata("gemini-flash-latest"),
+              metadata("gemini-flash-lite-latest"),
+              metadata("gemini-pro-latest"),
               metadata("nano-banana-pro-preview"),
               metadata("gemini-nano-banana-2.1"),
               metadata("antigravity-preview-latest"),
@@ -152,10 +158,27 @@ describe("Gemini discovery and capability boundaries", () => {
     ).toContain("not verified");
     expect(
       geminiRequestWarning(model, { options: { reasoningEffort: "none" } })
-    ).toContain("not supported");
+    ).toBe("");
     expect(
       geminiRequestWarning(model, { options: { reasoningEffort: "low" } })
     ).toBe("");
+  });
+  it("maps none to the lowest documented thinking level, leaving unknown controls unset", async () => {
+    expect(mapGeminiReasoningEffort(model, "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-4-argon", "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-3.6-flash", "none")).toBe(
+      "minimal"
+    );
+    expect(mapGeminiReasoningEffort("gemini-3.5-flash-lite", "none")).toBe(
+      "minimal"
+    );
+    expect(mapGeminiReasoningEffort(model, "auto")).toBeUndefined();
+    expect(mapGeminiReasoningEffort("unknown", "high")).toBeUndefined();
+    await chat({ options: { reasoningEffort: "none" } });
+    expect(
+      JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config
+        .thinking_level
+    ).toBe("low");
   });
   it("does not advertise typed Decisions or MP3 synthesis", () => {
     expect(geminiProvider.decisions).toBeUndefined();

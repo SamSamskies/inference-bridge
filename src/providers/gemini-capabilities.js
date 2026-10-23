@@ -28,11 +28,23 @@ const PROFILES = new Map([
   ],
   [
     "gemini-3.6-flash",
-    { image: true, functions: true, search: true, mixed: true },
+    {
+      image: true,
+      functions: true,
+      search: true,
+      mixed: true,
+      thinking: ["minimal", "low", "medium", "high"],
+    },
   ],
   [
     "gemini-3.5-flash-lite",
-    { image: true, functions: true, search: true, mixed: true },
+    {
+      image: true,
+      functions: true,
+      search: true,
+      mixed: true,
+      thinking: ["minimal", "low", "medium", "high"],
+    },
   ],
   [
     "gemini-3.1-pro-preview",
@@ -46,6 +58,14 @@ const PROFILES = new Map([
 
 export function geminiCapabilities(model) {
   return PROFILES.get(model) || {};
+}
+
+/** IPA preferences are best effort; `none` minimizes mandatory thinking. */
+export function mapGeminiReasoningEffort(model, effort) {
+  if (!effort || effort === "auto") return undefined;
+  const levels = geminiCapabilities(model).thinking;
+  if (effort === "none") return levels?.[0];
+  return levels?.includes(effort) ? effort : undefined;
 }
 
 /** Empty string means this request is supported by the verified profile. */
@@ -65,9 +85,5 @@ export function geminiRequestWarning(model, request = {}) {
     return `Function tools are not verified for ${model}. ${choose}`;
   if (search && functions && !caps.mixed)
     return `${model} cannot combine Google Search and function tools. Use separate requests or a supported Gemini 3 model.`;
-  const effort = request.options?.reasoningEffort;
-  if (effort && effort !== "auto" && !caps.thinking?.includes(effort)) {
-    return `Reasoning effort ${effort} is not supported by the verified ${model} profile. Use auto${caps.thinking ? ` or ${caps.thinking.join(", ")}` : ""}.`;
-  }
   return "";
 }

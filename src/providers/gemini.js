@@ -3,6 +3,7 @@ import { messagesHaveImageParts } from "../image-parts.js";
 import {
   geminiCapabilities,
   geminiRequestWarning,
+  mapGeminiReasoningEffort,
 } from "./gemini-capabilities.js";
 import {
   checkGeminiAbort,
@@ -32,6 +33,7 @@ function isChatModel(model) {
   return (
     typeof model?.name === "string" &&
     model.name.startsWith("models/") &&
+    !/(?:^|-)(?:latest|preview)(?:$|-)/i.test(model.name.slice(7)) &&
     !LEGACY_OR_RETIRED_MODELS.has(model.name.slice(7)) &&
     Array.isArray(model.supportedGenerationMethods) &&
     model.supportedGenerationMethods.includes("generateContent") &&
@@ -233,8 +235,11 @@ export const geminiProvider = {
     const generation = {};
     if (options?.temperature !== undefined)
       generation.temperature = options.temperature;
-    if (options?.reasoningEffort && options.reasoningEffort !== "auto")
-      generation.thinking_level = options.reasoningEffort;
+    const thinkingLevel = mapGeminiReasoningEffort(
+      model,
+      options?.reasoningEffort
+    );
+    if (thinkingLevel) generation.thinking_level = thinkingLevel;
     generation.thinking_summaries = "auto";
     if (activeTools.length)
       generation.tool_choice =

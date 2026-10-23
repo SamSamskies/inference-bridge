@@ -32,14 +32,18 @@ The regular model select uses the paginated Models API. Dedicated image, audio,
 embedding, video, robotics and agent families are excluded. A new key was
 verified on October 22, 2026 to reject `gemini-2.5-flash` with "no longer
 available to new users", despite listing it. This built-in provider excludes
-the 2.5 family and known retired previews; compat configs/grants are unchanged.
+the 2.5 family, preview models, and redundant `*-latest` aliases; compat
+configs/grants are unchanged. Google's current model index still identifies
+3.1 Pro as `gemini-3.1-pro-preview`; no stable replacement ID is assumed.
 A catalog entry alone does not guarantee account access.
 
 Optional image/function/search/thinking capabilities use exact verified
 profiles, independently of discovery. Unknown chat models never inherit them
 from a name prefix. Gemini 3.8 Flash and 4 Argon support image input, function
-tools, search, mixed tools and low/medium/high thinking. `none` fails clearly;
-`auto` leaves thinking at the provider default. Temperature is forwarded via
+tools, search, mixed tools and low/medium/high thinking. IPA `none` maps to the
+lowest documented level (`low` for these two models, `minimal` for 3.6 Flash
+and 3.5 Flash-Lite). Unverified thinking controls are omitted, as preferences
+are best effort. `auto` leaves thinking at the provider default. Temperature is forwarded via
 `generation_config`. Image output and native typed Decisions are not exposed.
 
 ## Dedicated transcription
@@ -88,7 +92,7 @@ This is an unfinished implementation branch; do not merge it yet.
   24 kHz mono audio. Public IPA synthesis remains blocked on IPA #68.
 - **Reasoning selection bug reported after the checkpoint:** the user's chat
   screenshot shows `unavailable: Reasoning effort none is not supported by the
-  verified gemini-3.8-flash profile. Use auto or low, medium, high.` Reproduce
+verified gemini-3.8-flash profile. Use auto or low, medium, high.` Reproduce
   through the demo/approval path and inspect where `none` is selected or sent.
   Fix the request/default or provider mapping as appropriate without silently
   changing the requested reasoning semantics. Validate normal chat afterward.
