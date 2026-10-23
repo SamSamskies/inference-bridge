@@ -132,7 +132,6 @@ describe("Gemini discovery and capability boundaries", () => {
     const models = await listGeminiModels({ apiKey: key });
     expect(models.map((entry) => entry.id)).toEqual([
       "gemma-4-26b-a4b-it",
-      "gemma-4-31b-it",
       "gemini-3.1-flash-lite",
       "gemini-3.5-flash-lite",
       model,
@@ -140,13 +139,12 @@ describe("Gemini discovery and capability boundaries", () => {
     ]);
     expect(models.map((entry) => entry.label)).toEqual([
       "Gemma 4 26B A4B IT",
-      "Gemma 4 31B IT",
       "Gemini 3.1 Flash Lite",
       "Gemini 3.5 Flash Lite",
       "Gemini 3.8 Flash",
       "Gemini 4 Argon",
     ]);
-    expect(models[4].inputModalities).toContain("image");
+    expect(models[3].inputModalities).toContain("image");
     expect(models[0].inputModalities).toEqual(["text"]);
     expect(fetch.mock.calls[1][0]).toContain("pageToken=next%20page");
     for (const [url, init] of fetch.mock.calls) {
@@ -217,6 +215,7 @@ describe("Gemini discovery and capability boundaries", () => {
     ).toBe("low");
   });
   it("does not advertise typed Decisions or MP3 synthesis", () => {
+    expect(geminiProvider.defaultModel).toBe("gemini-3.8-flash");
     expect(geminiProvider.decisions).toBeUndefined();
     expect(geminiProvider.decide).toBeUndefined();
     expect(geminiProvider.synthesis).toBeUndefined();
@@ -447,7 +446,7 @@ describe("Gemini native chat", () => {
     });
     await expect(
       chat({
-        model: "gemma-4-31b-it",
+        model: "gemma-4-26b-a4b-it",
         messages: [
           {
             role: "user",

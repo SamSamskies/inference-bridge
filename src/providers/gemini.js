@@ -22,7 +22,6 @@ export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 // authenticated Models.list are shown. Labels and ordering are user curated.
 const CHAT_MODELS = new Map([
   ["gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT"],
-  ["gemma-4-31b-it", "Gemma 4 31B IT"],
   ["gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"],
   ["gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"],
   ["gemini-3.8-flash", "Gemini 3.8 Flash"],
