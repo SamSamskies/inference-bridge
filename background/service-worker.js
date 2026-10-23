@@ -878,7 +878,7 @@ async function handleSpeechStart({
   const capabilityRequest =
     method === "transcribe"
       ? { mediaType: request.media.mediaType }
-      : { mediaType: "audio/mpeg" };
+      : { mediaType: request.output.mediaType };
   const capable = filterProvidersForMethod(
     await listAllProviders(),
     method,
@@ -889,7 +889,7 @@ async function handleSpeechStart({
       "unavailable",
       method === "transcribe"
         ? `No configured provider can transcribe ${request.media.mediaType}.`
-        : "No configured provider supports MP3 speech synthesis."
+        : `No configured provider supports ${request.output.mediaType} speech synthesis.`
     );
   }
 
@@ -925,7 +925,7 @@ async function handleSpeechStart({
           mediaType: request.media.mediaType,
           byteLength: request.media.byteLength,
         }
-      : { text: request.text }),
+      : { text: request.text, mediaType: request.output.mediaType }),
   });
 
   let entry = activeStreams.get(streamId);
@@ -1021,7 +1021,7 @@ async function handleSpeechStart({
     });
     if (
       !permission.voice ||
-      !provider.synthesis.outputMediaTypes.includes("audio/mpeg") ||
+      !provider.synthesis.outputMediaTypes.includes(request.output.mediaType) ||
       !voices.some((candidate) => candidate.id === permission.voice)
     ) {
       throw inferenceError(
@@ -1081,15 +1081,28 @@ async function handleSpeechStart({
   } else {
     beginSynthesisTransfer(streamId);
     let pendingAudio = null;
+    let producedBytes = 0;
     const result = await provider.synthesize({
       apiKey: settings.apiKeys[provider.id],
       model,
       voice: permission.voice,
       text: request.text,
-      mediaType: "audio/mpeg",
+      mediaType: request.output.mediaType,
       signal: controller.signal,
       onAudioDelta: async (data) => {
-        if (!(data instanceof Uint8Array) || data.byteLength === 0) return;
+        if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+          throw inferenceError(
+            "provider_error",
+            "Synthesis returned invalid audio bytes."
+          );
+        }
+        producedBytes += data.byteLength;
+        if (producedBytes > SYNTHESIS_OUTPUT_MAX_BYTES) {
+          throw inferenceError(
+            "provider_error",
+            "Synthesis exceeds the output byte limit."
+          );
+        }
         if (pendingAudio) {
           await sendSynthesisBytes(streamId, pendingAudio);
         }
@@ -1101,6 +1114,16 @@ async function handleSpeechStart({
       throw inferenceError(
         "provider_error",
         `${provider.label} returned no synthesis audio.`
+      );
+    }
+    if (
+      result.audio?.mediaType !== request.output.mediaType ||
+      !Number.isSafeInteger(result.audio?.byteLength) ||
+      result.audio.byteLength !== producedBytes
+    ) {
+      throw inferenceError(
+        "provider_error",
+        `${provider.label} synthesis format or byte length did not match the request and streamed audio.`
       );
     }
     await sendSynthesisBytes(streamId, pendingAudio, { done: true });

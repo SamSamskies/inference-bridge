@@ -187,7 +187,18 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter"]);
+    ).toEqual(["openai", "gemini", "openrouter"]);
+  });
+
+  it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
+    const all = listProviders();
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
+      .toEqual(["gemini"]);
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
+      .toEqual(["openai", "openrouter"]);
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);
+    expect(providerSupportsMethod({ synthesis: { outputMediaTypes: [] }, synthesize }, "synthesize"))
+      .toBe(false);
   });
 
   it("filters transcription providers by normalized declared media type", () => {

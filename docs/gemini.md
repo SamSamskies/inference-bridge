@@ -1,7 +1,8 @@
 # Google Gemini provider
 
 Implementation slices for [Bridge #104](https://github.com/SamSamskies/inference-bridge/issues/104).
-Keep this branch unmerged pending [IPA #68](https://github.com/SamSamskies/inference-provider-api/issues/68).
+The WAV contract from [IPA #69](https://github.com/SamSamskies/inference-provider-api/pull/69)
+is merged; the remaining validation status is recorded below.
 
 ## Setup and billing
 
@@ -76,26 +77,55 @@ files may remain until Google's [48-hour expiry](https://ai.google.dev/gemini-ap
 Interaction and Files storage are separate. Neither recordings nor transcripts
 are persisted locally. Silence/no speech is `invalid_request`.
 
-## TTS and the spec dependency
+## Dedicated synthesis
 
-`gemini-speech.js` prepares single-speaker `gemini-3.8-flash-tts` and
+`gemini-speech.js` exposes single-speaker `gemini-3.8-flash-tts` and
 `gemini-3.8-flash-lite-tts`, live prebuilt voices, Kore default, verbatim text,
 `store: false` and unary WAV. Base64 is decoded and checked as one RIFF/WAVE
 file with 24 kHz mono 16-bit PCM. The 32 MB output cap is enforced before
 bounded byte fragments are delivered with backpressure and cancellation.
 
-This adapter is deliberately unregistered for IPA synthesis: the current
-contract permits only MP3. Do not label WAV as MP3 or expose raw PCM. After
-IPA #68 settles discovery/stream rules, connect the descriptor and update
-injector, validation, approval filtering, transport, examples and conformance
-against the merged contract. Custom voices and multi-speaker audio stay out
-of scope.
+Use stable `request({ method: "synthesize", text, output: { mediaType: "audio/wav" } })`.
+Discovery advertises `{ outputMediaTypes: ["audio/mpeg", "audio/wav"] }` without
+provider or account identity. Omitted output still requests MP3, which Gemini
+cannot produce through this adapter. WAV approval lists only Gemini; MP3 lists
+OpenAI/OpenRouter. A saved incompatible provider/model/voice grant fails with
+`unavailable` before `accepted`, without silently changing the route.
+
+MAIN snapshots the requested MIME and labels every returned audio fragment
+accordingly. The worker verifies final MIME, exact byte count and the output cap;
+the Gemini adapter validates a single complete RIFF/WAVE container before
+delivering bytes. No encoder, repeated headers or raw PCM output is added.
+Voice discovery and provider calls stay privileged; custom voices and
+multi-speaker audio stay out of scope.
 
 ## Validation
 
-### Checkpoint — October 23, 2026
+### WAV integration — October 23, 2026
 
-Still unfinished; keep this branch unmerged.
+- Aligned with merged IPA #69 (`ee772696e7b09d6e53fcd2038c088e5d5e657ca2`),
+  including the vendored shared speech conformance helper from that commit.
+- The published speech demo called the public `window.inference` API with WAV,
+  the user approved Gemini 3.8 Flash TTS/Kore, and the page produced 105.3 KB of
+  audio. Chrome reported 2.12 seconds, `readyState: 4` and no media error. The
+  player remained paused until an explicit Play click, then reached its end.
+  A second request cancelled while waiting for approval; the page recovered and
+  the approval popup closed without output.
+- Automated Chrome and Firefox MAIN/relay/worker checks cover exact WAV bytes,
+  multiple transport fragments, format-aware approval, no provider traffic before
+  approval, incompatible saved grants in both directions, iterator cancellation,
+  and mismatched provider MIME metadata. Existing MP3 coverage still passes.
+- Native WAV validation rejects repeated containers, truncated/trailing chunks,
+  invalid PCM format information and inconsistent output before delivery.
+- Full suite: **1,096 tests passed, 3 skipped**. Firefox package lint:
+  **0 errors and 0 actionable warnings**. `git diff --check` passed.
+- Remaining manual checks: live Firefox acceptance and final Options checks for
+  the five-model list and provider key links. Broader live parallel/consecutive
+  function rounds would add coverage; those rounds already pass automated tests.
+
+### Chat/function checkpoint — October 23, 2026
+
+Historical checkpoint; the WAV notes above supersede its TTS dependency.
 
 - **Model/reasoning slice:** `none` now maps to the lowest documented thinking
   level. The live Chrome charts demo rendered an espresso-by-quarter bar chart

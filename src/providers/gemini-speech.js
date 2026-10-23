@@ -279,7 +279,7 @@ export async function listGeminiVoices(args = {}) {
   return [...voices.values()];
 }
 
-/** Prepared for IPA #68. Deliberately not advertised until WAV is normative. */
+/** Dedicated WAV synthesis, independent of the chat route. */
 export const geminiSynthesis = Object.freeze({
   defaultModel: GEMINI_TTS_MODELS[0],
   defaultVoice: "kore",
@@ -304,7 +304,7 @@ export async function geminiSynthesize({
   if (mediaType !== "audio/wav")
     throw geminiError(
       "unavailable",
-      "Gemini synthesis requires WAV output (pending IPA #68)"
+      "Gemini synthesis requires WAV output"
     );
   if (
     typeof text !== "string" ||
@@ -369,25 +369,51 @@ export async function geminiSynthesize({
       "Google Gemini returned invalid RIFF/WAVE audio"
     );
   let pcm = false,
-    data = false;
-  for (let offset = 12; offset + 8 <= bytes.length; ) {
+    data = false,
+    offset = 12;
+  while (offset < bytes.length) {
+    if (offset + 8 > bytes.length || tag(offset) === "RIFF")
+      throw geminiError(
+        "provider_error",
+        "Google Gemini returned invalid WAV chunks"
+      );
     const length = view.getUint32(offset + 4, true);
     if (offset + 8 + length > bytes.length)
       throw geminiError(
         "provider_error",
         "Google Gemini returned a truncated WAV chunk"
       );
-    if (tag(offset) === "fmt ")
+    if (tag(offset) === "fmt ") {
+      if (pcm)
+        throw geminiError(
+          "provider_error",
+          "Google Gemini returned repeated WAV format information"
+        );
       pcm =
         length >= 16 &&
         view.getUint16(offset + 8, true) === 1 &&
         view.getUint16(offset + 10, true) === 1 &&
         view.getUint32(offset + 12, true) === 24000 &&
+        view.getUint32(offset + 16, true) === 48000 &&
+        view.getUint16(offset + 20, true) === 2 &&
         view.getUint16(offset + 22, true) === 16;
-    if (tag(offset) === "data") data = length > 0 && length % 2 === 0;
+      if (!pcm)
+        throw geminiError(
+          "provider_error",
+          "Google Gemini WAV must contain 24 kHz mono 16-bit PCM"
+        );
+    }
+    if (tag(offset) === "data") {
+      if (!pcm || data || length === 0 || length % 2 !== 0)
+        throw geminiError(
+          "provider_error",
+          "Google Gemini returned invalid WAV audio data"
+        );
+      data = true;
+    }
     offset += 8 + length + (length % 2);
   }
-  if (!pcm || !data)
+  if (offset !== bytes.length || !pcm || !data)
     throw geminiError(
       "provider_error",
       "Google Gemini WAV must contain 24 kHz mono 16-bit PCM"

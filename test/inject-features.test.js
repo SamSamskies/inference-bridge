@@ -43,7 +43,7 @@ const optionalMethods = {
       { mediaType: "video/webm" },
     ],
   },
-  synthesize: true,
+  synthesize: { outputMediaTypes: ["audio/mpeg", "audio/wav"] },
 };
 
 describe("window.inference.getFeatures", () => {
@@ -77,6 +77,7 @@ describe("window.inference.getFeatures", () => {
     const inference = loadInference();
     const snapshot = inference.getFeatures();
     snapshot.methods.transcribe.acceptedMedia.length = 0;
+    snapshot.methods.synthesize.outputMediaTypes.length = 0;
     snapshot.methods.decide = false;
     expect(inference.getFeatures().methods).toEqual(optionalMethods);
     const alias = inference.experimental.getFeatures();

@@ -1,6 +1,7 @@
 import { validateDecideRequest } from "./decisions.js";
 import {
   SYNTHESIS_OUTPUT_MEDIA_TYPE,
+  SYNTHESIS_OUTPUT_MEDIA_TYPES,
   TRANSCRIPTION_INPUT_MAX_BYTES,
   isStructurallyValidLanguageTag,
   isValidSynthesisText,
@@ -854,11 +855,11 @@ function validateSynthesizeRequest(req) {
     }
     if (
       output.mediaType !== undefined &&
-      output.mediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE
+      !SYNTHESIS_OUTPUT_MEDIA_TYPES.includes(output.mediaType)
     ) {
       return {
         ok: false,
-        message: `output.mediaType must be "${SYNTHESIS_OUTPUT_MEDIA_TYPE}".`,
+        message: 'output.mediaType must be "audio/mpeg" or "audio/wav".',
       };
     }
   }
@@ -868,7 +869,7 @@ function validateSynthesizeRequest(req) {
     value: {
       method: "synthesize",
       text: req.text,
-      output: { mediaType: SYNTHESIS_OUTPUT_MEDIA_TYPE },
+      output: { mediaType: req.output?.mediaType ?? SYNTHESIS_OUTPUT_MEDIA_TYPE },
     },
   };
 }

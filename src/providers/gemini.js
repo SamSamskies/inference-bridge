@@ -13,7 +13,12 @@ import {
   geminiJson,
   readGeminiEvents,
 } from "./gemini-api.js";
-import { geminiTranscription, geminiTranscribe } from "./gemini-speech.js";
+import {
+  geminiTranscription,
+  geminiTranscribe,
+  geminiSynthesis,
+  geminiSynthesize,
+} from "./gemini-speech.js";
 import { geminiCallState } from "./gemini-call-state.js";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
@@ -229,6 +234,8 @@ export const geminiProvider = {
   hostedTools: Object.freeze(["web_search"]),
   transcription: geminiTranscription,
   transcribe: geminiTranscribe,
+  synthesis: geminiSynthesis,
+  synthesize: geminiSynthesize,
   async preflightChat({ model, messages, apiKey, origin, ...request }) {
     if (!CHAT_MODELS.has(model))
       throw geminiError(

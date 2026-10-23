@@ -9,7 +9,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 ## Features
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
-- Bounded transcription and MP3 speech synthesis, with separate approval for each operation
+- Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
 - Typed decisions through stable `request()`, using OpenAI, OpenRouter, or local Ollama
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
@@ -483,7 +483,7 @@ Approval lists function names and **Web search (provider-hosted)** / **Web searc
 
 ## Bounded speech
 
-Bounded transcription and MP3 synthesis are optional IPA methods on stable
+Bounded transcription and speech synthesis are optional IPA methods on stable
 `request`. Speech is available by default, with separate site approval for each
 operation. Configure provider/model/voice defaults in **Options → Speech** and
 feature-detect before use:
@@ -493,6 +493,7 @@ const methods = window.inference.getFeatures().methods ?? {};
 console.log(methods.transcribe?.acceptedMedia);
 // [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
 console.log(Boolean(methods.synthesize)); // true in this build
+console.log(methods.synthesize.outputMediaTypes); // ["audio/mpeg", "audio/wav"]
 ```
 
 Both methods are lazy `AsyncIterable` requests and retain the normal approval,
@@ -503,6 +504,11 @@ are isolated by origin and operation and can be revoked separately in Options.
 Speech discovery reports supported API surface without exposing provider, model,
 voice, credentials, or site grants. A selected route can still be unavailable.
 The deprecated experimental alias uses the same operation grants.
+Omitted synthesis output always requests MP3. WAV requires explicit
+`output: { mediaType: "audio/wav" }`. Approval lists only matching providers;
+an incompatible saved route fails with `unavailable` before `accepted`, without
+changing encoding or providers. Legacy injectors advertising `synthesize: true`
+support MP3 only.
 
 Current implementation limits (Bridge-specific, not IPA constants):
 
@@ -515,8 +521,8 @@ Current implementation limits (Bridge-specific, not IPA constants):
 - Files are passed through unchanged. For MP4/WebM, the complete container,
   including visual bytes, can be uploaded to the selected provider; only its
   audio track has transcription semantics.
-- Synthesis accepts up to 4,096 Unicode code points and returns only MP3
-  (`audio/mpeg`), capped at 32,000,000 bytes.
+- Synthesis accepts up to 4,096 Unicode code points and returns MP3
+  (`audio/mpeg`) or explicit WAV (`audio/wav`), capped at 32,000,000 bytes.
 - Language hints must be structurally valid BCP 47 tags. OpenRouter accepts
   two-letter language hints; richer hints fail with `unavailable` before upload
   instead of being reduced silently. Omit the hint for detection.
@@ -533,25 +539,37 @@ Current implementation limits (Bridge-specific, not IPA constants):
   and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
   Bridge's 24 MB limit. Remote file deletion is attempted after success,
   failure, or cancellation. See the [Gemini guide](docs/gemini.md) for retention
-  and capability limits. Native WAV TTS is prepared but unadvertised pending
-  [IPA #68](https://github.com/SamSamskies/inference-provider-api/issues/68).
+  and capability limits. Dedicated `gemini-3.8-flash-tts` and
+  `gemini-3.8-flash-lite-tts` return a single native WAV file with 24 kHz mono
+  16-bit PCM, split into bounded transport fragments without changing bytes.
 
 Paste-ready synthesis example:
 
 ```js
 const parts = [];
+const mediaType = "audio/mpeg"; // Use "audio/wav" for a Gemini TTS route.
+let done;
 for await (const chunk of window.inference.request({
   method: "synthesize",
-  text: "Hello from Inference Bridge."
+  text: "Hello from Inference Bridge.",
+  output: { mediaType }
 })) {
   console.log(chunk);
-  if (chunk.type === "audio_delta") parts.push(chunk.data);
+  if (chunk.type === "audio_delta") {
+    if (chunk.mediaType !== mediaType) throw new Error("Unexpected audio format");
+    parts.push(chunk.data.slice());
+  }
+  if (chunk.type === "done") done = chunk;
 }
-
+const blob = new Blob(parts, { type: done.audio.mediaType });
+if (done.audio.mediaType !== mediaType || blob.size !== done.audio.byteLength) {
+  throw new Error("Incomplete audio stream");
+}
 const audio = document.createElement("audio");
 audio.controls = true;
-audio.src = URL.createObjectURL(new Blob(parts, { type: "audio/mpeg" }));
+audio.src = URL.createObjectURL(blob);
 document.body.append(audio); // Playback remains an explicit user action.
+// When removing the player: audio.pause(); URL.revokeObjectURL(audio.src); audio.remove();
 ```
 
 Paste-ready transcription example:
@@ -929,7 +947,9 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
 - [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
-- [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
+- [ ] Explicit WAV lists only Gemini synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops unary generation and fragment delivery
+- [ ] A saved MP3-only route rejects WAV, and a saved WAV-only route rejects omitted output, before `accepted` without switching routes
+- [ ] Synthesis approval shows the text summary, requested format, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
 - [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis
 - [ ] AbortSignal rejects pending iteration with `aborted`; iterator `return()` closes it; both stop upload/download and yield no `done`

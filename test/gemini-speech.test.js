@@ -259,7 +259,7 @@ describe("Gemini dedicated transcription", () => {
   });
 });
 
-describe("Gemini WAV synthesis prepared for IPA #68", () => {
+describe("Gemini WAV synthesis", () => {
   it("uses the live prebuilt voice library, including snake-case pagination", async () => {
     fetch.mockResolvedValueOnce(
       Response.json({
@@ -332,6 +332,20 @@ describe("Gemini WAV synthesis prepared for IPA #68", () => {
     { mime_type: "audio/wav", data: "!!!=" },
     { mime_type: "audio/wav", data: wav(4, 16000).toString("base64") },
     { mime_type: "audio/wav", data: Buffer.alloc(48).toString("base64") },
+    { mime_type: "audio/wav", data: (() => {
+      const bytes = Buffer.concat([wav(4), wav(4)]);
+      bytes.writeUInt32LE(bytes.length - 8, 4);
+      return bytes.toString("base64");
+    })() },
+    { mime_type: "audio/wav", data: (() => {
+      const bytes = Buffer.concat([wav(4), Buffer.from([0])]);
+      bytes.writeUInt32LE(bytes.length - 8, 4);
+      return bytes.toString("base64");
+    })() },
+    { mime_type: "audio/wav", data: (() => {
+      const bytes = wav(4); bytes.writeUInt16LE(4, 32);
+      return bytes.toString("base64");
+    })() },
   ])("rejects invalid output before delivering any bytes", async (audio) => {
     const original = fetch.getMockImplementation();
     fetch.mockImplementation((url, init) =>

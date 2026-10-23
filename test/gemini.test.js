@@ -214,12 +214,12 @@ describe("Gemini discovery and capability boundaries", () => {
         .thinking_level
     ).toBe("low");
   });
-  it("does not advertise typed Decisions or MP3 synthesis", () => {
+  it("advertises dedicated WAV synthesis and no typed Decisions", () => {
     expect(geminiProvider.defaultModel).toBe("gemini-3.8-flash");
     expect(geminiProvider.decisions).toBeUndefined();
     expect(geminiProvider.decide).toBeUndefined();
-    expect(geminiProvider.synthesis).toBeUndefined();
-    expect(geminiProvider.synthesize).toBeUndefined();
+    expect(geminiProvider.synthesis.outputMediaTypes).toEqual(["audio/wav"]);
+    expect(typeof geminiProvider.synthesize).toBe("function");
   });
 });
 

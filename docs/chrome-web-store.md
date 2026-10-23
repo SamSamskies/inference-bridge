@@ -68,7 +68,7 @@ Bring your own API keys for supported cloud providers, run a local model server,
 • Function tools executed by the requesting website
 • Hosted web search when the selected provider supports it
 • Image input and output on window.inference.request when the selected model supports vision or image generation
-• Bounded transcription and MP3 speech synthesis with separate per-site approval
+• Bounded transcription and MP3/WAV speech synthesis with separate per-site approval
 • Typed decisions on cloud or local decision models, available by default with separate per-site approval
 • Per-site Allow / Deny / Remember prompts
 • You pick the provider and model in Options
@@ -98,7 +98,7 @@ Chrome Web Store caps each justification field at **1000 characters**. Host perm
 ```
 https://api.openai.com/* — Chat, images, separately approved decisions, and separately approved speech when the user selects OpenAI.
 https://api.anthropic.com/* — Messages API when the user selects Anthropic.
-https://generativelanguage.googleapis.com/* — Gemini models, approved chat/search, and separately approved file transcription with cleanup.
+https://generativelanguage.googleapis.com/* — Gemini models/voices, approved chat/search, and separately approved transcription (file cleanup) and WAV synthesis.
 https://openrouter.ai/* — Models, chat/images, separately approved decisions, and separately approved speech when the user selects OpenRouter.
 https://ollama.com/* — Hosted web search/fetch when the user selects Ollama and requests web_search (optional Ollama API key).
 http://localhost:11434/* — Built-in local Ollama for chat, approved speech, or approved decisions. Custom 127.0.0.1 endpoints use optional access on save.
@@ -127,7 +127,7 @@ Align the store questionnaire with [`PRIVACY.md`](../PRIVACY.md):
 - Speech recordings/media sent only to the selected provider after operation-specific approval; complete MP4/WebM containers can include visual bytes even though transcription uses only audio
 - Typed decisions JSON state and questions sent only to the selected OpenAI, OpenRouter, or local Ollama endpoint after separate operation approval; typed answers returned to the page; payloads held in memory, not persisted
 - Recordings can contain biometric voice data and sensitive bystander, location, health, background-conversation, or ambient information
-- Synthesis text sent to the selected provider and generated MP3 bytes returned directly to the requesting page
+- Synthesis text sent to the selected provider and generated MP3/WAV bytes returned directly to the requesting page
 - No storage of recordings, transcripts, or generated audio; no microphone/tab capture and no automatic playback
 - No sale of data; no remote Inference Bridge backend
 
@@ -146,7 +146,7 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the [README manual checklist](../README.md#manual-checks) on a clean profile:
 
 1. Load `build/chrome/` through **Load unpacked** on `chrome://extensions`, or extract the release ZIP and load that directory. Chrome does not install the store ZIP directly.
-2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
+2. Confirm OpenAI, Anthropic, Google Gemini, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
 4. Confirm built-in hosts are OpenAI / Anthropic / Google Gemini / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host access on save.
 

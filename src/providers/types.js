@@ -164,13 +164,13 @@
  *     model: string,
  *     voice: string,
  *     text: string,
- *     mediaType: "audio/mpeg",
+ *     mediaType: "audio/mpeg" | "audio/wav",
  *     signal: AbortSignal,
  *     onAudioDelta: (data: Uint8Array) => void | Promise<void>,
  *   }) => Promise<{
  *     model: string,
  *     audio: {
- *       mediaType: "audio/mpeg",
+ *       mediaType: "audio/mpeg" | "audio/wav",
  *       byteLength: number,
  *     },
  *     usage?: { inputCharacters?: number, outputSeconds?: number },
