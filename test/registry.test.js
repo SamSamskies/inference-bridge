@@ -21,10 +21,11 @@ beforeEach(() => {
 });
 
 describe("provider registry", () => {
-  it("registers openai, anthropic, openrouter, ollama, and on-device", () => {
+  it("registers the built-in providers", () => {
     const ids = listProviders().map((p) => p.id).sort();
     expect(ids).toEqual([
       "anthropic",
+      "gemini",
       "ollama",
       "on-device",
       "openai",
@@ -67,6 +68,7 @@ describe("provider registry", () => {
       const all = await listAllProviders();
       expect(all.map((p) => p.id).sort()).toEqual([
         "anthropic",
+        "gemini",
         "ollama",
         "on-device",
         "openai",
@@ -180,7 +182,7 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ollama"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id

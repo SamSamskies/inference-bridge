@@ -98,6 +98,7 @@ Chrome Web Store caps each justification field at **1000 characters**. Host perm
 ```
 https://api.openai.com/* — Chat, images, separately approved decisions, and separately approved speech when the user selects OpenAI.
 https://api.anthropic.com/* — Messages API when the user selects Anthropic.
+https://generativelanguage.googleapis.com/* — Gemini models, approved chat/search, and separately approved file transcription with cleanup.
 https://openrouter.ai/* — Models, chat/images, separately approved decisions, and separately approved speech when the user selects OpenRouter.
 https://ollama.com/* — Hosted web search/fetch when the user selects Ollama and requests web_search (optional Ollama API key).
 http://localhost:11434/* — Built-in local Ollama for chat, approved speech, or approved decisions. Custom 127.0.0.1 endpoints use optional access on save.
@@ -147,7 +148,7 @@ Run through the [README manual checklist](../README.md#manual-checks) on a clean
 1. Load `build/chrome/` through **Load unpacked** on `chrome://extensions`, or extract the release ZIP and load that directory. Chrome does not install the store ZIP directly.
 2. Confirm OpenAI, Anthropic, OpenRouter, Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
-4. Confirm install-time host permissions remain OpenAI / Anthropic / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host permissions requested per origin on save.
+4. Confirm built-in hosts are OpenAI / Anthropic / Google Gemini / OpenRouter / ollama.com (web search) / Ollama port only; custom endpoints use optional host access on save.
 
 ## Submit (manual)
 

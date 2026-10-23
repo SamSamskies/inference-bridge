@@ -67,7 +67,7 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
 - [ ] Run the README decisions checks in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
 - [ ] Run the README speech checks in Firefox: immediate speech discovery, transcription upload, MP3 synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
-- [ ] Test OpenAI, Anthropic, OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
+- [ ] Test OpenAI, Anthropic, Google Gemini (including revoked host access, search, and file transcription), OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
 - [ ] Revoke built-in and custom host grants in `about:addons`; affected calls fail with a clear error and never switch providers.
 - [ ] Terminate the event page during approval and streaming; the iterator settles and no approval popup remains.
 - [ ] Restart Firefox with a packaged/signed install and verify storage, DNR rules, grants, and Options. Temporary installs do not prove install-time prompts or restart behavior.

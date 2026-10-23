@@ -39,6 +39,8 @@ describe("browser packages", () => {
       const manifest = JSON.parse(command("unzip", ["-p", zip, "manifest.json"]));
       expect(manifest.version).toBe(packageJson.version);
       expect(manifest.name).toBe("Inference Bridge");
+      expect(manifest.host_permissions).toContain("https://generativelanguage.googleapis.com/*");
+      expect(files).toContain("src/providers/gemini.js");
       for (const permission of ["tabs", "history", "webNavigation"]) {
         expect(manifest.permissions).not.toContain(permission);
         expect(manifest.optional_permissions || []).not.toContain(permission);

@@ -4,6 +4,7 @@
 
 import { openaiProvider } from "./openai.js";
 import { anthropicProvider } from "./anthropic.js";
+import { geminiProvider } from "./gemini.js";
 import { ollamaProvider } from "./ollama.js";
 import { openrouterProvider } from "./openrouter.js";
 import { onDeviceProvider } from "./on-device.js";
@@ -24,6 +25,7 @@ import {
 const providers = new Map([
   [openaiProvider.id, openaiProvider],
   [anthropicProvider.id, anthropicProvider],
+  [geminiProvider.id, geminiProvider],
   [openrouterProvider.id, openrouterProvider],
   [ollamaProvider.id, ollamaProvider],
   [onDeviceProvider.id, onDeviceProvider],

@@ -102,6 +102,7 @@ export function providerMapsImageInput(provider) {
     id === "ollama" ||
     id === "openai" ||
     id === "anthropic" ||
+    id === "gemini" ||
     id === "on-device"
   ) {
     return true;
@@ -152,7 +153,7 @@ export function blocksAllowForImages(provider, request) {
     if (provider?.id === "ollama") {
       return request.modelHasVision !== true;
     }
-    if (provider?.id === "openrouter") {
+    if (provider?.id === "openrouter" || provider?.id === "gemini") {
       return request.modelHasVision !== true;
     }
     if (providerMapsImageInput(provider)) return false;

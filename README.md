@@ -51,6 +51,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
+   - **Google Gemini** — paste a Google AI Studio API key and click **Save** to load the live model list, then choose a model
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
@@ -63,6 +64,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
+| Google Gemini | Google AI Studio API key in Options | Live Models API catalog in a regular select; native Interactions chat/search and dedicated transcription. See the [Gemini guide](docs/gemini.md). |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
@@ -273,6 +275,7 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 | --- | --- |
 | OpenAI | Responses API (`/v1/responses`) |
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
+| Google Gemini | Native Interactions `{ type: "google_search" }` on verified models; source links preserved in response text. Tokens and search queries can incur charges. |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
 | OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
@@ -470,6 +473,7 @@ console.log("[final]", final.message.content);
 | --- | --- |
 | OpenAI | Responses API for GPT-6 models, hosted search, or image output; otherwise Chat Completions `tools` |
 | Anthropic | Messages API `tools` |
+| Google Gemini | Native Interactions function steps; mixed Google Search and functions only on verified models |
 | OpenRouter | Chat Completions `tools` |
 | Ollama | `/api/chat` `tools` |
 | OpenAI-compatible | Chat Completions `tools` |
@@ -525,6 +529,12 @@ Current implementation limits (Bridge-specific, not IPA constants):
   `gemma4:e4b` model because other model/runtime combinations may reject it.
   Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
   synthesis are unavailable rather than emulated through chat.
+- Google Gemini uses dedicated `gemini-3.5-transcribe` with a Files API upload
+  and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
+  Bridge's 24 MB limit. Remote file deletion is attempted after success,
+  failure, or cancellation. See the [Gemini guide](docs/gemini.md) for retention
+  and capability limits. Native WAV TTS is prepared but unadvertised pending
+  [IPA #68](https://github.com/SamSamskies/inference-provider-api/issues/68).
 
 Paste-ready synthesis example:
 

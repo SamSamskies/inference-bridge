@@ -142,6 +142,7 @@
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
+ *   preflightChat?: (args: { model: string, messages: ChatMessage[], tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void,
  *   transcribe?: (args: {
  *     apiKey?: string,
  *     model: string,

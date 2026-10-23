@@ -981,7 +981,7 @@ async function handleSpeechStart({
     signal: controller.signal,
   });
   if (
-    operationModels.length > 0 &&
+    (operationModels.length > 0 || provider.id === "gemini") &&
     !operationModels.some((candidate) => candidate.id === model)
   ) {
     throw inferenceError(
@@ -1309,6 +1309,7 @@ async function handleStart(port, msg, onStreamId) {
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
+    provider.preflightChat?.({ ...validated.value, model });
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
     // readiness here so downloadable/missing (and vision-only gaps) fail

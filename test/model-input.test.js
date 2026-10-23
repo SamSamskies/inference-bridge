@@ -68,7 +68,8 @@ describe("usesModelAutosuggest", () => {
     expect(usesModelAutosuggest("compat:abc", [])).toBe(true);
   });
 
-  it("is disabled for OpenAI and Ollama", () => {
+  it("uses a regular select for Gemini, OpenAI and Ollama", () => {
+    expect(usesModelAutosuggest("gemini")).toBe(false);
     expect(usesModelAutosuggest("openai")).toBe(false);
     expect(usesModelAutosuggest("ollama")).toBe(false);
   });
