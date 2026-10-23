@@ -28,7 +28,7 @@ import {
   ON_DEVICE_MODEL_ID,
   ON_DEVICE_PROVIDER_ID,
 } from "../src/prompt-api-core.js";
-import { geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
+import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -806,7 +806,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
           requestMethod === "transcribe" &&
           requestMediaType === "audio/mpeg"
           ? "Ollama MP3 support is model-specific. WAV is more compatible."
-          : ""
+          : providerId === "gemini" ? geminiModelNote(readModelValue(providerId)) : ""
       );
       modelsReady = true;
     }
@@ -1253,6 +1253,7 @@ providerSelect.addEventListener("change", () => {
 });
 
 modelSelect.addEventListener("change", () => {
+  if (providerSelect.value === "gemini") setModelHint(geminiModelNote(readModelValue("gemini")));
   updateAllowEnabled();
   void refreshVisionCapability();
   if (requestMethod === "synthesize") {

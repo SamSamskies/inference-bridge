@@ -32,9 +32,10 @@ The regular model select uses the paginated Models API. Dedicated image, audio,
 embedding, video, robotics and agent families are excluded. A new key was
 verified on October 22, 2026 to reject `gemini-2.5-flash` with "no longer
 available to new users", despite listing it. This built-in provider excludes
-the 2.5 family, preview models, and redundant `*-latest` aliases; compat
-configs/grants are unchanged. Google's current model index still identifies
-3.1 Pro as `gemini-3.1-pro-preview`; no stable replacement ID is assumed.
+the 2.5 family, redundant `*-latest` aliases, and preview models except 3.1 Pro;
+compat configs/grants are unchanged. Google's current model index still
+identifies 3.1 Pro as `gemini-3.1-pro-preview`. Its picker label is **Gemini 3.1
+Pro**, with preview status in a separate hint; no stable replacement ID is assumed.
 A catalog entry alone does not guarantee account access.
 
 Optional image/function/search/thinking capabilities use exact verified
@@ -79,6 +80,59 @@ against the merged contract. Custom voices and multi-speaker audio stay out
 of scope.
 
 ## Validation
+
+### Checkpoint — October 23, 2026
+
+Still unfinished; keep this branch unmerged.
+
+- **Model/reasoning slice:** `none` now maps to the lowest documented thinking
+  level. The live Chrome charts demo rendered an espresso-by-quarter bar chart
+  using Gemini 3.8 Flash and its existing `reasoningEffort: "none"` request.
+  That demo uses `maxRounds: 1`, so it does not verify tool-result continuation.
+- **Model/UI cleanup:** redundant latest aliases and other previews are filtered.
+  At the user's subsequent request, retain discovered 3.1 Pro under its short
+  name, with a preview hint in default Options and approvals. Regular dropdowns
+  show friendly labels without parenthesized slugs; internal values stay IDs.
+  Official key links now cover OpenAI, Anthropic, Gemini, OpenRouter, and optional
+  Ollama search credentials. Their destinations were checked against official
+  sources. Remaining UI acceptance includes checking each provider link and the
+  3.1 Pro hint in the running extension; changing these controls need not Save.
+- **Function continuation still returns HTTP 400.** A direct native unary probe
+  succeeded when replaying original signed function steps (with or without tool
+  declarations). The worker adapter now privately retains signed function steps,
+  scopes them by trusted origin/model/credential, and sends native text-content
+  arrays as function results. These changes have not solved the streamed public
+  IPA continuation. A two-turn synthetic `add(2, 3)` page check still failed after
+  both reloads; do not report function calling as ready to ship.
+- Private function state is bounded to 128 calls / 2 MB / 30 minutes, lives only
+  in worker memory, and clears on worker shutdown. Missing state fails before
+  `accepted` with a restart-conversation message; signatures never reach pages.
+  This is an interim mechanism, not the complete native response-bundle replay.
+- **GPT-6 Astra review completed**, read-only, with no keys or live calls. It
+  confirmed that native `thought` steps and `thought_signature` deltas are dropped.
+  It also found that completion-only function signatures were lost when argument
+  fragments streamed; that narrow merge bug is fixed with regression coverage.
+- **Next diagnostic:** start an entirely fresh tool conversation with
+  `thinking_summaries` omitted on both first call and continuation. The successful
+  unary probe omitted it; the adapter currently always requests `"auto"`. Changing
+  only the second request does not isolate the first response's lost history.
+  Summary-related upstream failures remain a hypothesis until this comparison.
+- **Complete replay design if needed:** cache the ordered native response bundle,
+  including thought signatures/summaries and function steps; associate parallel
+  calls with the same bundle; replace the assistant turn with that bundle once;
+  validate unchanged portable calls and append results. Preserve current bounds
+  and origin/model/key isolation. Cover multiple calls, consecutive rounds,
+  signatures finalized at completion, and identical replay with/without terminal
+  steps. Do not expose signatures or add page-owned provider fields to IPA.
+- Public WAV synthesis still awaits IPA #68; live Firefox acceptance is pending.
+  Earlier chat/search/image/transcription/WAV evidence is recorded below and was
+  not all repeated today. The installed worker predates the final completion-merge
+  fix; reload before the next live test and refresh claimed demos from automation.
+- Final checkpoint checks: **1,063 tests passed, 3 skipped**; Firefox package lint
+  reported **0 errors and 0 actionable warnings**. `git diff --check` passed.
+- Synthetic browser harness, if still present: `/private/tmp/gemini-ipa-check.html`.
+  It checks exactly one accepted/done per turn, stream/final text equality,
+  `add(2, 3)` arguments, no public signature field, and final `toolChoice: "none"`.
 
 ### Checkpoint — October 22, 2026
 

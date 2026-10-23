@@ -102,7 +102,7 @@ for await (const chunk of window.inference.request({
 
 ### Anthropic
 
-1. Create an API key at [console.anthropic.com](https://console.anthropic.com/)
+1. Create an API key in the [Anthropic Console](https://platform.claude.com/settings/keys)
 2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5-5`; pick another Claude model from the list), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 

@@ -35,6 +35,7 @@ import {
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
 import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -583,6 +584,31 @@ function syncApiKeyDraftFromInput() {
   apiKeyDrafts[apiKeyBoundProviderId] = apiKeyInput.value;
 }
 
+const API_KEY_SETUP_LINKS = Object.freeze({
+  openai: {
+    href: "https://platform.openai.com/api-keys",
+    label: "Get an OpenAI API key",
+  },
+  anthropic: {
+    href: "https://platform.claude.com/settings/keys",
+    label: "Get an Anthropic API key",
+  },
+  openrouter: {
+    href: "https://openrouter.ai/keys",
+    label: "Get an OpenRouter API key",
+  },
+  gemini: {
+    href: "https://aistudio.google.com/apikey",
+    label: "Create a key in Google AI Studio",
+    detail: ". Save the key to load models. Gemini API billing is separate from Google AI subscriptions; model tokens and Google Search queries may incur charges.",
+  },
+  ollama: {
+    href: "https://ollama.com/settings/keys",
+    label: "Get an Ollama API key",
+    detail: ". Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.",
+  },
+});
+
 /**
  * Show the API key field for providers that require a key or accept an optional one.
  * @param {string} providerId
@@ -609,25 +635,9 @@ function updateApiKeyField(providerId) {
   if (provider.id === "ollama") {
     apiKeyLabel.textContent = "Ollama API key (optional, for web search)";
     apiKeyInput.placeholder = "Ollama account API key";
-    if (apiKeyHint) {
-      apiKeyHint.hidden = false;
-      apiKeyHint.textContent =
-        "Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.";
-    }
   } else if (provider.id === "gemini") {
     apiKeyLabel.textContent = "Google Gemini API key";
     apiKeyInput.placeholder = "Google AI Studio API key";
-    if (apiKeyHint) {
-      apiKeyHint.hidden = false;
-      const link = document.createElement("a");
-      link.href = "https://aistudio.google.com/apikey";
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "Create a key in Google AI Studio";
-      apiKeyHint.replaceChildren(link, document.createTextNode(
-        ". Save the key to load models. Gemini API billing is separate from Google AI subscriptions; model tokens and Google Search queries may incur charges."
-      ));
-    }
   } else {
     apiKeyLabel.textContent = provider.optionalApiKey
       ? `${provider.label} API key (optional)`
@@ -640,9 +650,18 @@ function updateApiKeyField(providerId) {
           : provider.optionalApiKey
             ? "Leave blank if not required"
             : "sk-...";
-    if (apiKeyHint) {
-      apiKeyHint.hidden = true;
-      apiKeyHint.textContent = "";
+  }
+  if (apiKeyHint) {
+    const setup = API_KEY_SETUP_LINKS[provider.id];
+    apiKeyHint.hidden = !setup;
+    apiKeyHint.replaceChildren();
+    if (setup) {
+      const link = document.createElement("a");
+      link.href = setup.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = setup.label;
+      apiKeyHint.replaceChildren(link, document.createTextNode(setup.detail || ""));
     }
   }
   apiKeyInput.value = apiKeyDrafts[provider.id] || "";
@@ -943,6 +962,10 @@ async function refreshDefaultModels(providerId, preferredModel) {
         "Saved model is not in the current catalog; it will still be used.";
     }
   }
+  if (providerId === "gemini" && !error && models.length) {
+    modelHint.textContent = geminiModelNote(readDefaultModelValue(providerId));
+    modelHint.hidden = !modelHint.textContent;
+  }
 }
 
 /** Last saved default provider — also used by on-device install flows. */
@@ -993,6 +1016,13 @@ providerSelect.addEventListener("change", async () => {
   modelBoundProviderId = providerId;
   updateProviderChrome(providerId);
   await refreshDefaultModels(providerId, preferredDefaultModel(providerId));
+});
+
+modelSelect.addEventListener("change", () => {
+  if (providerSelect.value === "gemini") {
+    modelHint.textContent = geminiModelNote(modelSelect.value);
+    modelHint.hidden = !modelHint.textContent;
+  }
 });
 
 modelInput.addEventListener("input", () => {
