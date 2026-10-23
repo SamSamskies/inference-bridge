@@ -18,30 +18,24 @@ import { geminiCallState } from "./gemini-call-state.js";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 
-// Models.list still returns these entries. A new API key was verified to get
-// "no longer available to new users" at inference for 2.5 Flash (2026-10-22).
-// This first-class integration targets current models, not grandfathered
-// access. Existing user-configured compat endpoints are left untouched.
-const LEGACY_OR_RETIRED_MODELS = new Set([
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-3-pro-preview",
-  "gemini-3.1-flash-lite-preview",
+// Picker eligibility, not an availability catalog: only entries returned by
+// authenticated Models.list are shown. Labels and ordering are user curated.
+const CHAT_MODELS = new Map([
+  ["gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT"],
+  ["gemma-4-31b-it", "Gemma 4 31B IT"],
+  ["gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"],
+  ["gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"],
+  ["gemini-3.8-flash", "Gemini 3.8 Flash"],
+  ["gemini-4-argon", "Gemini 4 Argon"],
 ]);
 
 function isChatModel(model) {
   return (
     typeof model?.name === "string" &&
     model.name.startsWith("models/") &&
-    (model.name === "models/gemini-3.1-pro-preview" ||
-      !/(?:^|-)(?:latest|preview)(?:$|-)/i.test(model.name.slice(7))) &&
-    !LEGACY_OR_RETIRED_MODELS.has(model.name.slice(7)) &&
+    CHAT_MODELS.has(model.name.slice(7)) &&
     Array.isArray(model.supportedGenerationMethods) &&
-    model.supportedGenerationMethods.includes("generateContent") &&
-    !/(?:tts|transcribe|image|nano-banana|embedding|live|robotics|computer-use|deep-research|antigravity|lyria|veo|omni)/i.test(
-      model.name
-    )
+    model.supportedGenerationMethods.includes("generateContent")
   );
 }
 
@@ -63,11 +57,7 @@ export async function listGeminiModels(args = {}) {
       const id = model.name.slice(7);
       models.set(id, {
         id,
-        ...(id === "gemini-3.1-pro-preview"
-          ? { label: "Gemini 3.1 Pro" }
-          : model.displayName
-            ? { label: model.displayName }
-            : {}),
+        label: CHAT_MODELS.get(id),
         inputModalities: geminiCapabilities(id).image
           ? ["text", "image"]
           : ["text"],
@@ -88,7 +78,9 @@ export async function listGeminiModels(args = {}) {
     }
     tokens.add(pageToken);
   } while (pageToken);
-  return [...models.values()];
+  return [...CHAT_MODELS.keys()]
+    .filter((id) => models.has(id))
+    .map((id) => models.get(id));
 }
 
 export function mapMessagesForGemini(messages) {
@@ -203,6 +195,11 @@ export const geminiProvider = {
   transcription: geminiTranscription,
   transcribe: geminiTranscribe,
   async preflightChat({ model, messages, apiKey, origin, ...request }) {
+    if (!CHAT_MODELS.has(model))
+      throw geminiError(
+        "unavailable",
+        "Choose a Gemini model from the current catalog."
+      );
     const warning = geminiRequestWarning(model, {
       ...request,
       imageInput: messagesHaveImageParts(messages),

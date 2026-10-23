@@ -95,6 +95,10 @@ describe("Gemini discovery and capability boundaries", () => {
           Response.json({
             models: [
               metadata(model),
+              metadata("gemma-4-26b-a4b-it"),
+              metadata("gemini-3.1-flash-lite"),
+              metadata("gemini-3.5-flash-lite"),
+              metadata("gemini-3.6-flash"),
               metadata("gemini-2.5-flash"),
               metadata("gemini-3.1-flash-lite-preview"),
               metadata("gemini-3.1-pro-preview"),
@@ -127,19 +131,45 @@ describe("Gemini discovery and capability boundaries", () => {
     );
     const models = await listGeminiModels({ apiKey: key });
     expect(models.map((entry) => entry.id)).toEqual([
-      model,
-      "gemini-3.1-pro-preview",
-      "gemini-4-argon",
+      "gemma-4-26b-a4b-it",
       "gemma-4-31b-it",
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      model,
+      "gemini-4-argon",
     ]);
-    expect(models[1].label).toBe("Gemini 3.1 Pro");
-    expect(models[2].inputModalities).toContain("image");
-    expect(models[3].inputModalities).toEqual(["text"]);
+    expect(models.map((entry) => entry.label)).toEqual([
+      "Gemma 4 26B A4B IT",
+      "Gemma 4 31B IT",
+      "Gemini 3.1 Flash Lite",
+      "Gemini 3.5 Flash Lite",
+      "Gemini 3.8 Flash",
+      "Gemini 4 Argon",
+    ]);
+    expect(models[4].inputModalities).toContain("image");
+    expect(models[0].inputModalities).toEqual(["text"]);
     expect(fetch.mock.calls[1][0]).toContain("pageToken=next%20page");
     for (const [url, init] of fetch.mock.calls) {
       expect(url).not.toContain(key);
       expect(init.headers["x-goog-api-key"]).toBe(key);
     }
+  });
+  it("shows only account-discovered eligible models and rejects removed saved routes before acceptance", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ models: [metadata(model)] }))
+    );
+    expect(
+      (await listGeminiModels({ apiKey: key })).map((entry) => entry.id)
+    ).toEqual([model]);
+    fetch.mockClear();
+    await expect(
+      geminiProvider.preflightChat({
+        model: "gemini-3.1-pro-preview",
+        messages: [],
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("rejects malformed catalogs and repeated pagination", async () => {
     vi.stubGlobal(

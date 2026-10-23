@@ -32,10 +32,12 @@ The regular model select uses the paginated Models API. Dedicated image, audio,
 embedding, video, robotics and agent families are excluded. A new key was
 verified on October 22, 2026 to reject `gemini-2.5-flash` with "no longer
 available to new users", despite listing it. This built-in provider excludes
-the 2.5 family, redundant `*-latest` aliases, and preview models except 3.1 Pro;
-compat configs/grants are unchanged. Google's current model index still
-identifies 3.1 Pro as `gemini-3.1-pro-preview`. Its picker label is **Gemini 3.1
-Pro**, with preview status in a separate hint; no stable replacement ID is assumed.
+all entries outside the user's curated six-model list: Gemma 4 26B A4B IT,
+Gemma 4 31B IT, Gemini 3.1 Flash Lite, Gemini 3.5 Flash Lite, Gemini 3.8 Flash,
+and Gemini 4 Argon, in that order. Only models returned by authenticated
+discovery are shown; missing entries are not fabricated. This supersedes the
+earlier 3.1 Pro preview exception. Compat configs/grants are unchanged, but a
+saved built-in route outside this list must be reselected before chat acceptance.
 A catalog entry alone does not guarantee account access.
 
 Optional image/function/search/thinking capabilities use exact verified
@@ -89,14 +91,13 @@ Still unfinished; keep this branch unmerged.
   level. The live Chrome charts demo rendered an espresso-by-quarter bar chart
   using Gemini 3.8 Flash and its existing `reasoningEffort: "none"` request.
   That demo uses `maxRounds: 1`, so it does not verify tool-result continuation.
-- **Model/UI cleanup:** redundant latest aliases and other previews are filtered.
-  At the user's subsequent request, retain discovered 3.1 Pro under its short
-  name, with a preview hint in default Options and approvals. Regular dropdowns
+- **Model/UI cleanup:** the latest user request limits discovery to the six
+  models listed above, excluding 3.1 Pro and all other entries. Regular dropdowns
   show friendly labels without parenthesized slugs; internal values stay IDs.
   Official key links now cover OpenAI, Anthropic, Gemini, OpenRouter, and optional
   Ollama search credentials. Their destinations were checked against official
   sources. Remaining UI acceptance includes checking each provider link and the
-  3.1 Pro hint in the running extension; changing these controls need not Save.
+  six-model list in the running extension; changing these controls need not Save.
 - **Function continuation still returns HTTP 400.** A direct native unary probe
   succeeded when replaying original signed function steps (with or without tool
   declarations). The worker adapter now privately retains signed function steps,
@@ -133,6 +134,11 @@ Still unfinished; keep this branch unmerged.
 - Synthetic browser harness, if still present: `/private/tmp/gemini-ipa-check.html`.
   It checks exactly one accepted/done per turn, stream/final text equality,
   `add(2, 3)` arguments, no public signature field, and final `toolChoice: "none"`.
+- Paste-ready public API reproduction: [gemini-function-repro.js](gemini-function-repro.js).
+  Run it in the charts demo's DevTools with Gemini 3.8 Flash selected. It saves
+  synthetic request/chunk/error traces in `window.geminiToolRepro` without keys.
+  The six-model filtering change passed 34 focused Gemini/provider-state tests;
+  it has not had another live extension reload or browser acceptance pass.
 
 ### Checkpoint — October 22, 2026
 
