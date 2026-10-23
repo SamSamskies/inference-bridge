@@ -98,6 +98,9 @@ This is an unfinished implementation branch; do not merge it yet.
   preview/specialized entries, including `gemini-3.1-pro-preview-customtools`,
   against this adapter's supported chat behavior. Keep discovery account-aware
   and preserve useful distinct models such as 3.8 Flash and 4 Argon.
+  The user also suggested excluding all preview models and reported that only
+  3.1 Pro Preview appears. Verify whether a stable Gemini 3.1 Pro exists and is
+  accessible to this account before adding a replacement; do not invent its ID.
 - **Function continuation remains unresolved.** The first forced function call
   succeeds, but sending its result on the next stateless Interactions request
   returns HTTP 400, "Request contains an invalid argument." Unit coverage does
