@@ -92,6 +92,12 @@ This is an unfinished implementation branch; do not merge it yet.
   through the demo/approval path and inspect where `none` is selected or sent.
   Fix the request/default or provider mapping as appropriate without silently
   changing the requested reasoning semantics. Validate normal chat afterward.
+- **Model-list cleanup requested for the next session:** prefer explicit
+  versioned models and remove redundant `gemini-flash-latest`,
+  `gemini-flash-lite-latest`, and `gemini-pro-latest` aliases. Review remaining
+  preview/specialized entries, including `gemini-3.1-pro-preview-customtools`,
+  against this adapter's supported chat behavior. Keep discovery account-aware
+  and preserve useful distinct models such as 3.8 Flash and 4 Argon.
 - **Function continuation remains unresolved.** The first forced function call
   succeeds, but sending its result on the next stateless Interactions request
   returns HTTP 400, "Request contains an invalid argument." Unit coverage does
