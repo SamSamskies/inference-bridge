@@ -122,6 +122,15 @@ multi-speaker audio stay out of scope.
 - Remaining manual checks: live Firefox acceptance and final Options checks for
   the five-model list and provider key links. Broader live parallel/consecutive
   function rounds would add coverage; those rounds already pass automated tests.
+- **Stopping checkpoint:** WAV implementation committed as `740a002`. The
+  temporary Firefox build was launched using
+  `npm run dev:firefox -- --start-url https://samsamskies.github.io/inference-provider-api/speech/`.
+  Its speech page advertised MP3/WAV and Options opened successfully. Provider
+  configuration and live Firefox requests are not yet validated. Resume by
+  configuring Gemini locally in that temporary profile, then check the five-model
+  picker/default, key setup links, chat/search/function continuation, transcription,
+  WAV playback/cancellation, and revoked host access. If the temporary session has
+  closed, rerun the dev command; it is not a persistent Firefox installation.
 
 ### Chat/function checkpoint — October 23, 2026
 
