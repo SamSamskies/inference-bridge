@@ -48,7 +48,13 @@ const PROFILES = new Map([
   ],
   [
     "gemini-3.1-pro-preview",
-    { image: true, functions: true, search: true, mixed: true },
+    {
+      image: true,
+      functions: true,
+      search: true,
+      mixed: false,
+      thinking: ["low", "medium", "high"],
+    },
   ],
   [
     "gemini-3-flash-preview",
@@ -58,6 +64,12 @@ const PROFILES = new Map([
 
 export function geminiCapabilities(model) {
   return PROFILES.get(model) || {};
+}
+
+export function geminiModelNote(model) {
+  return model === "gemini-3.1-pro-preview"
+    ? "Gemini 3.1 Pro is currently a preview model."
+    : "";
 }
 
 /** IPA preferences are best effort; `none` minimizes mandatory thinking. */

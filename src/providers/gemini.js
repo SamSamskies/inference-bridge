@@ -14,6 +14,7 @@ import {
   safeGeminiDetail,
 } from "./gemini-api.js";
 import { geminiTranscription, geminiTranscribe } from "./gemini-speech.js";
+import { geminiCallState } from "./gemini-call-state.js";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 
@@ -33,7 +34,8 @@ function isChatModel(model) {
   return (
     typeof model?.name === "string" &&
     model.name.startsWith("models/") &&
-    !/(?:^|-)(?:latest|preview)(?:$|-)/i.test(model.name.slice(7)) &&
+    (model.name === "models/gemini-3.1-pro-preview" ||
+      !/(?:^|-)(?:latest|preview)(?:$|-)/i.test(model.name.slice(7))) &&
     !LEGACY_OR_RETIRED_MODELS.has(model.name.slice(7)) &&
     Array.isArray(model.supportedGenerationMethods) &&
     model.supportedGenerationMethods.includes("generateContent") &&
@@ -61,7 +63,11 @@ export async function listGeminiModels(args = {}) {
       const id = model.name.slice(7);
       models.set(id, {
         id,
-        ...(model.displayName ? { label: model.displayName } : {}),
+        ...(id === "gemini-3.1-pro-preview"
+          ? { label: "Gemini 3.1 Pro" }
+          : model.displayName
+            ? { label: model.displayName }
+            : {}),
         inputModalities: geminiCapabilities(id).image
           ? ["text", "image"]
           : ["text"],
@@ -106,7 +112,7 @@ export function mapMessagesForGemini(messages) {
         type: "function_result",
         call_id: message.toolCallId,
         name,
-        result: message.content ?? "",
+        result: [{ type: "text", text: message.content ?? "" }],
       });
       continue;
     }
@@ -160,6 +166,15 @@ export function mapMessagesForGemini(messages) {
   };
 }
 
+async function prepareMessages(messages, scope) {
+  const mapped = mapMessagesForGemini(messages);
+  for (let i = 0; i < mapped.input.length; i++) {
+    if (mapped.input[i].type === "function_call")
+      mapped.input[i] = await geminiCallState.replay(scope, mapped.input[i]);
+  }
+  return mapped;
+}
+
 function sourceLink(source) {
   if (typeof source?.url !== "string") return "";
   try {
@@ -187,17 +202,19 @@ export const geminiProvider = {
   hostedTools: Object.freeze(["web_search"]),
   transcription: geminiTranscription,
   transcribe: geminiTranscribe,
-  preflightChat({ model, messages, ...request }) {
+  async preflightChat({ model, messages, apiKey, origin, ...request }) {
     const warning = geminiRequestWarning(model, {
       ...request,
       imageInput: messagesHaveImageParts(messages),
       imageOutput: request.output?.images === true,
     });
     if (warning) throw geminiError("unavailable", warning);
+    await prepareMessages(messages, { model, apiKey, origin });
   },
   preflightMessages: mapMessagesForGemini,
   async streamChat({
     apiKey,
+    origin,
     model,
     messages,
     tools,
@@ -230,7 +247,8 @@ export const geminiProvider = {
         "unavailable",
         `${model} is not an eligible Gemini chat model`
       );
-    const mapped = mapMessagesForGemini(messages);
+    const scope = { apiKey, origin, model };
+    const mapped = await prepareMessages(messages, scope);
     const activeTools = toolChoice === "none" ? [] : tools || [];
     const generation = {};
     if (options?.temperature !== undefined)
@@ -381,12 +399,17 @@ export const geminiProvider = {
           for (const [index, step] of (interaction.steps || []).entries()) {
             if (step.type !== "function_call" || !calls.has(index))
               collectStep(step, index, recoverText);
-            else if (!calls.get(index).argumentText)
-              calls.set(index, { ...step, argumentText: "" });
+            else
+              calls.set(index, {
+                ...calls.get(index),
+                ...step,
+                argumentText: calls.get(index).argumentText,
+              });
           }
         }
       },
     });
+    const nativeCalls = [];
     const toolCalls = [...calls.values()].map((call) => {
       let args = call.arguments || {};
       if (call.argumentText) {
@@ -419,6 +442,8 @@ export const geminiProvider = {
           "provider_error",
           "Google Gemini requested an undeclared function tool"
         );
+      const { argumentText, ...native } = call;
+      nativeCalls.push({ ...native, arguments: args });
       return {
         id: call.id,
         type: "function",
@@ -436,6 +461,8 @@ export const geminiProvider = {
       emit(
         `\n\nSources:\n${[...sources.keys()].map((url) => `- <${url}>`).join("\n")}`
       );
+    checkGeminiAbort(signal);
+    for (const call of nativeCalls) await geminiCallState.remember(scope, call);
     return {
       model: resolvedModel,
       message: {

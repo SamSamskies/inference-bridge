@@ -10,6 +10,7 @@ import {
   mapGeminiReasoningEffort,
 } from "../src/providers/gemini-capabilities.js";
 import { geminiFetch, readGeminiEvents } from "../src/providers/gemini-api.js";
+import { geminiCallState } from "../src/providers/gemini-call-state.js";
 
 const key = "private-test-gemini-key";
 const model = "gemini-3.8-flash";
@@ -78,7 +79,10 @@ function chat(extra = {}) {
     ...extra,
   });
 }
-beforeEach(() => installStream([start(), delta("Hello"), end()]));
+beforeEach(() => {
+  geminiCallState.clear();
+  installStream([start(), delta("Hello"), end()]);
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Gemini discovery and capability boundaries", () => {
@@ -124,11 +128,13 @@ describe("Gemini discovery and capability boundaries", () => {
     const models = await listGeminiModels({ apiKey: key });
     expect(models.map((entry) => entry.id)).toEqual([
       model,
+      "gemini-3.1-pro-preview",
       "gemini-4-argon",
       "gemma-4-31b-it",
     ]);
-    expect(models[1].inputModalities).toContain("image");
-    expect(models[2].inputModalities).toEqual(["text"]);
+    expect(models[1].label).toBe("Gemini 3.1 Pro");
+    expect(models[2].inputModalities).toContain("image");
+    expect(models[3].inputModalities).toEqual(["text"]);
     expect(fetch.mock.calls[1][0]).toContain("pageToken=next%20page");
     for (const [url, init] of fetch.mock.calls) {
       expect(url).not.toContain(key);
@@ -189,6 +195,82 @@ describe("Gemini discovery and capability boundaries", () => {
 });
 
 describe("Gemini native chat", () => {
+  it.each([false, true])(
+    "privately replays native function signatures (completion-only: %s) and suppresses tools",
+    async (completionOnly) => {
+      const native = {
+        type: "function_call",
+        id: "signed-call",
+        name: "weather",
+        arguments: { city: "Austin" },
+        signature: "opaque-native-signature",
+      };
+      installStream(
+        completionOnly
+          ? [
+              start({ ...native, signature: undefined, arguments: {} }),
+              {
+                event_type: "step.delta",
+                index: 0,
+                delta: {
+                  type: "arguments_delta",
+                  arguments: JSON.stringify(native.arguments),
+                },
+              },
+              end({ status: "requires_action", steps: [native] }),
+            ]
+          : [start(native), end({ status: "requires_action" })]
+      );
+      const first = await chat({
+        origin: "https://charts.example",
+        tools: [fn],
+      });
+      expect(JSON.stringify(first)).not.toContain(native.signature);
+      const messages = [
+        { role: "user", content: "Hi" },
+        first.message,
+        { role: "tool", toolCallId: native.id, content: "sunny" },
+      ];
+      installStream([start(), delta("It is sunny."), end()]);
+      await geminiProvider.preflightChat({
+        apiKey: key,
+        model,
+        origin: "https://charts.example",
+        messages,
+      });
+      const final = await chat({
+        origin: "https://charts.example",
+        messages,
+        tools: [fn, search],
+        toolChoice: "none",
+      });
+      const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+      expect(body.input.find((s) => s.type === "function_call")).toEqual(
+        native
+      );
+      expect(body.tools).toBeUndefined();
+      expect(final.message.content).toBe("It is sunny.");
+      await expect(
+        geminiProvider.preflightChat({
+          apiKey: key,
+          model,
+          origin: "https://other.example",
+          messages,
+        })
+      ).rejects.toMatchObject({ code: "unavailable" });
+      const tampered = structuredClone(messages);
+      tampered[1].toolCalls[0].function.arguments = JSON.stringify({
+        city: "London",
+      });
+      await expect(
+        chat({
+          origin: "https://charts.example",
+          messages: tampered,
+          tools: [fn],
+        })
+      ).rejects.toMatchObject({ code: "invalid_request" });
+    }
+  );
   it("maps system instructions, images, function calls and function results", () => {
     expect(
       mapMessagesForGemini([
@@ -233,7 +315,7 @@ describe("Gemini native chat", () => {
           type: "function_result",
           call_id: "call-1",
           name: "weather",
-          result: "sunny",
+          result: [{ type: "text", text: "sunny" }],
         },
       ],
     });

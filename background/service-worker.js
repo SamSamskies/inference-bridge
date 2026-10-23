@@ -1309,7 +1309,9 @@ async function handleStart(port, msg, onStreamId) {
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
-    provider.preflightChat?.({ ...validated.value, model });
+    await provider.preflightChat?.({
+      ...validated.value, model, origin, apiKey: settings.apiKeys[provider.id],
+    });
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
     // readiness here so downloadable/missing (and vision-only gaps) fail
@@ -1329,6 +1331,7 @@ async function handleStart(port, msg, onStreamId) {
 
     const result = await provider.streamChat({
       apiKey: settings.apiKeys[provider.id],
+      origin,
       model,
       messages: validated.value.messages,
       ...(validated.value.tools ? { tools: validated.value.tools } : {}),

@@ -142,7 +142,7 @@
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
- *   preflightChat?: (args: { model: string, messages: ChatMessage[], tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void,
+ *   preflightChat?: (args: { model: string, messages: ChatMessage[], apiKey?: string, origin?: string, tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void | Promise<void>,
  *   transcribe?: (args: {
  *     apiKey?: string,
  *     model: string,
@@ -177,6 +177,7 @@
  *   }>,
  *   streamChat: (args: {
  *     apiKey?: string,
+ *     origin?: string,
  *     model: string,
  *     messages: ChatMessage[],
  *     tools?: Tool[],
