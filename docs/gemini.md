@@ -114,6 +114,10 @@ This is an unfinished implementation branch; do not merge it yet.
   Keep Google Search suppressed when tool choice is `none`.
 - Latest full suite: 1,058 passed, 3 skipped. Firefox package lint previously
   passed with no actionable warnings; live Firefox acceptance is still pending.
+- **Provider setup links:** extend the Gemini API-key helper pattern to all
+  first-class providers where an API key applies. Verify each official key
+  creation/management URL and place the link beside its key field. Include
+  optional keys where relevant; providers without keys need no key link.
 - The unpacked extension worker may predate the latest source changes. Reload
   the extension before the next public API validation, then refresh both demos.
   Claimed browser tabs must be refreshed by the automation session.
