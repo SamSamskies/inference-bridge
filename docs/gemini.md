@@ -106,6 +106,8 @@ This is an unfinished implementation branch; do not merge it yet.
   returns HTTP 400, "Request contains an invalid argument." Unit coverage does
   not establish live compatibility here. The current branch still contains the
   in-progress function adapter and must not be treated as ready to ship.
+  Start the next live reproduction with the charts demo, as suggested by the
+  user; its function-tool flow may make the failing continuation easier to see.
 - Next investigate whether historical function steps require declarations even
   with `toolChoice: "none"`, and whether native thought signatures must survive
   round trips. Inspect the upstream error response before changing the contract.
