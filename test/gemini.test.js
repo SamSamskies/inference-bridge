@@ -225,8 +225,135 @@ describe("Gemini discovery and capability boundaries", () => {
 
 describe("Gemini native chat", () => {
   it.each([false, true])(
-    "privately replays native function signatures (completion-only: %s) and suppresses tools",
-    async (completionOnly) => {
+    "replays full thought/tool turns once across consecutive rounds (terminal steps: %s)",
+    async (terminal) => {
+      const thought = {
+        type: "thought",
+        signature: "opaque-thought",
+        summary: [{ type: "text", text: "Need weather" }],
+      };
+      const firstCall = {
+        type: "function_call",
+        id: "native-1",
+        name: "weather",
+        arguments: { city: "Austin" },
+      };
+      const otherCall = {
+        ...firstCall,
+        id: "native-2",
+        arguments: { city: "London" },
+      };
+      const native = [
+        thought,
+        {
+          type: "model_output",
+          content: [{ type: "text", text: "Checking." }],
+        },
+        firstCall,
+        otherCall,
+      ];
+      installStream([
+        start({ type: "thought", signature: "", summary: [] }),
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: {
+            type: "thought_summary",
+            content: { type: "text", text: "Need " },
+          },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: {
+            type: "thought_summary",
+            content: { type: "text", text: "weather" },
+          },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "thought_signature", signature: "opaque-" },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "thought_signature", signature: "thought" },
+        },
+        start({ type: "model_output", content: [] }, 1),
+        delta("Checking.", 1),
+        start({ ...firstCall, arguments: {} }, 2),
+        {
+          event_type: "step.delta",
+          index: 2,
+          delta: {
+            type: "arguments_delta",
+            arguments: JSON.stringify(firstCall.arguments),
+          },
+        },
+        start(otherCall, 3),
+        end({
+          status: "requires_action",
+          ...(terminal ? { steps: native } : {}),
+        }),
+      ]);
+      const first = await chat({ tools: [fn] });
+      expect(first.message.toolCalls).toHaveLength(2);
+      expect(JSON.stringify(first)).not.toContain(thought.signature);
+      const results = [firstCall, otherCall].map((call) => ({
+        role: "tool",
+        toolCallId: call.id,
+        content: "sunny",
+      }));
+      const messages = [
+        { role: "user", content: "Hi" },
+        first.message,
+        ...results,
+      ];
+      const secondNative = [
+        { type: "thought", signature: "second-private-thought" },
+        { ...firstCall, id: "native-3", arguments: { city: "Paris" } },
+      ];
+      installStream([
+        start(secondNative[0]),
+        start(secondNative[1], 1),
+        end({ status: "requires_action" }),
+      ]);
+      const second = await chat({ messages, tools: [fn] });
+      expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).input).toEqual([
+        { type: "user_input", content: [{ type: "text", text: "Hi" }] },
+        ...native,
+        ...results.map((result) => ({
+          type: "function_result",
+          call_id: result.toolCallId,
+          name: "weather",
+          result: [{ type: "text", text: "sunny" }],
+        })),
+      ]);
+      messages.push(second.message, {
+        role: "tool",
+        toolCallId: "native-3",
+        content: "rainy",
+      });
+      installStream([start(), delta("Done"), end()]);
+      await chat({ messages, tools: [fn], toolChoice: "none" });
+      const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+      expect(body.input.filter((step) => step.type === "thought")).toEqual([
+        thought,
+        secondNative[0],
+      ]);
+      expect(
+        body.input.filter((step) => step.type === "function_call")
+      ).toHaveLength(3);
+      expect(
+        body.input.filter((step) => step.type === "model_output")
+      ).toHaveLength(1);
+      expect(body.tools).toBeUndefined();
+    }
+  );
+  it.each(["start", "delta", "completion"])(
+    "privately replays native function signatures from %s and suppresses tools",
+    async (signatureSource) => {
       const native = {
         type: "function_call",
         id: "signed-call",
@@ -235,7 +362,7 @@ describe("Gemini native chat", () => {
         signature: "opaque-native-signature",
       };
       installStream(
-        completionOnly
+        signatureSource === "completion"
           ? [
               start({ ...native, signature: undefined, arguments: {} }),
               {
@@ -248,7 +375,25 @@ describe("Gemini native chat", () => {
               },
               end({ status: "requires_action", steps: [native] }),
             ]
-          : [start(native), end({ status: "requires_action" })]
+          : signatureSource === "delta"
+            ? [
+                start({ ...native, signature: "" }),
+                {
+                  event_type: "step.delta",
+                  index: 0,
+                  delta: { type: "thought_signature", signature: "opaque-" },
+                },
+                {
+                  event_type: "step.delta",
+                  index: 0,
+                  delta: {
+                    type: "thought_signature",
+                    signature: "native-signature",
+                  },
+                },
+                end({ status: "requires_action" }),
+              ]
+            : [start(native), end({ status: "requires_action" })]
       );
       const first = await chat({
         origin: "https://charts.example",
@@ -559,6 +704,60 @@ describe("Gemini native chat", () => {
 });
 
 describe("Gemini credentials and errors", () => {
+  it("preserves structured field violations while redacting credentials and ignoring unrelated metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "Request contains an invalid argument.",
+              details: [
+                {
+                  "@type": "type.googleapis.com/google.rpc.BadRequest",
+                  fieldViolations: [
+                    {
+                      field: "input[1].signature",
+                      description: `Invalid signature ${key}`,
+                    },
+                  ],
+                },
+                { arbitrary: "unrelated-private-metadata" },
+              ],
+            },
+          },
+          { status: 400 }
+        )
+      )
+    );
+    const error = await geminiFetch("/v1beta/interactions", {
+      apiKey: key,
+    }).catch((error) => error);
+    expect(error.message).toContain(
+      "input[1].signature: Invalid signature [redacted]"
+    );
+    expect(error.message).not.toContain(key);
+    expect(error.message).not.toContain("unrelated-private-metadata");
+  });
+  it("keeps a native top-level message alongside a string error code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: "invalid_request",
+            message: "Missing function result name",
+          },
+          { status: 400 }
+        )
+      )
+    );
+    await expect(
+      geminiFetch("/v1beta/interactions", { apiKey: key })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Missing function result name"),
+    });
+  });
   it("reads HTTP errors encoded as native SSE records", async () => {
     vi.stubGlobal(
       "fetch",

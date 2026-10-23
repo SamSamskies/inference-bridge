@@ -16,6 +16,25 @@ export function safeGeminiDetail(value, apiKey) {
     .slice(0, 1200);
 }
 
+/** Preserve Google's structured field errors without forwarding arbitrary metadata. */
+export function geminiErrorDetail(error, apiKey) {
+  const message = typeof error === "string" ? error : error?.message;
+  const fields = (Array.isArray(error?.details) ? error.details : [])
+    .flatMap((detail) =>
+      Array.isArray(detail?.fieldViolations) ? detail.fieldViolations : []
+    )
+    .filter(
+      (item) =>
+        typeof item?.field === "string" && typeof item?.description === "string"
+    )
+    .slice(0, 5)
+    .map((item) => `${item.field}: ${item.description}`);
+  return safeGeminiDetail(
+    [message || "Gemini request failed", ...fields].join("; "),
+    apiKey
+  );
+}
+
 export async function geminiFetch(path, { apiKey, signal, ...init } = {}) {
   checkGeminiAbort(signal);
   if (!apiKey?.trim())
@@ -61,14 +80,14 @@ export async function geminiFetch(path, { apiKey, signal, ...init } = {}) {
         if (data) payload = JSON.parse(data.slice(5).trim());
       }
       const body = Array.isArray(payload) ? payload[0] : payload;
-      error = body?.error ?? body;
+      error =
+        typeof body?.error === "string" && typeof body?.message === "string"
+          ? body
+          : (body?.error ?? body);
     } catch {
       /* no raw body */
     }
-    const detail = safeGeminiDetail(
-      typeof error === "string" ? error : error?.message,
-      apiKey
-    );
+    const detail = geminiErrorDetail(error, apiKey);
     const status = response.status;
     const reason = /billing|payment|paid tier/i.test(detail)
       ? "API billing"

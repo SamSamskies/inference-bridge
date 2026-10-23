@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-23
 
 Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
@@ -12,10 +12,14 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 - Experimental decisions are available by default and require separate per-site approval. Once approved, JSON state and typed questions are sent to OpenAI Decisions, OpenRouter Decisions, or local Ollama System One. Typed answers are returned directly to the page; state, questions, and answers are held in memory for the active request and are not persisted.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
-- Gemini function-call continuation retains native function steps, including
-  opaque signatures, in bounded extension-worker memory for up to 30 minutes.
-  Entries are isolated by website origin, model, and credential; they are never
-  exposed to pages or written to extension storage. Worker shutdown clears them.
+- Gemini function-call continuation retains complete native responses for
+  tool-call turns, including thought summaries, opaque signatures, model text,
+  and any search results, in extension-worker memory for up to 30 minutes.
+  This cache is bounded to 128 turns and 2 MB of serialized data. Entries are
+  isolated by website origin, model, and credential. Provider-only state is
+  never exposed to pages or written to extension storage; ordinary response
+  text and reasoning summaries still reach the requesting page. Worker shutdown
+  clears the cache.
 - The Firefox build is unavailable in private windows.
 - Recordings, transcripts, and generated audio are held only in memory for the active request and are never stored in extension storage.
 - Recordings can contain biometric voice data and sensitive information about the speaker or bystanders, including location, health information, background conversations, and other ambient sounds.

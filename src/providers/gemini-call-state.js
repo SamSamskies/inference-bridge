@@ -2,7 +2,7 @@ import { geminiError } from "./gemini-api.js";
 
 /**
  * Native signatures cannot round-trip through IPA's portable ToolCall shape.
- * Keep only signed function steps in bounded worker memory, scoped to the
+ * Keep native tool-turn response bundles in bounded worker memory, scoped to the
  * trusted caller origin, selected model, and credential. Never send this state
  * to a page or persist it. A worker restart requires a fresh conversation.
  */
@@ -30,48 +30,57 @@ export function createGeminiCallState({
       b.toString(16).padStart(2, "0")
     ).join("");
   }
+  function portableTurn(message) {
+    return JSON.stringify({
+      content: message.content ?? "",
+      calls: (message.toolCalls || []).map((call) => ({
+        id: call.id,
+        name: call.function.name,
+        arguments: JSON.parse(call.function.arguments),
+      })),
+    });
+  }
   return {
     clear() {
       entries.clear();
       bytes = 0;
     },
-    async remember(scope, call) {
+    async remember(scope, { message, steps }) {
       prune();
-      const serialized = JSON.stringify(call);
-      const size = new TextEncoder().encode(serialized).byteLength;
+      const serialized = JSON.stringify(steps);
+      const portable = portableTurn(message);
+      const size = new TextEncoder().encode(serialized + portable).byteLength;
       if (size > maxBytes)
         throw geminiError(
           "provider_error",
           "Gemini function-call state exceeds the local limit"
         );
-      const key = await keyFor(scope, call.id);
+      const key = await keyFor(scope, message.toolCalls[0].id);
       if (entries.has(key)) remove(key);
       while (entries.size >= maxEntries || bytes + size > maxBytes)
         remove(entries.keys().next().value);
       entries.set(key, {
-        call: JSON.parse(serialized),
+        steps: JSON.parse(serialized),
+        portable,
         size,
         expires: now() + ttlMs,
       });
       bytes += size;
     },
-    async replay(scope, call) {
+    async replay(scope, message) {
       prune();
-      const entry = entries.get(await keyFor(scope, call.id));
+      const entry = entries.get(await keyFor(scope, message.toolCalls[0].id));
       if (!entry)
         throw geminiError(
           "unavailable",
           "Gemini function-call state expired or is unavailable. Start a new conversation and retry."
         );
-      if (
-        entry.call.name !== call.name ||
-        JSON.stringify(entry.call.arguments) !== JSON.stringify(call.arguments)
-      )
+      if (entry.portable !== portableTurn(message))
         throw geminiError(
           "invalid_request",
           "Gemini function calls must be replayed unchanged"
         );
-      return structuredClone(entry.call);
+      return structuredClone(entry.steps);
     },
   };
 }

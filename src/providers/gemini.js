@@ -8,10 +8,10 @@ import {
 import {
   checkGeminiAbort,
   geminiError,
+  geminiErrorDetail,
   geminiFetch,
   geminiJson,
   readGeminiEvents,
-  safeGeminiDetail,
 } from "./gemini-api.js";
 import { geminiTranscription, geminiTranscribe } from "./gemini-speech.js";
 import { geminiCallState } from "./gemini-call-state.js";
@@ -82,11 +82,11 @@ export async function listGeminiModels(args = {}) {
     .map((id) => models.get(id));
 }
 
-export function mapMessagesForGemini(messages) {
+export function mapMessagesForGemini(messages, replayTurns = new Map()) {
   const system = [];
   const input = [];
   const functionNames = new Map();
-  for (const message of messages) {
+  for (const [messageIndex, message] of messages.entries()) {
     if (message.role === "system") {
       system.push(message.content);
       continue;
@@ -105,6 +105,12 @@ export function mapMessagesForGemini(messages) {
         name,
         result: [{ type: "text", text: message.content ?? "" }],
       });
+      continue;
+    }
+    if (replayTurns.has(messageIndex)) {
+      for (const call of message.toolCalls || [])
+        functionNames.set(call.id, call.function.name);
+      input.push(...replayTurns.get(messageIndex));
       continue;
     }
     const content =
@@ -158,12 +164,42 @@ export function mapMessagesForGemini(messages) {
 }
 
 async function prepareMessages(messages, scope) {
-  const mapped = mapMessagesForGemini(messages);
-  for (let i = 0; i < mapped.input.length; i++) {
-    if (mapped.input[i].type === "function_call")
-      mapped.input[i] = await geminiCallState.replay(scope, mapped.input[i]);
+  // Validate portable messages before using any cached provider-owned state.
+  mapMessagesForGemini(messages);
+  const turns = new Map();
+  for (const [index, message] of messages.entries()) {
+    if (message.role === "assistant" && message.toolCalls?.length)
+      turns.set(index, await geminiCallState.replay(scope, message));
   }
-  return mapped;
+  return mapMessagesForGemini(messages, turns);
+}
+
+function appendNativeContent(parts, content) {
+  const last = parts.at(-1);
+  if (content.type === "text" && last?.type === "text")
+    last.text = (last.text || "") + (content.text || "");
+  else parts.push(structuredClone(content));
+}
+
+function applyNativeDelta(step, delta) {
+  if (!step) return;
+  if (delta.type === "thought_signature")
+    step.signature = (step.signature || "") + (delta.signature || "");
+  else if (delta.type === "thought_summary" && delta.content)
+    appendNativeContent((step.summary ||= []), delta.content);
+  else if (delta.type === "text" && step.type === "model_output")
+    appendNativeContent((step.content ||= []), {
+      type: "text",
+      text: delta.text,
+    });
+  else if (delta.type === "text_annotation_delta") {
+    const text = step.content?.findLast((part) => part.type === "text");
+    if (text)
+      (text.annotations ||= []).push(
+        ...structuredClone(delta.annotations || [])
+      );
+  } else if (delta.type === "google_search_result")
+    (step.result ||= []).push(...structuredClone(delta.result || []));
 }
 
 function sourceLink(source) {
@@ -300,7 +336,8 @@ export const geminiProvider = {
       usage;
     const calls = new Map(),
       sources = new Map(),
-      steps = new Map();
+      steps = new Map(),
+      nativeSteps = new Map();
     const emit = (text) => {
       if (typeof text !== "string")
         throw geminiError(
@@ -342,15 +379,17 @@ export const geminiProvider = {
         if (event.event_type === "error")
           throw geminiError(
             "provider_error",
-            `Google Gemini: ${safeGeminiDetail(event.error?.message, apiKey)}`
+            `Google Gemini: ${geminiErrorDetail(event.error ?? event, apiKey)}`
           );
         if (event.event_type === "step.start") {
           if (!event.step || !Number.isInteger(event.index))
             throw geminiError("provider_error", "Invalid Gemini step");
           steps.set(event.index, event.step.type);
+          nativeSteps.set(event.index, structuredClone(event.step));
           collectStep(event.step, event.index, true);
         } else if (event.event_type === "step.delta") {
           const delta = event.delta || {};
+          applyNativeDelta(nativeSteps.get(event.index), delta);
           const stepType = steps.get(event.index);
           if (delta.type === "text" && stepType === "model_output")
             emit(delta.text);
@@ -393,59 +432,75 @@ export const geminiProvider = {
           // was streamed; never duplicate text or function argument fragments.
           const recoverText = !content;
           for (const [index, step] of (interaction.steps || []).entries()) {
+            const previous = nativeSteps.get(index);
+            nativeSteps.set(
+              index,
+              previous?.type === step.type
+                ? { ...previous, ...structuredClone(step) }
+                : structuredClone(step)
+            );
             if (step.type !== "function_call" || !calls.has(index))
               collectStep(step, index, recoverText);
             else
               calls.set(index, {
                 ...calls.get(index),
                 ...step,
-                argumentText: calls.get(index).argumentText,
+                argumentText:
+                  step.arguments !== undefined
+                    ? ""
+                    : calls.get(index).argumentText,
               });
           }
         }
       },
     });
-    const nativeCalls = [];
-    const toolCalls = [...calls.values()].map((call) => {
-      let args = call.arguments || {};
-      if (call.argumentText) {
-        try {
-          args = JSON.parse(call.argumentText);
-        } catch {
+    const toolCalls = [...calls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([index, call]) => {
+        let args = call.arguments || {};
+        if (call.argumentText) {
+          try {
+            args = JSON.parse(call.argumentText);
+          } catch {
+            throw geminiError(
+              "provider_error",
+              "Google Gemini returned malformed function arguments"
+            );
+          }
+        }
+        if (
+          !call.id ||
+          !call.name ||
+          !args ||
+          typeof args !== "object" ||
+          Array.isArray(args)
+        )
           throw geminiError(
             "provider_error",
-            "Google Gemini returned malformed function arguments"
+            "Google Gemini returned an invalid function call"
           );
-        }
-      }
-      if (
-        !call.id ||
-        !call.name ||
-        !args ||
-        typeof args !== "object" ||
-        Array.isArray(args)
-      )
-        throw geminiError(
-          "provider_error",
-          "Google Gemini returned an invalid function call"
-        );
-      if (
-        !activeTools.some(
-          (tool) => tool.type === "function" && tool.function.name === call.name
+        if (
+          !activeTools.some(
+            (tool) =>
+              tool.type === "function" && tool.function.name === call.name
+          )
         )
-      )
-        throw geminiError(
-          "provider_error",
-          "Google Gemini requested an undeclared function tool"
-        );
-      const { argumentText, ...native } = call;
-      nativeCalls.push({ ...native, arguments: args });
-      return {
-        id: call.id,
-        type: "function",
-        function: { name: call.name, arguments: JSON.stringify(args) },
-      };
-    });
+          throw geminiError(
+            "provider_error",
+            "Google Gemini requested an undeclared function tool"
+          );
+        const { argumentText, ...native } = call;
+        nativeSteps.set(index, {
+          ...native,
+          ...nativeSteps.get(index),
+          arguments: args,
+        });
+        return {
+          id: call.id,
+          type: "function",
+          function: { name: call.name, arguments: JSON.stringify(args) },
+        };
+      });
     if (!content && !toolCalls.length)
       throw geminiError(
         "provider_error",
@@ -458,15 +513,22 @@ export const geminiProvider = {
         `\n\nSources:\n${[...sources.keys()].map((url) => `- <${url}>`).join("\n")}`
       );
     checkGeminiAbort(signal);
-    for (const call of nativeCalls) await geminiCallState.remember(scope, call);
+    const message = {
+      role: "assistant",
+      content,
+      ...(reasoning ? { reasoning } : {}),
+      ...(toolCalls.length ? { toolCalls } : {}),
+    };
+    if (toolCalls.length)
+      await geminiCallState.remember(scope, {
+        message,
+        steps: [...nativeSteps.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, step]) => step),
+      });
     return {
       model: resolvedModel,
-      message: {
-        role: "assistant",
-        content,
-        ...(reasoning ? { reasoning } : {}),
-        ...(toolCalls.length ? { toolCalls } : {}),
-      },
+      message,
       ...(usage ? { usage } : {}),
     };
   },

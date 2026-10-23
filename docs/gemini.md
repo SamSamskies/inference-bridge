@@ -28,6 +28,15 @@ used. Function calls/results map to native steps. Hosted `web_search` maps to
 annotations are appended as a Sources list to both deltas and the final text.
 IPA has no structured citation field. Upstream HTML is never rendered.
 
+Stateless function continuation replays the complete ordered native response
+for each tool-call turn, including thoughts and opaque signatures, before its
+function results. These bundles stay in worker memory, scoped by trusted
+website origin, model and credential, with limits of 128 turns, 2 MB of
+serialized data and 30 minutes. Parallel calls share one bundle, replayed once.
+The returned assistant content and calls must remain unchanged. Signatures
+never reach pages or extension storage. Expiry, eviction or worker shutdown
+requires a fresh conversation; missing state fails before `accepted`.
+
 The regular model select uses the paginated Models API. Dedicated image, audio,
 embedding, video, robotics and agent families are excluded. A new key was
 verified on October 22, 2026 to reject `gemini-2.5-flash` with "no longer
@@ -99,53 +108,40 @@ Still unfinished; keep this branch unmerged.
   Ollama search credentials. Their destinations were checked against official
   sources. Remaining UI acceptance includes checking each provider link and the
   five-model list in the running extension; changing these controls need not Save.
-- **Function continuation still returns HTTP 400.** A direct native unary probe
-  succeeded when replaying original signed function steps (with or without tool
-  declarations). The worker adapter now privately retains signed function steps,
-  scopes them by trusted origin/model/credential, and sends native text-content
-  arrays as function results. These changes have not solved the streamed public
-  IPA continuation. A two-turn synthetic `add(2, 3)` page check still failed after
-  both reloads; do not report function calling as ready to ship.
-- Private function state is bounded to 128 calls / 2 MB / 30 minutes, lives only
-  in worker memory, and clears on worker shutdown. Missing state fails before
-  `accepted` with a restart-conversation message; signatures never reach pages.
-  This is an interim mechanism, not the complete native response-bundle replay.
-- **GPT-6 Astra review completed**, read-only, with no keys or live calls. It
-  confirmed that native `thought` steps and `thought_signature` deltas are dropped.
-  It also found that completion-only function signatures were lost when argument
-  fragments streamed; that narrow merge bug is fixed with regression coverage.
-- **Next diagnostic:** start an entirely fresh tool conversation with
-  `thinking_summaries` omitted on both first call and continuation. The successful
-  unary probe omitted it; the adapter currently always requests `"auto"`. Changing
-  only the second request does not isolate the first response's lost history.
-  Summary-related upstream failures remain a hypothesis until this comparison.
-- **Complete replay design if needed:** cache the ordered native response bundle,
-  including thought signatures/summaries and function steps; associate parallel
-  calls with the same bundle; replace the assistant turn with that bundle once;
-  validate unchanged portable calls and append results. Preserve current bounds
-  and origin/model/key isolation. Cover multiple calls, consecutive rounds,
-  signatures finalized at completion, and identical replay with/without terminal
-  steps. Do not expose signatures or add page-owned provider fields to IPA.
+- **Direct streamed function continuation now passes.** The user reran the
+  Options-console diagnostic after reloading the extension and reported success.
+  Before this fix, fresh conversations failed with summaries both enabled and
+  omitted. Google's raw SSE error contained only "Request contains an invalid
+  argument" and `invalid_request`, without a field or additional details.
+- The adapter had dropped native `thought` steps and `thought_signature`
+  deltas. Replaying function calls alone left unsigned calls without their
+  preceding signed thought. It now reconstructs and privately retains the full
+  ordered response bundle, then replays it once per assistant turn. Completion
+  signatures and arguments remain authoritative when terminal steps are present.
+  A read-only GPT-6 Astra review helped identify these missing replay fields.
+- Regression coverage includes fragmented thought signatures/summaries, parallel
+  calls, consecutive tool rounds, model text without duplication, terminal steps
+  present or absent, and origin/model/credential isolation and cache limits.
+  Error formatting now preserves Google's structured field violations when
+  provided, redacts credentials and ignores arbitrary error metadata.
+- **Public IPA function round trip also passes.** After the direct adapter
+  diagnostic, the user refreshed the demo and ran the public `window.inference`
+  reproduction below, reporting success. It forces `add(2, 3)`, returns the
+  page-computed result and completes a second turn with `toolChoice: "none"`.
+  Parallel calls and consecutive function rounds have automated coverage;
+  they have not had separate live browser acceptance.
 - Public WAV synthesis still awaits IPA #68; live Firefox acceptance is pending.
   Earlier chat/search/image/transcription/WAV evidence is recorded below and was
-  not all repeated today. The installed worker predates the final completion-merge
-  fix; reload before the next live test and refresh claimed demos from automation.
-- Final checkpoint checks: **1,063 tests passed, 3 skipped**; Firefox package lint
+  not all repeated today.
+- Current checkpoint checks: **1,069 tests passed, 3 skipped**; Firefox package lint
   reported **0 errors and 0 actionable warnings**. `git diff --check` passed.
-- Synthetic browser harness, if still present: `/private/tmp/gemini-ipa-check.html`.
-  It checks exactly one accepted/done per turn, stream/final text equality,
-  `add(2, 3)` arguments, no public signature field, and final `toolChoice: "none"`.
 - Paste-ready public API reproduction: [gemini-function-repro.js](gemini-function-repro.js).
   Run it in the charts demo's DevTools with Gemini 3.8 Flash selected. It saves
   synthetic request/chunk/error traces in `window.geminiToolRepro` without keys.
-  The original six-model filtering change passed 34 focused Gemini/provider-state tests;
-  it has not had another live extension reload or browser acceptance pass.
-  Removing Gemma 4 31B and verifying the 3.8 Flash default passed 72 focused
-  Gemini/provider-settings tests.
 
 ### Checkpoint — October 22, 2026
 
-This is an unfinished implementation branch; do not merge it yet.
+Historical checkpoint; the October 23 notes above supersede its follow-up list.
 
 - Live Chrome page/approval checks passed for streamed chat, native Google
   Search with source URLs, image input, cancellation, and dedicated transcription
