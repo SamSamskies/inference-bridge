@@ -86,6 +86,12 @@ This is an unfinished implementation branch; do not merge it yet.
   adapter chat also passed on Gemini 3.8 Flash and Gemini 4 Argon.
 - Both unregistered native TTS models returned WAV that Chrome decoded as
   24 kHz mono audio. Public IPA synthesis remains blocked on IPA #68.
+- **Reasoning selection bug reported after the checkpoint:** the user's chat
+  screenshot shows `unavailable: Reasoning effort none is not supported by the
+  verified gemini-3.8-flash profile. Use auto or low, medium, high.` Reproduce
+  through the demo/approval path and inspect where `none` is selected or sent.
+  Fix the request/default or provider mapping as appropriate without silently
+  changing the requested reasoning semantics. Validate normal chat afterward.
 - **Function continuation remains unresolved.** The first forced function call
   succeeds, but sending its result on the next stateless Interactions request
   returns HTTP 400, "Request contains an invalid argument." Unit coverage does
