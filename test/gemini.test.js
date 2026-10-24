@@ -641,6 +641,39 @@ describe("Gemini native chat", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("allows verified Gemma grounding without enabling unverified capabilities", async () => {
+    const gemma = "gemma-4-26b-a4b-it";
+    expect(geminiRequestWarning(gemma, { tools: [search] })).toBe("");
+    expect(geminiRequestWarning(gemma, { tools: [fn] })).toContain("not verified");
+    expect(geminiRequestWarning(gemma, { tools: [search, fn] })).toContain("not verified");
+    expect(geminiRequestWarning("gemma-4-31b-it", { tools: [search] })).toContain("not verified");
+    expect(mapGeminiReasoningEffort(gemma, "high")).toBeUndefined();
+    await geminiProvider.preflightChat({
+      apiKey: key, model: gemma,
+      messages: [{ role: "user", content: "Search for Gemma 4" }],
+      tools: [search],
+    });
+    installStream([
+      start({ type: "google_search_call", arguments: { queries: ["Gemma 4 announcement"] } }),
+      start({ type: "google_search_result", result: [] }, 1),
+      start({ type: "model_output", content: [{
+        type: "text", text: "Grounded Gemma answer.", annotations: [{
+          type: "url_citation", title: "deepmind.google", url: "https://deepmind.google/models/gemma/",
+        }],
+      }] }, 2),
+      end({ model: gemma }),
+    ], { fragment: true });
+    const chunks = [];
+    const result = await chat({ model: gemma, tools: [search], onDelta: text => chunks.push(text) });
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body.model).toBe(gemma);
+    expect(body.tools).toEqual([{ type: "google_search" }]);
+    expect(body.store).toBe(false);
+    expect(body.stream).toBe(true);
+    expect(result.message.content).toBe("Grounded Gemma answer.\n\nSources:\n- [deepmind.google](<https://deepmind.google/models/gemma/>)");
+    expect(chunks.join("")).toBe(result.message.content);
+    expect(result.message.toolCalls).toBeUndefined();
+  });
   it("normalizes function argument fragments, and does not duplicate repeated completed steps", async () => {
     const call = {
       type: "function_call",

@@ -1,11 +1,18 @@
 /**
  * Verified optional Interactions capabilities, separate from live discovery.
  * Unknown models can chat, but never inherit tool/media/thinking privileges
- * from a name prefix. Update exact IDs against Google's model cards.
+ * from a name prefix. Update exact IDs against Google's model cards or live
+ * API checks that confirm the relevant native tool steps and output.
  * https://ai.google.dev/gemini-api/docs/google-search#supported_models
  * https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
  */
 const PROFILES = new Map([
+  [
+    "gemma-4-26b-a4b-it",
+    // Live Interactions check, 2026-10-23: Google Search call/result steps and
+    // URL citation annotations returned with store:false. Other tools unverified.
+    { search: true },
+  ],
   [
     "gemini-4-argon",
     {
