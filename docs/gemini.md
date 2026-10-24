@@ -119,9 +119,23 @@ multi-speaker audio stay out of scope.
   invalid PCM format information and inconsistent output before delivery.
 - Full suite: **1,096 tests passed, 3 skipped**. Firefox package lint:
   **0 errors and 0 actionable warnings**. `git diff --check` passed.
-- Remaining manual checks: live Firefox acceptance and final Options checks for
-  the five-model list and provider key links. Broader live parallel/consecutive
-  function rounds would add coverage; those rounds already pass automated tests.
+- **Final Firefox acceptance passed:** the temporary dev build completed public
+  chat with system instructions, `reasoningEffort: "none"` and temperature;
+  forced `add(2, 3)` followed by its function-result continuation; native Google
+  Search with grounding source links; and dedicated transcription of the public
+  MP3 fixture ("The sky is blue."). The probe checked exactly one `accepted` and
+  `done`, stream/final text agreement and pre-aborted cancellation, then logged
+  `GEMINI_FIREFOX_SUCCESS`. The user approved the requests and confirmed success.
+  Public WAV synthesis also returned 88.5 KB, remained paused until Play, and
+  reached the end in Firefox.
+- Firefox Options returned exactly the five requested model IDs and friendly
+  labels in their requested order, with `gemini-3.8-flash` selected. The AI Studio
+  key link was checked in the running UI; other provider setup URLs were checked
+  against official sources earlier. Keys remained masked and were not inspected.
+- Live parallel/consecutive function rounds, Firefox image input, revoked host
+  access and event-page loss were not separately exercised in this final smoke
+  pass; automated coverage remains in place. These are additional acceptance
+  checks, not claims made by the passing smoke probe.
 - **Stopping checkpoint:** WAV implementation committed as `740a002`. The
   temporary Firefox build was launched using
   `npm run dev:firefox -- --start-url https://samsamskies.github.io/inference-provider-api/speech/`.
@@ -229,7 +243,7 @@ gates, images/functions, fragmented UTF-8 SSE, usage, citations, suppression,
 cancellation, safe errors, upload cleanup, voices, WAV decoding and byte counts.
 Both browser packages include Google's host permission; Firefox checks revoked
 access. Live acceptance must cover the page/approval path, search, images,
-function continuation, transcription and (after the spec change) WAV playback.
+function continuation, transcription and WAV playback.
 
 References: [Interactions](https://ai.google.dev/api/interactions-api),
 [Models](https://ai.google.dev/api/models),
