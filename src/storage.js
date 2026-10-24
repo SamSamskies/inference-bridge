@@ -36,6 +36,7 @@ const DEFAULTS = Object.freeze({
   defaultModels: Object.freeze({
     openai: "gpt-6-luna",
     anthropic: "claude-sonnet-5-5",
+    gemini: "gemini-3.8-flash",
     openrouter: "openrouter/auto",
   }),
   /** @type {readonly CompatEndpoint[]} */
@@ -88,6 +89,7 @@ export function isPlausibleModelForProvider(providerId, model) {
   if (providerId === "anthropic") {
     return trimmed.startsWith("claude-") && !trimmed.includes("/");
   }
+  if (providerId === "gemini") return /^[a-zA-Z0-9._-]+$/.test(trimmed);
   if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
   if (providerId === "on-device") return trimmed === "on-device";
   return true;

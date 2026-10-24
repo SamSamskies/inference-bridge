@@ -486,6 +486,7 @@
         let uploadSequence = 0;
         let uploadOffset = 0;
         let uploadBusy = false;
+        let synthesisMediaType = "";
 
         function wake() {
           if (waiters.size === 0) return;
@@ -555,7 +556,11 @@
             void handleUploadPull(data);
           } else if (data.type === "binary-data") {
             try {
-              if (!Number.isSafeInteger(data.sequence) || data.sequence < 0) {
+              if (
+                !synthesisMediaType ||
+                !Number.isSafeInteger(data.sequence) ||
+                data.sequence < 0
+              ) {
                 throw makeError(
                   "provider_error",
                   "Malformed binary response sequence."
@@ -566,7 +571,7 @@
                 kind: "chunk",
                 value: {
                   type: "audio_delta",
-                  mediaType: "audio/mpeg",
+                  mediaType: synthesisMediaType,
                   data: bytes,
                 },
                 acknowledge: data.sequence,
@@ -673,6 +678,9 @@
             uploadSource = prepared.source;
           } else if (serializable.method === "decide") {
             serializable = snapshotDecisionRequest(serializable);
+          } else if (serializable.method === "synthesize") {
+            synthesisMediaType = serializable.output?.mediaType ?? "audio/mpeg";
+            serializable.output = { mediaType: synthesisMediaType };
           } else {
             serializable = await encodeRequestImages(serializable, signal);
           }
@@ -1088,11 +1096,12 @@
         }
         if (
           request.output.mediaType !== undefined &&
-          request.output.mediaType !== "audio/mpeg"
+          request.output.mediaType !== "audio/mpeg" &&
+          request.output.mediaType !== "audio/wav"
         ) {
           throw makeError(
             "invalid_request",
-            'output.mediaType must be "audio/mpeg".'
+            'output.mediaType must be "audio/mpeg" or "audio/wav".'
           );
         }
       }
@@ -1189,7 +1198,7 @@
       transcribe: {
         acceptedMedia: TRANSCRIPTION_MEDIA_TYPES.map((mediaType) => ({ mediaType })),
       },
-      synthesize: true,
+      synthesize: { outputMediaTypes: ["audio/mpeg", "audio/wav"] },
     };
   }
 

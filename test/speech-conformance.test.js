@@ -6,6 +6,18 @@ import { assertSpeechStream } from "./helpers/speech-conformance.mjs";
 
 const origin = "https://speech.example";
 const mp3 = new Uint8Array(readFileSync(new URL("./fixtures/speech.mp3", import.meta.url)));
+const wav = (() => {
+  const bytes = Buffer.alloc(600_044);
+  bytes.write("RIFF"); bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WAVEfmt ", 8); bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(24000, 24); bytes.writeUInt32LE(48000, 28);
+  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36); bytes.writeUInt32LE(bytes.length - 44, 40);
+  return new Uint8Array(bytes);
+})();
+const wavRoute = { providerId: "gemini", model: "gemini-3.8-flash-tts", voice: "kore" };
+const synthesisFeature = { outputMediaTypes: ["audio/mpeg", "audio/wav"] };
 const routes = {
   transcribe: { providerId: "openai", model: "gpt-4o-mini-transcribe" },
   synthesize: { providerId: "openai", model: "tts-1", voice: "alloy" },
@@ -62,7 +74,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     permissions = await import("../src/permissions.js");
     await import("../background/service-worker.js");
     await storage.saveSettings({
-      apiKeys: { openai: "test-key" },
+      apiKeys: { openai: "test-key", gemini: "test-gemini-key" },
       operationDefaults: routes,
     });
     for (const [method, route] of Object.entries(routes)) {
@@ -71,6 +83,14 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (url.endsWith("/audio/transcriptions")) return Response.json({ text: "The sky is blue." });
       if (url.endsWith("/audio/speech")) return new Response(mp3, { headers: { "Content-Type": "audio/mpeg" } });
+      if (url.includes("generativelanguage.googleapis.com")) {
+        if (url.includes("/models/")) return Response.json({ name: `models/${url.split("/").at(-1)}` });
+        if (url.includes("/voices")) return Response.json({ voices: [{ id: "kore", type: "prebuilt" }] });
+        if (url.endsWith("/interactions")) return Response.json({
+          status: "completed", model: wavRoute.model,
+          steps: [{ type: "model_output", content: [{ type: "audio", mime_type: "audio/wav", data: Buffer.from(wav).toString("base64") }] }],
+        });
+      }
       throw new Error(`Unexpected privileged fetch: ${url}`);
     }));
     pageFetch = vi.fn(async () => new Response(Uint8Array.of(1, 2, 3), {
@@ -98,7 +118,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
       vm.runInNewContext(readFileSync(filename, "utf8"), globals, { filename: filename.pathname });
     }
     inference = window.inference;
-    expect(inference.getFeatures().methods.synthesize).toBe(true);
+    expect(inference.getFeatures().methods.synthesize).toEqual(synthesisFeature);
   });
   afterEach(() => {
     connections.forEach((port) => port.disconnect());
@@ -120,6 +140,79 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     expect(report.byteLength).toBe(mp3.byteLength);
     expect(report.done.usage.inputCharacters).toBe(18);
     expect(packets.find((message) => message.type === "start")).not.toHaveProperty("experimental");
+  });
+
+  it("preserves a complete native Gemini WAV through MAIN, relay and worker", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", wavRoute);
+    const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
+    const report = await assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
+    expect(report.byteLength).toBe(wav.byteLength);
+    expect(report.deltas).toBeGreaterThan(1);
+    expect(report.done.audio.mediaType).toBe("audio/wav");
+    const calls = fetch.mock.calls.filter(([url]) => url.endsWith("/interactions"));
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0][1].body)).toMatchObject({
+      model: wavRoute.model, store: false, stream: false,
+      response_format: { mime_type: "audio/wav" },
+      generation_config: { speech_config: [{ voice: "kore" }] },
+    });
+    expect(fetch.mock.calls.every(([url]) => url.includes("generativelanguage.googleapis.com"))).toBe(true);
+  });
+
+  it("filters WAV approval choices and sends no provider traffic until approval", async () => {
+    await storage.revokeOriginOperation(origin, "synthesize");
+    const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers", method: "synthesize", mediaType: "audio/wav" }, {}, resolve
+    ));
+    expect(listed.providers.map((p) => p.id)).toEqual(["gemini"]);
+    const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
+    const result = assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
+    let pending;
+    await vi.waitFor(() => {
+      const started = packets.find((p) => p.type === "started");
+      pending = started && permissions.getPendingApproval(started.streamId);
+      expect(pending).toMatchObject({ providerId: "gemini", mediaType: "audio/wav" });
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(packets.some((p) => p.chunk?.type === "accepted")).toBe(false);
+    permissions.resolveApproval(pending.requestId, { decision: "allow_once", ...wavRoute });
+    expect((await result).done.audio.mediaType).toBe("audio/wav");
+  });
+
+  it.each(["audio/wav", "audio/mpeg"])("rejects an incompatible saved route for %s without switching providers", async (mediaType) => {
+    if (mediaType === "audio/mpeg") await storage.grantOriginOperationAlways(origin, "synthesize", wavRoute);
+    const chunks = [];
+    await expect((async () => {
+      for await (const chunk of inference.request({ method: "synthesize", text: "Hello", output: { mediaType } })) chunks.push(chunk);
+    })()).rejects.toMatchObject({ code: "unavailable" });
+    expect(chunks).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stops WAV fragment delivery when the iterator closes", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", wavRoute);
+    const iterator = inference.request({ method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value.type).toBe("accepted");
+    expect((await iterator.next()).value.mediaType).toBe("audio/wav");
+    await iterator.return();
+    await vi.waitFor(() => expect(packets.some((p) => p.type === "abort")).toBe(true));
+    expect(packets.some((p) => p.chunk?.type === "done")).toBe(false);
+  });
+
+  it("rejects inconsistent provider MIME metadata without a successful done", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", wavRoute);
+    const { geminiProvider } = await import("../src/providers/gemini.js");
+    const spy = vi.spyOn(geminiProvider, "synthesize").mockImplementation(async ({ onAudioDelta }) => {
+      await onAudioDelta(wav);
+      return { model: wavRoute.model, audio: { mediaType: "audio/mpeg", byteLength: wav.length } };
+    });
+    const chunks = [];
+    try {
+      await expect((async () => {
+        for await (const chunk of inference.request({ method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } })) chunks.push(chunk);
+      })()).rejects.toMatchObject({ code: "provider_error" });
+      expect(chunks.map((c) => c.type)).toEqual(["accepted"]);
+    } finally { spy.mockRestore(); }
   });
 
   it.each(["blob", "base64", "url"])("transcribes a %s source through the stable path", async (source) => {
@@ -217,7 +310,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
 
   it.each([false, true])("ignores the obsolete global speech toggle (%s)", async (legacyEnabled) => {
     await chrome.storage.local.set({ experimentalSpeechEnabled: legacyEnabled });
-    expect(inference.getFeatures().methods.synthesize).toBe(true);
+    expect(inference.getFeatures().methods.synthesize).toEqual(synthesisFeature);
     const report = await assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "hello" }), { expectedAudio: mp3 });
     expect(report.byteLength).toBe(mp3.byteLength);
     expect(await chrome.storage.local.get("experimentalSpeechEnabled")).toEqual({});

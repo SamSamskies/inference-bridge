@@ -28,6 +28,7 @@ import {
   ON_DEVICE_MODEL_ID,
   ON_DEVICE_PROVIDER_ID,
 } from "../src/prompt-api-core.js";
+import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -201,6 +202,7 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
   const warnings = [
     ...capabilityWarnings(provider, requestTools, requestToolChoice),
     ...imageCapabilityWarnings(provider, request),
+    ...(geminiApprovalWarning() ? [geminiApprovalWarning()] : []),
   ];
   const notes = imageCapabilityNotes(provider, request);
   if (warnings.length === 0 && notes.length === 0) {
@@ -212,6 +214,14 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
   capabilityWarningEl.hidden = false;
   capabilityWarningEl.classList.toggle("is-note", warnings.length === 0);
   capabilityWarningEl.textContent = [...warnings, ...notes].join(" ");
+}
+
+function geminiApprovalWarning() {
+  if (providerSelect.value !== "gemini" || requestMethod !== "chat") return "";
+  return geminiRequestWarning(readModelValue("gemini"), {
+    tools: requestTools, toolChoice: requestToolChoice,
+    imageInput: requestImageInput, imageOutput: requestImageOutput,
+  });
 }
 
 function renderImages() {
@@ -277,7 +287,7 @@ async function refreshVisionCapability() {
   selectedModelHasVision = undefined;
   selectedModelCanGenerateImages = undefined;
 
-  if (providerId === "openrouter" && (requestImageInput || requestImageOutput)) {
+  if ((providerId === "openrouter" || providerId === "gemini") && (requestImageInput || requestImageOutput)) {
     const model = readModelValue(providerId);
     const info = currentModels.find((m) => m.id === model);
     if (info) {
@@ -395,6 +405,7 @@ function renderTools(tools, providerId = providerSelect.value) {
 function allowUnknownFor(providerId) {
   return (
     requestMethod === "chat" &&
+    providerId !== "gemini" &&
     providerId !== "ollama" &&
     providerId !== ON_DEVICE_PROVIDER_ID
   );
@@ -501,6 +512,7 @@ function updateAllowEnabled() {
     !voicesReady ||
     (requestMethod === "synthesize" && !voiceSelect.value) ||
     !valid ||
+    Boolean(geminiApprovalWarning()) ||
     toolsBlocked ||
     imagesBlockAllow(provider);
 }
@@ -794,7 +806,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
           requestMethod === "transcribe" &&
           requestMediaType === "audio/mpeg"
           ? "Ollama MP3 support is model-specific. WAV is more compatible."
-          : ""
+          : providerId === "gemini" ? geminiModelNote(readModelValue(providerId)) : ""
       );
       modelsReady = true;
     }
@@ -1018,6 +1030,7 @@ async function decide(action) {
         onDeviceAvailable: onDeviceStatus.available,
       }) ||
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
+      Boolean(geminiApprovalWarning()) ||
       imagesBlockAllow(provider)
     ) {
       updateProviderHint(providerId);
@@ -1154,7 +1167,7 @@ async function load() {
       : requestMethod === "transcribe"
         ? "This site wants to send a complete media file to a provider for transcription."
         : requestMethod === "synthesize"
-          ? "This site wants a provider to generate synthetic speech from text. This may incur provider charges."
+          ? `This site wants a provider to generate ${requestMediaType === "audio/wav" ? "WAV" : "MP3"} synthetic speech from text. This may incur provider charges.`
           : "This site wants to send a chat request through Inference Bridge.";
   const requestedId =
     typeof request.providerId === "string" &&
@@ -1240,6 +1253,7 @@ providerSelect.addEventListener("change", () => {
 });
 
 modelSelect.addEventListener("change", () => {
+  if (providerSelect.value === "gemini") setModelHint(geminiModelNote(readModelValue("gemini")));
   updateAllowEnabled();
   void refreshVisionCapability();
   if (requestMethod === "synthesize") {

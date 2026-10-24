@@ -333,6 +333,9 @@ export function hostedToolDescription(hostedId, provider) {
   if (hostedId === "web_search" && provider?.id === "ollama") {
     return "Runs in Inference Bridge against ollama.com (search and fetch). An Ollama account and usage may apply.";
   }
+  if (hostedId === "web_search" && provider?.id === "gemini") {
+    return "Runs server-side with Google Search. Model tokens and multiple search queries can incur Gemini API charges; availability depends on the model and API project tier.";
+  }
   return "";
 }
 

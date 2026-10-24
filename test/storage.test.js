@@ -507,6 +507,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
     expect(settings.defaultModels).toEqual({
       openai: "gpt-4.1-nano",
       anthropic: "claude-sonnet-5-5",
+      gemini: "gemini-3.8-flash",
       openrouter: "openrouter/free",
     });
   });

@@ -4,6 +4,7 @@
 
 import { openaiProvider } from "./openai.js";
 import { anthropicProvider } from "./anthropic.js";
+import { geminiProvider } from "./gemini.js";
 import { ollamaProvider } from "./ollama.js";
 import { openrouterProvider } from "./openrouter.js";
 import { onDeviceProvider } from "./on-device.js";
@@ -11,7 +12,7 @@ import { createOpenAICompatProvider } from "./openai-compat.js";
 import { getSettings } from "../storage.js";
 import { isFirefoxBuild } from "../runtime-browser.js";
 import {
-  SYNTHESIS_OUTPUT_MEDIA_TYPE,
+  SYNTHESIS_OUTPUT_MEDIA_TYPES,
   normalizeTranscriptionMediaType,
 } from "../speech.js";
 
@@ -24,6 +25,7 @@ import {
 const providers = new Map([
   [openaiProvider.id, openaiProvider],
   [anthropicProvider.id, anthropicProvider],
+  [geminiProvider.id, geminiProvider],
   [openrouterProvider.id, openrouterProvider],
   [ollamaProvider.id, ollamaProvider],
   [onDeviceProvider.id, onDeviceProvider],
@@ -125,14 +127,18 @@ export function providerSupportsMethod(provider, method, request = {}) {
     if (
       !provider?.synthesis ||
       typeof provider.synthesize !== "function" ||
-      !Array.isArray(provider.synthesis.outputMediaTypes)
+      !Array.isArray(provider.synthesis.outputMediaTypes) ||
+      provider.synthesis.outputMediaTypes.length === 0 ||
+      !provider.synthesis.outputMediaTypes.every((type) =>
+        SYNTHESIS_OUTPUT_MEDIA_TYPES.includes(type)
+      )
     ) {
       return false;
     }
     if (request.mediaType === undefined) return true;
     return (
-      request.mediaType === SYNTHESIS_OUTPUT_MEDIA_TYPE &&
-      provider.synthesis.outputMediaTypes.includes(SYNTHESIS_OUTPUT_MEDIA_TYPE)
+      SYNTHESIS_OUTPUT_MEDIA_TYPES.includes(request.mediaType) &&
+      provider.synthesis.outputMediaTypes.includes(request.mediaType)
     );
   }
   return false;

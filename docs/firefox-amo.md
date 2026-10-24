@@ -49,7 +49,7 @@ Before submission, compare this declaration against the actual packaged build, F
 
 - **Name:** Inference Bridge
 - **Summary:** Let websites request AI through `window.inference` with per-site approval and your chosen provider.
-- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Typed decisions are available by default for separately approved typed questions over JSON state via cloud OpenAI, OpenRouter, or local Ollama. Configure speech defaults in Options for separately approved transcription and MP3 speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
+- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Typed decisions are available by default for separately approved typed questions over JSON state via cloud OpenAI, OpenRouter, or local Ollama. Configure speech defaults in Options for separately approved transcription and MP3/WAV speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
 - **License:** MIT
 - **Privacy policy:** `https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md`
 - **Support site:** `https://github.com/SamSamskies/inference-bridge/issues`
@@ -66,8 +66,8 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 - [ ] Install the exact staged artifact in the current Firefox desktop release and verify `window.inference` appears at `document_start` only on eligible top-level pages. Older versions down to the declared minimum are not part of pre-release QA; address compatibility reports as they arise.
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
 - [ ] Run the README decisions checks in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
-- [ ] Run the README speech checks in Firefox: immediate speech discovery, transcription upload, MP3 synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
-- [ ] Test OpenAI, Anthropic, OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
+- [ ] Run the README speech checks in Firefox: immediate speech discovery, transcription upload, MP3/WAV synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
+- [ ] Test OpenAI, Anthropic, Google Gemini (including revoked host access, search, file transcription, and WAV synthesis), OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
 - [ ] Revoke built-in and custom host grants in `about:addons`; affected calls fail with a clear error and never switch providers.
 - [ ] Terminate the event page during approval and streaming; the iterator settles and no approval popup remains.
 - [ ] Restart Firefox with a packaged/signed install and verify storage, DNR rules, grants, and Options. Temporary installs do not prove install-time prompts or restart behavior.

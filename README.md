@@ -9,7 +9,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 ## Features
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
-- Bounded transcription and MP3 speech synthesis, with separate approval for each operation
+- Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
 - Typed decisions through stable `request()`, using OpenAI, OpenRouter, or local Ollama
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
@@ -51,6 +51,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
+   - **Google Gemini** — paste a Google AI Studio API key and choose a default model from the curated list
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
@@ -63,6 +64,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
+| Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
@@ -100,11 +102,17 @@ for await (const chunk of window.inference.request({
 
 ### Anthropic
 
-1. Create an API key at [console.anthropic.com](https://console.anthropic.com/)
+1. Create an API key in the [Anthropic Console](https://platform.claude.com/settings/keys)
 2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5-5`; pick another Claude model from the list), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 
 Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`POST /v1/messages`), not OpenAI Chat Completions.
+
+### Google Gemini
+
+1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey)
+2. In Options, set **Default provider** to Google Gemini, paste the key under **Google Gemini API key**, choose a model (defaults to Gemini 3.8 Flash), and click **Save**
+3. Run the snippet above on an HTTPS or localhost page
 
 ### OpenRouter
 
@@ -263,7 +271,7 @@ Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → 
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, Google Gemini, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -273,6 +281,7 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 | --- | --- |
 | OpenAI | Responses API (`/v1/responses`) |
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
+| Google Gemini | Native Interactions `{ type: "google_search" }` on verified models; source links preserved in response text. Tokens and search queries can incur charges. |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
 | OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
@@ -470,6 +479,7 @@ console.log("[final]", final.message.content);
 | --- | --- |
 | OpenAI | Responses API for GPT-6 models, hosted search, or image output; otherwise Chat Completions `tools` |
 | Anthropic | Messages API `tools` |
+| Google Gemini | Native Interactions function steps; mixed Google Search and functions only on verified models |
 | OpenRouter | Chat Completions `tools` |
 | Ollama | `/api/chat` `tools` |
 | OpenAI-compatible | Chat Completions `tools` |
@@ -477,9 +487,15 @@ console.log("[final]", final.message.content);
 
 Approval lists function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**. Unsupported providers disable Allow with a setup hint. A plain-chat grant does not authorize tools: Bridge prompts again unless the saved grant already covers the requested tool set. Expanding that set requires approval. An Allow-once tool loop can continue through its matching tool-result turns without another prompt.
 
+Gemini function continuation requires replaying the returned assistant content
+and tool calls unchanged. Opaque native signatures stay in bounded extension
+memory, as described in [PRIVACY.md](PRIVACY.md). Cache expiry, eviction or a
+worker restart requires a fresh conversation; missing state fails before
+`accepted` with an actionable error.
+
 ## Bounded speech
 
-Bounded transcription and MP3 synthesis are optional IPA methods on stable
+Bounded transcription and speech synthesis are optional IPA methods on stable
 `request`. Speech is available by default, with separate site approval for each
 operation. Configure provider/model/voice defaults in **Options → Speech** and
 feature-detect before use:
@@ -489,6 +505,7 @@ const methods = window.inference.getFeatures().methods ?? {};
 console.log(methods.transcribe?.acceptedMedia);
 // [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
 console.log(Boolean(methods.synthesize)); // true in this build
+console.log(methods.synthesize.outputMediaTypes); // ["audio/mpeg", "audio/wav"]
 ```
 
 Both methods are lazy `AsyncIterable` requests and retain the normal approval,
@@ -499,6 +516,11 @@ are isolated by origin and operation and can be revoked separately in Options.
 Speech discovery reports supported API surface without exposing provider, model,
 voice, credentials, or site grants. A selected route can still be unavailable.
 The deprecated experimental alias uses the same operation grants.
+Omitted synthesis output always requests MP3. WAV requires explicit
+`output: { mediaType: "audio/wav" }`. Approval lists only matching providers;
+an incompatible saved route fails with `unavailable` before `accepted`, without
+changing encoding or providers. Legacy injectors advertising `synthesize: true`
+support MP3 only.
 
 Current implementation limits (Bridge-specific, not IPA constants):
 
@@ -511,8 +533,8 @@ Current implementation limits (Bridge-specific, not IPA constants):
 - Files are passed through unchanged. For MP4/WebM, the complete container,
   including visual bytes, can be uploaded to the selected provider; only its
   audio track has transcription semantics.
-- Synthesis accepts up to 4,096 Unicode code points and returns only MP3
-  (`audio/mpeg`), capped at 32,000,000 bytes.
+- Synthesis accepts up to 4,096 Unicode code points and returns MP3
+  (`audio/mpeg`) or explicit WAV (`audio/wav`), capped at 32,000,000 bytes.
 - Language hints must be structurally valid BCP 47 tags. OpenRouter accepts
   two-letter language hints; richer hints fail with `unavailable` before upload
   instead of being reduced silently. Omit the hint for detection.
@@ -525,23 +547,43 @@ Current implementation limits (Bridge-specific, not IPA constants):
   `gemma4:e4b` model because other model/runtime combinations may reject it.
   Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
   synthesis are unavailable rather than emulated through chat.
+- Google Gemini uses dedicated `gemini-3.5-transcribe` with a Files API upload
+  and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
+  Bridge's 24 MB limit. Remote file deletion is attempted after success,
+  failure, or cancellation; if cleanup fails, files may remain until Google's
+  48-hour expiry. See [PRIVACY.md](PRIVACY.md) for retention details.
+  Dedicated `gemini-3.8-flash-tts` and
+  `gemini-3.8-flash-lite-tts` return a single native WAV file with 24 kHz mono
+  16-bit PCM, split into bounded transport fragments without changing bytes.
+  Kore is the default voice; only prebuilt voices are offered.
 
 Paste-ready synthesis example:
 
 ```js
 const parts = [];
+const mediaType = "audio/mpeg"; // Use "audio/wav" for a Gemini TTS route.
+let done;
 for await (const chunk of window.inference.request({
   method: "synthesize",
-  text: "Hello from Inference Bridge."
+  text: "Hello from Inference Bridge.",
+  output: { mediaType }
 })) {
   console.log(chunk);
-  if (chunk.type === "audio_delta") parts.push(chunk.data);
+  if (chunk.type === "audio_delta") {
+    if (chunk.mediaType !== mediaType) throw new Error("Unexpected audio format");
+    parts.push(chunk.data.slice());
+  }
+  if (chunk.type === "done") done = chunk;
 }
-
+const blob = new Blob(parts, { type: done.audio.mediaType });
+if (done.audio.mediaType !== mediaType || blob.size !== done.audio.byteLength) {
+  throw new Error("Incomplete audio stream");
+}
 const audio = document.createElement("audio");
 audio.controls = true;
-audio.src = URL.createObjectURL(new Blob(parts, { type: "audio/mpeg" }));
+audio.src = URL.createObjectURL(blob);
 document.body.append(audio); // Playback remains an explicit user action.
+// When removing the player: audio.pause(); URL.revokeObjectURL(audio.src); audio.remove();
 ```
 
 Paste-ready transcription example:
@@ -919,7 +961,9 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
 - [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
-- [ ] Synthesis approval shows the text summary, model, voice, synthetic-speech notice, and provider-cost notice
+- [ ] Explicit WAV lists only Gemini synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops unary generation and fragment delivery
+- [ ] A saved MP3-only route rejects WAV, and a saved WAV-only route rejects omitted output, before `accepted` without switching routes
+- [ ] Synthesis approval shows the text summary, requested format, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
 - [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis
 - [ ] AbortSignal rejects pending iteration with `aborted`; iterator `return()` closes it; both stop upload/download and yield no `done`

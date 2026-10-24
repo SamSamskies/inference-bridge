@@ -35,6 +35,7 @@ import {
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
 import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -583,6 +584,30 @@ function syncApiKeyDraftFromInput() {
   apiKeyDrafts[apiKeyBoundProviderId] = apiKeyInput.value;
 }
 
+const API_KEY_SETUP_LINKS = Object.freeze({
+  openai: {
+    href: "https://platform.openai.com/api-keys",
+    label: "Get an OpenAI API key",
+  },
+  anthropic: {
+    href: "https://platform.claude.com/settings/keys",
+    label: "Get an Anthropic API key",
+  },
+  openrouter: {
+    href: "https://openrouter.ai/keys",
+    label: "Get an OpenRouter API key",
+  },
+  gemini: {
+    href: "https://aistudio.google.com/apikey",
+    label: "Create a key in Google AI Studio",
+  },
+  ollama: {
+    href: "https://ollama.com/settings/keys",
+    label: "Get an Ollama API key",
+    detail: ". Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.",
+  },
+});
+
 /**
  * Show the API key field for providers that require a key or accept an optional one.
  * @param {string} providerId
@@ -609,11 +634,9 @@ function updateApiKeyField(providerId) {
   if (provider.id === "ollama") {
     apiKeyLabel.textContent = "Ollama API key (optional, for web search)";
     apiKeyInput.placeholder = "Ollama account API key";
-    if (apiKeyHint) {
-      apiKeyHint.hidden = false;
-      apiKeyHint.textContent =
-        "Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.";
-    }
+  } else if (provider.id === "gemini") {
+    apiKeyLabel.textContent = "Google Gemini API key";
+    apiKeyInput.placeholder = "Google AI Studio API key";
   } else {
     apiKeyLabel.textContent = provider.optionalApiKey
       ? `${provider.label} API key (optional)`
@@ -626,9 +649,18 @@ function updateApiKeyField(providerId) {
           : provider.optionalApiKey
             ? "Leave blank if not required"
             : "sk-...";
-    if (apiKeyHint) {
-      apiKeyHint.hidden = true;
-      apiKeyHint.textContent = "";
+  }
+  if (apiKeyHint) {
+    const setup = API_KEY_SETUP_LINKS[provider.id];
+    apiKeyHint.hidden = !setup;
+    apiKeyHint.replaceChildren();
+    if (setup) {
+      const link = document.createElement("a");
+      link.href = setup.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = setup.label;
+      apiKeyHint.replaceChildren(link, document.createTextNode(setup.detail || ""));
     }
   }
   apiKeyInput.value = apiKeyDrafts[provider.id] || "";
@@ -673,7 +705,7 @@ function providerAccessError(providerId) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
+  return providerId !== "gemini" && providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
 }
 
 /**
@@ -929,6 +961,10 @@ async function refreshDefaultModels(providerId, preferredModel) {
         "Saved model is not in the current catalog; it will still be used.";
     }
   }
+  if (providerId === "gemini" && !error && models.length) {
+    modelHint.textContent = geminiModelNote(readDefaultModelValue(providerId));
+    modelHint.hidden = !modelHint.textContent;
+  }
 }
 
 /** Last saved default provider — also used by on-device install flows. */
@@ -981,6 +1017,13 @@ providerSelect.addEventListener("change", async () => {
   await refreshDefaultModels(providerId, preferredDefaultModel(providerId));
 });
 
+modelSelect.addEventListener("change", () => {
+  if (providerSelect.value === "gemini") {
+    modelHint.textContent = geminiModelNote(modelSelect.value);
+    modelHint.hidden = !modelHint.textContent;
+  }
+});
+
 modelInput.addEventListener("input", () => {
   updateClearModelButton();
   const providerId = providerSelect.value;
@@ -991,7 +1034,9 @@ modelInput.addEventListener("input", () => {
     });
     if (modelInput.value.trim() && !valid) {
       modelHint.hidden = false;
-      modelHint.textContent = "Choose a model from the installed Ollama tags.";
+      modelHint.textContent = providerId === "gemini"
+        ? "Choose a model from the Google Gemini catalog."
+        : "Choose a model from the installed Ollama tags.";
     } else if (!modelHint.textContent.startsWith("Ollama is")) {
       modelHint.hidden = true;
       modelHint.textContent = "";
@@ -2191,7 +2236,7 @@ saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
   try {
     const providerId = providerSelect.value;
-    const model = readDefaultModelValue(providerId);
+    let model = readDefaultModelValue(providerId);
     if (!providers.some((p) => p.id === providerId)) {
       setStatus("Choose a registered provider before saving.", "err");
       return;
@@ -2216,6 +2261,33 @@ saveButton.addEventListener("click", async () => {
         "err",
       );
       return;
+    }
+    if (providerId === "gemini") {
+      // Discovery is authenticated. Persist the key independently of a model
+      // so first-time setup cannot deadlock, and preserve all existing routes
+      // if the key/catalog fails. The key stays in extension-local storage.
+      syncApiKeyDraftFromInput();
+      await saveSettings({ apiKeys: { gemini: apiKeyDrafts.gemini || "" } });
+      modelCache.delete("gemini");
+      await refreshDefaultModels("gemini", model || preferredDefaultModel("gemini"));
+      // The shared model control is rebound on provider change. Do not re-read
+      // it unless this tab is still showing Gemini — otherwise another
+      // provider's selection can pass Gemini's id checks and be persisted.
+      if (
+        providerSelect.value !== "gemini" ||
+        modelBoundProviderId !== "gemini"
+      ) {
+        setStatus(
+          "Gemini key saved. Switch back to Google Gemini to choose a model and save the default route.",
+          "err",
+        );
+        return;
+      }
+      model = readDefaultModelValue("gemini");
+      if (!isModelValid(model, defaultModels, { allowUnknown: false })) {
+        setStatus("Gemini key saved. Load the catalog and choose an available model to save the default route.", "err");
+        return;
+      }
     }
     if (
       !isModelValid(model, defaultModels, {

@@ -71,10 +71,7 @@ export function isModelValid(value, models, opts = {}) {
  * @returns {string}
  */
 function modelOptionText(model) {
-  if (model.label && model.label !== model.id) {
-    return `${model.label} (${model.id})`;
-  }
-  return model.id;
+  return model.label || model.id;
 }
 
 /**

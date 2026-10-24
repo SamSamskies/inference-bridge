@@ -21,10 +21,11 @@ beforeEach(() => {
 });
 
 describe("provider registry", () => {
-  it("registers openai, anthropic, openrouter, ollama, and on-device", () => {
+  it("registers the built-in providers", () => {
     const ids = listProviders().map((p) => p.id).sort();
     expect(ids).toEqual([
       "anthropic",
+      "gemini",
       "ollama",
       "on-device",
       "openai",
@@ -67,6 +68,7 @@ describe("provider registry", () => {
       const all = await listAllProviders();
       expect(all.map((p) => p.id).sort()).toEqual([
         "anthropic",
+        "gemini",
         "ollama",
         "on-device",
         "openai",
@@ -180,12 +182,23 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ollama"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter"]);
+    ).toEqual(["openai", "gemini", "openrouter"]);
+  });
+
+  it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
+    const all = listProviders();
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
+      .toEqual(["gemini"]);
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
+      .toEqual(["openai", "openrouter"]);
+    expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);
+    expect(providerSupportsMethod({ synthesis: { outputMediaTypes: [] }, synthesize }, "synthesize"))
+      .toBe(false);
   });
 
   it("filters transcription providers by normalized declared media type", () => {

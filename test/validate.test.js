@@ -945,7 +945,7 @@ describe.each([
     }
   });
 
-  it("validates MP3-only synthesis and Unicode code-point bounds", () => {
+  it("validates MP3-default synthesis and Unicode code-point bounds", () => {
     expect(
       validateSpeechRequest({
         method: "synthesize",
@@ -977,9 +977,15 @@ describe.each([
         method: "synthesize",
         text: "hello",
         output: { mediaType: "audio/wav" },
-      }).ok
-    ).toBe(false);
+      })
+    ).toMatchObject({ ok: true, value: { output: { mediaType: "audio/wav" } } });
   });
+
+  it.each(["audio/wave", "AUDIO/WAV", "audio/wav; codecs=pcm", "audio/l16", null])(
+    "rejects noncanonical synthesis output %s", (mediaType) => {
+      expect(validateSpeechRequest({ method: "synthesize", text: "Hello", output: { mediaType } }).ok).toBe(false);
+    }
+  );
 
   it("rejects unknown methods and cross-method speech fields", () => {
     expect(

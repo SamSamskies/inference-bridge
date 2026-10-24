@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-23
 
 Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
@@ -12,6 +12,14 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 - Experimental decisions are available by default and require separate per-site approval. Once approved, JSON state and typed questions are sent to OpenAI Decisions, OpenRouter Decisions, or local Ollama System One. Typed answers are returned directly to the page; state, questions, and answers are held in memory for the active request and are not persisted.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
+- Gemini function-call continuation retains complete native responses for
+  tool-call turns, including thought summaries, opaque signatures, model text,
+  and any search results, in extension-worker memory for up to 30 minutes.
+  This cache is bounded to 128 turns and 2 MB of serialized data. Entries are
+  isolated by website origin, model, and credential. Provider-only state is
+  never exposed to pages or written to extension storage; ordinary response
+  text and reasoning summaries still reach the requesting page. Worker shutdown
+  clears the cache.
 - The Firefox build is unavailable in private windows.
 - Recordings, transcripts, and generated audio are held only in memory for the active request and are never stored in extension storage.
 - Recordings can contain biometric voice data and sensitive information about the speaker or bystanders, including location, health information, background conversations, and other ambient sounds.
@@ -20,7 +28,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 
 | Data | Purpose | Where |
 | --- | --- | --- |
-| Provider API keys (OpenAI, Anthropic, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | Local extension storage |
+| Provider API keys (OpenAI, Anthropic, Google Gemini, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | Local extension storage |
 | Default provider and model | Pre-fill Options and approval UI | Local extension storage |
 | Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | Local extension storage |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | Local extension storage |
@@ -33,6 +41,8 @@ Settings and grants stay on the device unless the user clears extension storage 
 ## Data sent to third parties
 
 When the user allows a site to use inference:
+
+- **Google Gemini:** approved chat messages and images, plus the stored Gemini API key, are sent to `https://generativelanguage.googleapis.com`. Model and prebuilt-voice discovery also authenticate to this host. Chat, dedicated transcription, and separately approved synthesis use native Interactions with `store: false`, opting out of interaction-resource storage; Google's API tier terms still apply. Approved Google Search runs server-side and may execute multiple billable queries. Separately approved transcription uploads the complete bounded audio file through Google's Files API. Bridge attempts file deletion after success, failure, or cancellation with a separate cleanup timeout. If upload completion is interrupted or cleanup fails, a remote file may remain until Google's documented 48-hour Files API expiry; `store: false` does not delete files. For synthesis, text is sent with the user-selected model and prebuilt voice, and native WAV bytes are returned to the requesting page. Recordings, transcripts, and generated audio are not stored locally. API billing and data-use terms are separate from consumer Google AI subscriptions.
 
 - **OpenAI:** chat messages (and, when the user allows image input, image bytes from the page) and the stored OpenAI API key are sent to `https://api.openai.com` for the selected model. When the user allows image output, generated image bytes from OpenAI are returned to the page. When the user separately approves speech, the complete bounded audio/media file is uploaded to OpenAI for transcription, or synthesis text is sent to OpenAI and generated MP3 bytes are returned to the page. An MP4/WebM upload can include visual or other container bytes even though only its audio track has transcription semantics. When decisions are separately approved, state is sent as text (JSON-serialized for objects and arrays) with typed questions and the stored OpenAI key to `/v1/decisions`; typed answers or per-question refusals are returned directly to the page.
 - **Anthropic:** chat messages (and, when the user allows image input, image bytes from the page) and the stored Anthropic API key are sent to `https://api.anthropic.com` (Messages API) for the selected model.
@@ -54,6 +64,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `offscreen` (Chrome only) | Host the browser Prompt API for the On-device provider (not available in the service worker) |
 | `https://api.openai.com/*` | Call OpenAI chat, image, transcription, speech-synthesis, and separately approved Decisions APIs selected by the user |
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
+| `https://generativelanguage.googleapis.com/*` | Authenticate Gemini discovery, user-approved chat/search, and separately approved file transcription and cleanup |
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog, Chat Completions API, and separately approved transcription, speech-synthesis, or Decisions endpoints |
 | `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
 | Chrome: `http://localhost:11434/*`; Firefox: portless `http://localhost/*` | Call built-in Ollama on port 11434. Firefox match patterns cannot include a port; request URLs still use only port 11434. Custom loopback endpoints, including `127.0.0.1`, use optional access on save. |

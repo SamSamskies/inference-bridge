@@ -8,6 +8,10 @@ export const SYNTHESIS_TEXT_MAX_CODE_POINTS = 4_096;
 export const SYNTHESIS_OUTPUT_MAX_BYTES = 32_000_000;
 export const AUDIO_TRANSFER_CHUNK_BYTES = 256 * 1024;
 export const SYNTHESIS_OUTPUT_MEDIA_TYPE = "audio/mpeg";
+export const SYNTHESIS_OUTPUT_MEDIA_TYPES = Object.freeze([
+  "audio/mpeg",
+  "audio/wav",
+]);
 
 export const TRANSCRIPTION_MEDIA_TYPES = Object.freeze([
   "audio/mpeg",

@@ -1,0 +1,906 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  geminiProvider,
+  mapMessagesForGemini,
+} from "../src/providers/gemini.js";
+import {
+  geminiCapabilities,
+  geminiRequestWarning,
+  mapGeminiReasoningEffort,
+} from "../src/providers/gemini-capabilities.js";
+import { geminiFetch, readGeminiEvents } from "../src/providers/gemini-api.js";
+import { geminiCallState } from "../src/providers/gemini-call-state.js";
+import { resolveProviderModels } from "../src/providers/registry.js";
+
+const key = "private-test-gemini-key";
+const model = "gemini-3.8-flash";
+const metadata = (id = model) => ({
+  name: `models/${id}`,
+  displayName: id,
+  supportedGenerationMethods: ["generateContent"],
+});
+const fn = {
+  type: "function",
+  function: { name: "weather", parameters: { type: "object", properties: {} } },
+};
+const search = { type: "web_search" };
+const start = (step = { type: "model_output" }, index = 0) => ({
+  event_type: "step.start",
+  index,
+  step,
+});
+const delta = (text, index = 0) => ({
+  event_type: "step.delta",
+  index,
+  delta: { type: "text", text },
+});
+const end = (extra = {}) => ({
+  event_type: "interaction.completed",
+  interaction: { status: "completed", model, ...extra },
+});
+function sse(events, { fragment = false, trailing = true } = {}) {
+  const text =
+    events
+      .map(
+        (event) =>
+          `event: ${event.event_type}\r\ndata: ${JSON.stringify(event)}`
+      )
+      .join("\r\n\r\n") + (trailing ? "\r\n\r\n" : "");
+  const bytes = new TextEncoder().encode(text);
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        if (fragment) {
+          for (let i = 0; i < bytes.length; i += 3)
+            controller.enqueue(bytes.slice(i, i + 3));
+        } else controller.enqueue(bytes);
+        controller.close();
+      },
+    })
+  );
+}
+function installStream(events, opts) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url) =>
+      url.includes("/models/")
+        ? Response.json(metadata(new URL(url).pathname.split("/").at(-1)))
+        : sse(events, opts)
+    )
+  );
+}
+function chat(extra = {}) {
+  return geminiProvider.streamChat({
+    apiKey: key,
+    model,
+    messages: [{ role: "user", content: "Hi" }],
+    signal: new AbortController().signal,
+    onDelta: vi.fn(),
+    ...extra,
+  });
+}
+beforeEach(() => {
+  geminiCallState.clear();
+  installStream([start(), delta("Hello"), end()]);
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Gemini curated models and capability boundaries", () => {
+  it.each([undefined, key])("lists the curated chat models without network access (key: %s)", async (apiKey) => {
+    const models = await resolveProviderModels(geminiProvider, { apiKey });
+    expect(models.map((entry) => entry.id)).toEqual([
+      "gemma-4-26b-a4b-it",
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash-lite",
+      model,
+      "gemini-4-argon",
+    ]);
+    expect(models.map((entry) => entry.label)).toEqual([
+      "Gemma 4 26B A4B IT",
+      "Gemini 3.1 Flash Lite",
+      "Gemini 3.5 Flash Lite",
+      "Gemini 3.8 Flash",
+      "Gemini 4 Argon",
+    ]);
+    expect(models.every((entry) => entry.inputModalities.includes("image"))).toBe(true);
+    expect(models.every((entry) => entry.outputModalities.join() === "text")).toBe(true);
+    expect(geminiProvider.defaultModel).toBe(model);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("rejects removed saved routes before acceptance", async () => {
+    await expect(
+      geminiProvider.preflightChat({
+        model: "gemini-3.1-pro-preview",
+        messages: [],
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("still checks model access before sending chat to Google", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      error: { message: "Model unavailable for this project" },
+    }, { status: 404 })));
+    await expect(chat()).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain(`/v1beta/models/${model}`);
+    expect(fetch.mock.calls[0][1].headers["x-goog-api-key"]).toBe(key);
+  });
+  it("never infers optional capabilities from a model prefix", () => {
+    expect(geminiCapabilities("gemini-4-unknown")).toEqual({});
+    expect(
+      geminiRequestWarning("gemini-4-unknown", { tools: [search] })
+    ).toContain("not verified");
+    expect(
+      geminiRequestWarning("gemini-4-argon", { tools: [search, fn] })
+    ).toBe("");
+    expect(
+      geminiRequestWarning("gemini-2.5-flash", { tools: [search, fn] })
+    ).toContain("not verified");
+    expect(
+      geminiRequestWarning(model, { options: { reasoningEffort: "none" } })
+    ).toBe("");
+    expect(
+      geminiRequestWarning(model, { options: { reasoningEffort: "low" } })
+    ).toBe("");
+  });
+  it("maps none to the lowest documented thinking level, leaving unknown controls unset", async () => {
+    expect(mapGeminiReasoningEffort(model, "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-4-argon", "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-3.6-flash", "none")).toBe(
+      "minimal"
+    );
+    expect(mapGeminiReasoningEffort("gemini-3.5-flash-lite", "none")).toBe(
+      "minimal"
+    );
+    expect(mapGeminiReasoningEffort(model, "auto")).toBeUndefined();
+    expect(mapGeminiReasoningEffort("unknown", "high")).toBeUndefined();
+    await chat({ options: { reasoningEffort: "none" } });
+    expect(
+      JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config
+        .thinking_level
+    ).toBe("low");
+  });
+  it("advertises dedicated WAV synthesis and no typed Decisions", () => {
+    expect(geminiProvider.defaultModel).toBe("gemini-3.8-flash");
+    expect(geminiProvider.decisions).toBeUndefined();
+    expect(geminiProvider.decide).toBeUndefined();
+    expect(geminiProvider.synthesis.outputMediaTypes).toEqual(["audio/wav"]);
+    expect(typeof geminiProvider.synthesize).toBe("function");
+  });
+});
+
+describe("Gemini native chat", () => {
+  it.each([false, true])(
+    "replays full thought/tool turns once across consecutive rounds (terminal steps: %s)",
+    async (terminal) => {
+      const thought = {
+        type: "thought",
+        signature: "opaque-thought",
+        summary: [{ type: "text", text: "Need weather" }],
+      };
+      const firstCall = {
+        type: "function_call",
+        id: "native-1",
+        name: "weather",
+        arguments: { city: "Austin" },
+      };
+      const otherCall = {
+        ...firstCall,
+        id: "native-2",
+        arguments: { city: "London" },
+      };
+      const native = [
+        thought,
+        {
+          type: "model_output",
+          content: [{ type: "text", text: "Checking." }],
+        },
+        firstCall,
+        otherCall,
+      ];
+      installStream([
+        start({ type: "thought", signature: "", summary: [] }),
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: {
+            type: "thought_summary",
+            content: { type: "text", text: "Need " },
+          },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: {
+            type: "thought_summary",
+            content: { type: "text", text: "weather" },
+          },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "thought_signature", signature: "opaque-" },
+        },
+        {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "thought_signature", signature: "thought" },
+        },
+        start({ type: "model_output", content: [] }, 1),
+        delta("Checking.", 1),
+        start({ ...firstCall, arguments: {} }, 2),
+        {
+          event_type: "step.delta",
+          index: 2,
+          delta: {
+            type: "arguments_delta",
+            arguments: JSON.stringify(firstCall.arguments),
+          },
+        },
+        start(otherCall, 3),
+        end({
+          status: "requires_action",
+          ...(terminal ? { steps: native } : {}),
+        }),
+      ]);
+      const first = await chat({ tools: [fn] });
+      expect(first.message.toolCalls).toHaveLength(2);
+      expect(JSON.stringify(first)).not.toContain(thought.signature);
+      const results = [firstCall, otherCall].map((call) => ({
+        role: "tool",
+        toolCallId: call.id,
+        content: "sunny",
+      }));
+      const messages = [
+        { role: "user", content: "Hi" },
+        first.message,
+        ...results,
+      ];
+      const secondNative = [
+        { type: "thought", signature: "second-private-thought" },
+        { ...firstCall, id: "native-3", arguments: { city: "Paris" } },
+      ];
+      installStream([
+        start(secondNative[0]),
+        start(secondNative[1], 1),
+        end({ status: "requires_action" }),
+      ]);
+      const second = await chat({ messages, tools: [fn] });
+      expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).input).toEqual([
+        { type: "user_input", content: [{ type: "text", text: "Hi" }] },
+        ...native,
+        ...results.map((result) => ({
+          type: "function_result",
+          call_id: result.toolCallId,
+          name: "weather",
+          result: [{ type: "text", text: "sunny" }],
+        })),
+      ]);
+      messages.push(second.message, {
+        role: "tool",
+        toolCallId: "native-3",
+        content: "rainy",
+      });
+      installStream([start(), delta("Done"), end()]);
+      await chat({ messages, tools: [fn], toolChoice: "none" });
+      const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+      expect(body.input.filter((step) => step.type === "thought")).toEqual([
+        thought,
+        secondNative[0],
+      ]);
+      expect(
+        body.input.filter((step) => step.type === "function_call")
+      ).toHaveLength(3);
+      expect(
+        body.input.filter((step) => step.type === "model_output")
+      ).toHaveLength(1);
+      expect(body.tools).toBeUndefined();
+    }
+  );
+  it.each(["start", "delta", "completion"])(
+    "privately replays native function signatures from %s and suppresses tools",
+    async (signatureSource) => {
+      const native = {
+        type: "function_call",
+        id: "signed-call",
+        name: "weather",
+        arguments: { city: "Austin" },
+        signature: "opaque-native-signature",
+      };
+      installStream(
+        signatureSource === "completion"
+          ? [
+              start({ ...native, signature: undefined, arguments: {} }),
+              {
+                event_type: "step.delta",
+                index: 0,
+                delta: {
+                  type: "arguments_delta",
+                  arguments: JSON.stringify(native.arguments),
+                },
+              },
+              end({ status: "requires_action", steps: [native] }),
+            ]
+          : signatureSource === "delta"
+            ? [
+                start({ ...native, signature: "" }),
+                {
+                  event_type: "step.delta",
+                  index: 0,
+                  delta: { type: "thought_signature", signature: "opaque-" },
+                },
+                {
+                  event_type: "step.delta",
+                  index: 0,
+                  delta: {
+                    type: "thought_signature",
+                    signature: "native-signature",
+                  },
+                },
+                end({ status: "requires_action" }),
+              ]
+            : [start(native), end({ status: "requires_action" })]
+      );
+      const first = await chat({
+        origin: "https://charts.example",
+        tools: [fn],
+      });
+      expect(JSON.stringify(first)).not.toContain(native.signature);
+      const messages = [
+        { role: "user", content: "Hi" },
+        first.message,
+        { role: "tool", toolCallId: native.id, content: "sunny" },
+      ];
+      installStream([start(), delta("It is sunny."), end()]);
+      await geminiProvider.preflightChat({
+        apiKey: key,
+        model,
+        origin: "https://charts.example",
+        messages,
+      });
+      const final = await chat({
+        origin: "https://charts.example",
+        messages,
+        tools: [fn, search],
+        toolChoice: "none",
+      });
+      const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+      expect(body.input.find((s) => s.type === "function_call")).toEqual(
+        native
+      );
+      expect(body.tools).toBeUndefined();
+      expect(final.message.content).toBe("It is sunny.");
+      await expect(
+        geminiProvider.preflightChat({
+          apiKey: key,
+          model,
+          origin: "https://other.example",
+          messages,
+        })
+      ).rejects.toMatchObject({ code: "unavailable" });
+      const tampered = structuredClone(messages);
+      tampered[1].toolCalls[0].function.arguments = JSON.stringify({
+        city: "London",
+      });
+      await expect(
+        chat({
+          origin: "https://charts.example",
+          messages: tampered,
+          tools: [fn],
+        })
+      ).rejects.toMatchObject({ code: "invalid_request" });
+    }
+  );
+  it("maps system instructions, images, function calls and function results", () => {
+    expect(
+      mapMessagesForGemini([
+        { role: "system", content: "Be brief" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Look" },
+            { type: "image", mediaType: "image/png", data: "AQID" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call-1",
+              type: "function",
+              function: { name: "weather", arguments: '{"city":"Chicago"}' },
+            },
+          ],
+        },
+        { role: "tool", toolCallId: "call-1", content: "sunny" },
+      ])
+    ).toEqual({
+      system_instruction: "Be brief",
+      input: [
+        {
+          type: "user_input",
+          content: [
+            { type: "text", text: "Look" },
+            { type: "image", mime_type: "image/png", data: "AQID" },
+          ],
+        },
+        {
+          type: "function_call",
+          id: "call-1",
+          name: "weather",
+          arguments: { city: "Chicago" },
+        },
+        {
+          type: "function_result",
+          call_id: "call-1",
+          name: "weather",
+          result: [{ type: "text", text: "sunny" }],
+        },
+      ],
+    });
+    expect(() =>
+      mapMessagesForGemini([{ role: "system", content: "Only system" }])
+    ).toThrow("non-system");
+    expect(() =>
+      mapMessagesForGemini([
+        { role: "tool", toolCallId: "unknown", content: "result" },
+      ])
+    ).toThrow("preceding assistant function call");
+  });
+  it("streams split UTF-8 records and normalizes usage with storage disabled", async () => {
+    installStream(
+      [
+        start(),
+        delta("Héllo 🌎"),
+        end({ usage: { total_input_tokens: 4, total_output_tokens: 3 } }),
+      ],
+      { fragment: true, trailing: false }
+    );
+    const onDelta = vi.fn();
+    const result = await chat({
+      onDelta,
+      options: { temperature: 0.2, reasoningEffort: "low" },
+    });
+    expect(result.message.content).toBe("Héllo 🌎");
+    expect(onDelta).toHaveBeenCalledWith("Héllo 🌎");
+    expect(result.usage).toEqual({ inputTokens: 4, outputTokens: 3 });
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body).toMatchObject({
+      model,
+      store: false,
+      stream: true,
+      generation_config: { temperature: 0.2, thinking_level: "low" },
+    });
+    expect(JSON.stringify(result)).not.toContain(key);
+  });
+  it("preserves sources from annotations and search results without exposing internal tool calls", async () => {
+    installStream(
+      [
+        start({ type: "google_search_call", id: "internal", arguments: {} }),
+        start(
+          {
+            type: "google_search_result",
+            result: [{ url: "https://example.com/source", title: "Source" }],
+          },
+          1
+        ),
+        start({ type: "model_output" }, 2),
+        delta("Grounded answer.", 2),
+        {
+          event_type: "step.delta",
+          index: 2,
+          delta: {
+            type: "text_annotation_delta",
+            annotations: [
+              { type: "url_citation", url: "https://example.com/source" },
+              { type: "url_citation", url: "javascript:alert(1)" },
+              { url: "https://example.com/other" },
+            ],
+          },
+        },
+        end(),
+      ],
+      { fragment: true }
+    );
+    const text = [];
+    const result = await chat({
+      tools: [search],
+      onDelta: (value) => text.push(value),
+    });
+    expect(result.message.toolCalls).toBeUndefined();
+    expect(result.message.content).toBe(
+      "Grounded answer.\n\nSources:\n- [Source](<https://example.com/source>)\n- [Source 2](<https://example.com/other>)"
+    );
+    expect(text.join("")).toBe(result.message.content);
+    expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).tools).toEqual([
+      { type: "google_search" },
+    ]);
+  });
+  it("uses citation titles for redirect links, enriching and deduplicating streamed sources", async () => {
+    const url = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque-token";
+    installStream([
+      start({ type: "google_search_result", result: [{ url }] }),
+      start({ type: "model_output" }, 1),
+      delta("Answer.", 1),
+      {
+        event_type: "step.delta", index: 1,
+        delta: { type: "text_annotation_delta", annotations: [{ url, title: "  Official\n source  " }] },
+      },
+      end({ steps: [{ type: "model_output", content: [{ type: "text", text: "Answer.", annotations: [{ url }] }] }] }),
+    ], { fragment: true });
+    const chunks = [];
+    const result = await chat({ tools: [search], onDelta: (text) => chunks.push(text) });
+    expect(result.message.content).toBe(`Answer.\n\nSources:\n- [Official source](<${url}>)`);
+    expect(chunks.join("")).toBe(result.message.content);
+    expect(fetch.mock.calls.every(([requestUrl]) =>
+      new URL(requestUrl).hostname === "generativelanguage.googleapis.com"
+    )).toBe(true); // No redirect-resolution requests.
+  });
+
+  it("escapes source titles and uses short fallbacks without exposing credentials", async () => {
+    const title = "[Source](javascript:alert(1)) <img> *text* \\";
+    installStream([
+      start({ type: "model_output", content: [{ type: "text", text: "Answer.", annotations: [
+        { url: "https://example.com/a_(b)", title },
+        { url: "https://example.com/blank", title: "\n\t" },
+        { url: "https://example.com/private", title: `Source ${key}` },
+        { url: "https://user:password@example.com/hidden", title: "Hidden" },
+        { url: "javascript:alert(1)", title: "Hidden" },
+      ] }] }), end(),
+    ]);
+    const result = await chat({ tools: [search] });
+    expect(result.message.content).toBe(
+      "Answer.\n\nSources:\n- [\\[Source\\](javascript:alert(1)) \\<img\\> \\*text\\* \\\\](<https://example.com/a_(b)>)\n- [Source 2](<https://example.com/blank>)\n- [Source 3](<https://example.com/private>)"
+    );
+    expect(result.message.content).not.toContain(key);
+    expect(result.message.content).not.toContain("Hidden");
+  });
+  it.each([undefined, "none"])(
+    "does not enable search when not active (%s)",
+    async (choice) => {
+      await chat(choice ? { tools: [search, fn], toolChoice: choice } : {});
+      expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).tools).toBeUndefined();
+      expect(
+        JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config
+          .tool_choice
+      ).toBeUndefined();
+    }
+  );
+  it("fails unsupported combinations and images before making a request", async () => {
+    await expect(
+      chat({ model: "gemini-2.5-flash", tools: [fn, search] })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    await expect(chat({ output: { images: true } })).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    await expect(
+      chat({
+        model: "gemma-4-31b-it",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "image", mediaType: "image/png", data: "AQID" }],
+          },
+        ],
+      })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["gemma-4-26b-a4b-it", "gemini-3.1-flash-lite"])("allows grounding on %s without enabling unverified capabilities", async (searchModel) => {
+    expect(geminiRequestWarning(searchModel, { tools: [search] })).toBe("");
+    expect(geminiRequestWarning(searchModel, { tools: [fn] })).toContain("not verified");
+    expect(geminiRequestWarning(searchModel, { tools: [search, fn] })).toContain("not verified");
+    expect(geminiRequestWarning("gemma-4-31b-it", { tools: [search] })).toContain("not verified");
+    expect(mapGeminiReasoningEffort(searchModel, "high")).toBeUndefined();
+    await geminiProvider.preflightChat({
+      apiKey: key, model: searchModel,
+      messages: [{ role: "user", content: "Search for Gemma 4" }],
+      tools: [search],
+    });
+    installStream([
+      start({ type: "google_search_call", arguments: { queries: ["Gemma 4 announcement"] } }),
+      start({ type: "google_search_result", result: [] }, 1),
+      start({ type: "model_output", content: [{
+        type: "text", text: "Grounded Gemma answer.", annotations: [{
+          type: "url_citation", title: "deepmind.google", url: "https://deepmind.google/models/gemma/",
+        }],
+      }] }, 2),
+      end({ model: searchModel }),
+    ], { fragment: true });
+    const chunks = [];
+    const result = await chat({ model: searchModel, tools: [search], onDelta: text => chunks.push(text) });
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body.model).toBe(searchModel);
+    expect(body.tools).toEqual([{ type: "google_search" }]);
+    expect(body.store).toBe(false);
+    expect(body.stream).toBe(true);
+    expect(result.message.content).toBe("Grounded Gemma answer.\n\nSources:\n- [deepmind.google](<https://deepmind.google/models/gemma/>)");
+    expect(chunks.join("")).toBe(result.message.content);
+    expect(result.message.toolCalls).toBeUndefined();
+  });
+  it.each(["gemma-4-26b-a4b-it", "gemini-3.1-flash-lite"])("passes image input through preflight and native chat on %s", async (imageModel) => {
+    const image = { type: "image", mediaType: "image/png", data: "AQID" };
+    const messages = [{ role: "user", content: [
+      { type: "text", text: "Describe this image." }, image,
+    ] }];
+    expect(geminiRequestWarning(imageModel, { imageInput: true })).toBe("");
+    await geminiProvider.preflightChat({ apiKey: key, model: imageModel, messages });
+    await chat({ model: imageModel, messages });
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body.model).toBe(imageModel);
+    expect(body.input).toEqual([{ type: "user_input", content: [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mime_type: "image/png", data: image.data },
+    ] }]);
+    expect(body.store).toBe(false);
+    expect(body.stream).toBe(true);
+    expect(geminiRequestWarning("gemma-4-31b-it", { imageInput: true })).toContain("not verified");
+  });
+  it("normalizes function argument fragments, and does not duplicate repeated completed steps", async () => {
+    const call = {
+      type: "function_call",
+      id: "c1",
+      name: "weather",
+      arguments: {},
+    };
+    installStream([
+      start(call),
+      {
+        event_type: "step.delta",
+        index: 0,
+        delta: { type: "arguments_delta", arguments: '{"city":' },
+      },
+      {
+        event_type: "step.delta",
+        index: 0,
+        delta: { type: "arguments_delta", arguments: '"Austin"}' },
+      },
+      end({
+        status: "requires_action",
+        steps: [{ ...call, arguments: { city: "Austin" } }],
+      }),
+    ]);
+    const result = await chat({
+      tools: [fn],
+      toolChoice: { type: "function", function: { name: "weather" } },
+    });
+    expect(result.message.toolCalls).toEqual([
+      {
+        id: "c1",
+        type: "function",
+        function: { name: "weather", arguments: '{"city":"Austin"}' },
+      },
+    ]);
+    expect(
+      JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config.tool_choice
+    ).toEqual({ allowed_tools: { mode: "any", tools: ["weather"] } });
+  });
+  it("supports mixed native search and functions on Argon", async () => {
+    await chat({ model: "gemini-4-argon", tools: [search, fn] });
+    expect(
+      JSON.parse(fetch.mock.calls.at(-1)[1].body).tools.map((tool) => tool.type)
+    ).toEqual(["google_search", "function"]);
+  });
+  it("does not duplicate completed text, and streams thought summaries separately", async () => {
+    installStream([
+      start(),
+      {
+        event_type: "step.delta",
+        index: 1,
+        delta: {
+          type: "thought_summary",
+          content: { type: "text", text: "Summary" },
+        },
+      },
+      delta("Answer"),
+      end({
+        steps: [
+          { type: "model_output", content: [{ type: "text", text: "Answer" }] },
+        ],
+      }),
+    ]);
+    const reasoning = vi.fn();
+    const result = await chat({ onReasoningDelta: reasoning });
+    expect(result.message).toMatchObject({
+      content: "Answer",
+      reasoning: "Summary",
+    });
+    expect(reasoning).toHaveBeenCalledWith("Summary");
+  });
+  it.each([
+    [start(), delta("partial")],
+    [start(), end({ status: "failed" })],
+    [
+      start({
+        type: "function_call",
+        id: "x",
+        name: "undeclared",
+        arguments: {},
+      }),
+      end(),
+    ],
+  ])("rejects incomplete or invalid provider streams", async (...events) => {
+    installStream(events);
+    await expect(chat()).rejects.toMatchObject({ code: "provider_error" });
+  });
+  it("cancels a pending reader on abort", async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream({ cancel }));
+    const pending = readGeminiEvents(response, {
+      signal: controller.signal,
+      onEvent: vi.fn(),
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "aborted" });
+    expect(cancel).toHaveBeenCalled();
+  });
+});
+
+describe("Gemini credentials and errors", () => {
+  it("preserves structured field violations while redacting credentials and ignoring unrelated metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "Request contains an invalid argument.",
+              details: [
+                {
+                  "@type": "type.googleapis.com/google.rpc.BadRequest",
+                  fieldViolations: [
+                    {
+                      field: "input[1].signature",
+                      description: `Invalid signature ${key}`,
+                    },
+                  ],
+                },
+                { arbitrary: "unrelated-private-metadata" },
+              ],
+            },
+          },
+          { status: 400 }
+        )
+      )
+    );
+    const error = await geminiFetch("/v1beta/interactions", {
+      apiKey: key,
+    }).catch((error) => error);
+    expect(error.message).toContain(
+      "input[1].signature: Invalid signature [redacted]"
+    );
+    expect(error.message).not.toContain(key);
+    expect(error.message).not.toContain("unrelated-private-metadata");
+  });
+  it("keeps a native top-level message alongside a string error code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: "invalid_request",
+            message: "Missing function result name",
+          },
+          { status: 400 }
+        )
+      )
+    );
+    await expect(
+      geminiFetch("/v1beta/interactions", { apiKey: key })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Missing function result name"),
+    });
+  });
+  it("reads HTTP errors encoded as native SSE records", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            'event: error\ndata: {"error":{"message":"Tool configuration requires tools"}}\n\n',
+            { status: 400 }
+          )
+      )
+    );
+    await expect(
+      geminiFetch("/v1beta/interactions", { apiKey: key })
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      message: expect.stringContaining("Tool configuration requires tools"),
+    });
+  });
+  it("reads HTTP errors wrapped in the streaming API's JSON array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json([{ error: { message: "Invalid tool result" } }], {
+          status: 400,
+        })
+      )
+    );
+    await expect(
+      geminiFetch("/v1beta/interactions", { apiKey: key })
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      message: expect.stringContaining("Invalid tool result"),
+    });
+  });
+  it("reads native top-level error messages without an error wrapper", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { code: "invalid_argument", message: "Invalid Gemini tool choice" },
+          { status: 400 }
+        )
+      )
+    );
+    await expect(
+      geminiFetch("/v1beta/interactions", { apiKey: key })
+    ).rejects.toMatchObject({
+      code: "provider_error",
+      message: expect.stringContaining("Invalid Gemini tool choice"),
+    });
+  });
+  it("stops at completion before a trailing SSE DONE sentinel", async () => {
+    const payload =
+      [start(), delta("OK"), end()]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join("") + "data: [DONE]\n\n";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) =>
+        url.includes("/models/")
+          ? Response.json(metadata())
+          : new Response(payload)
+      )
+    );
+    expect((await chat()).message.content).toBe("OK");
+  });
+  it.each([
+    [401, "authentication"],
+    [403, "permissions"],
+    [429, "quota"],
+    [400, "API billing"],
+    [503, "HTTP 503"],
+  ])("gives useful safe errors for HTTP %s", async (status, message) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: `${status === 400 ? "Billing required" : "Denied"} ${key}`,
+            },
+          },
+          { status }
+        )
+      )
+    );
+    const error = await geminiFetch("/v1beta/models", { apiKey: key }).catch(
+      (error) => error
+    );
+    expect(error.message).toContain(message);
+    expect(error.message).not.toContain(key);
+    expect(error.code).toBe(status >= 500 ? "unavailable" : "provider_error");
+  });
+  it("rejects credential-bearing cross-host upload URLs and missing keys without a fetch", async () => {
+    await expect(
+      geminiFetch("https://evil.example/upload", { apiKey: key })
+    ).rejects.toMatchObject({ code: "provider_error" });
+    await expect(
+      geminiFetch("/v1beta/models", { apiKey: " " })
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("returns aborted without sending a request for a pre-aborted signal", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(chat({ signal: controller.signal })).rejects.toMatchObject({
+      code: "aborted",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

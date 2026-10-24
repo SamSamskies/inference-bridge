@@ -10,6 +10,7 @@ import { isFirefoxBuild } from "./runtime-browser.js";
 const FIREFOX_BUILTIN_HOSTS = Object.freeze({
   openai: "https://api.openai.com/*",
   anthropic: "https://api.anthropic.com/*",
+  gemini: "https://generativelanguage.googleapis.com/*",
   openrouter: "https://openrouter.ai/*",
   ollama: "http://localhost/*",
   "ollama-web-search": "https://ollama.com/*",
