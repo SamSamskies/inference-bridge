@@ -428,18 +428,38 @@ describe("Ollama synthesis capability", () => {
   });
 
   it("excludes speech models from the chat catalog", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url) => {
-        if (String(url).endsWith("/api/tags")) {
-          return jsonResponse({
-            models: [{ name: "gemma4:e2b" }, { name: "phonon" }, { name: "phonon:latest" }],
-          });
-        }
-        return jsonResponse({ capabilities: ["completion"] });
-      })
-    );
+    const fetchMock = vi.fn(async (url, init) => {
+      if (String(url).endsWith("/api/tags")) {
+        return jsonResponse({
+          models: [
+            { name: "gemma4:e2b" },
+            { name: "phonon" },
+            { name: "phonon:latest" },
+            { name: "custom-tts" },
+          ],
+        });
+      }
+      const model = JSON.parse(init.body).model;
+      return jsonResponse({
+        capabilities: model === "custom-tts" ? ["speech"] : ["completion"],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     await expect(ollamaProvider.listModels()).resolves.toEqual([{ id: "gemma4:e2b" }]);
+    await expect(
+      ollamaProvider.streamChat({
+        model: "custom-tts",
+        messages: [{ role: "user", content: "hi" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("synthesize"),
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/chat"))
+    ).toBe(false);
   });
 });
 

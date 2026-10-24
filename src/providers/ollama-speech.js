@@ -40,15 +40,19 @@ export function ollamaTranscriptionMediaTypesForModel(model) {
   return mediaTypes;
 }
 
+/** Known Phonon names plus custom names discovered through `/api/show`. */
+const speechModelIds = new Set();
+
 /**
- * Phonon and tagged variants are speech-only. Custom names still require a
- * fresh `/api/show` probe before they appear in the synthesis catalog.
+ * Phonon and tagged variants are speech-only. Custom names are remembered after
+ * a fresh `/api/show` probe reports the `speech` capability.
  * @param {string} model
  */
 export function isOllamaSpeechModel(model) {
   return (
     typeof model === "string" &&
-    /^(?:library\/)?phonon(?::[a-zA-Z0-9._-]+)?$/i.test(model)
+    (speechModelIds.has(model) ||
+      /^(?:library\/)?phonon(?::[a-zA-Z0-9._-]+)?$/i.test(model))
   );
 }
 
@@ -214,13 +218,19 @@ export async function transcribeOllama(args) {
 
 /**
  * Speech models advertise `speech` and fail closed for chat/transcription.
- * Calls are not cached: local models and the daemon can change independently.
+ * Each call hits `/api/show` so local models and the daemon can change
+ * independently; a positive result is remembered for chat exclusion.
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
  */
 export async function ollamaModelSupportsSynthesis(model, { signal } = {}) {
   const shown = await showOllamaModel(model, { signal });
-  return Boolean(shown?.capabilities.includes("speech"));
+  const supported = Boolean(shown?.capabilities.includes("speech"));
+  if (model) {
+    if (supported) speechModelIds.add(model);
+    else speechModelIds.delete(model);
+  }
+  return supported;
 }
 
 /**

@@ -103,6 +103,13 @@ async function filterOllamaDecisionModels(models, args) {
   return checks.filter(({ supported }) => supported).map(({ model }) => model);
 }
 
+/** Probe `/api/show` so custom speech names are excluded from chat. */
+async function rememberOllamaSpeechModels(models, args) {
+  await Promise.all(
+    models.map((model) => ollamaModelSupportsSynthesis(model.id, args))
+  );
+}
+
 export async function listOllamaDecisionModels(args = {}) {
   return filterOllamaDecisionModels(await listOllamaModels(args), args);
 }
@@ -746,6 +753,7 @@ export const ollamaProvider = {
   async listModels(args) {
     const models = await listOllamaModels(args);
     await filterOllamaDecisionModels(models, args);
+    await rememberOllamaSpeechModels(models, args);
     return models.filter(
       (model) =>
         !isOllamaDecisionModel(model.id) && !isOllamaSpeechModel(model.id)
