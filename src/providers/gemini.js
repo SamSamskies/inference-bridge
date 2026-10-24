@@ -23,8 +23,8 @@ import { geminiCallState } from "./gemini-call-state.js";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 
-// Picker eligibility, not an availability catalog: only entries returned by
-// authenticated Models.list are shown. Labels and ordering are user curated.
+// Curated chat picker, available before credentials are saved. Google checks
+// model/account availability when a request runs.
 const CHAT_MODELS = new Map([
   ["gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT"],
   ["gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"],
@@ -43,49 +43,14 @@ function isChatModel(model) {
   );
 }
 
-export async function listGeminiModels(args = {}) {
-  const models = new Map();
-  const tokens = new Set();
-  let pageToken = "";
-  do {
-    const page = await geminiJson(
-      `/v1beta/models?pageSize=1000${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
-      args
-    );
-    if (!Array.isArray(page.models))
-      throw geminiError(
-        "provider_error",
-        "Google Gemini returned an invalid model catalog"
-      );
-    for (const model of page.models.filter(isChatModel)) {
-      const id = model.name.slice(7);
-      models.set(id, {
-        id,
-        label: CHAT_MODELS.get(id),
-        inputModalities: geminiCapabilities(id).image
-          ? ["text", "image"]
-          : ["text"],
-        outputModalities: ["text"],
-      });
-    }
-    pageToken = page.nextPageToken || "";
-    if (
-      pageToken &&
-      (typeof pageToken !== "string" ||
-        tokens.has(pageToken) ||
-        tokens.size >= 100)
-    ) {
-      throw geminiError(
-        "provider_error",
-        "Google Gemini returned invalid model pagination"
-      );
-    }
-    tokens.add(pageToken);
-  } while (pageToken);
-  return [...CHAT_MODELS.keys()]
-    .filter((id) => models.has(id))
-    .map((id) => models.get(id));
-}
+const GEMINI_MODELS = Object.freeze(
+  [...CHAT_MODELS].map(([id, label]) => ({
+    id,
+    label,
+    inputModalities: geminiCapabilities(id).image ? ["text", "image"] : ["text"],
+    outputModalities: ["text"],
+  }))
+);
 
 export function mapMessagesForGemini(messages, replayTurns = new Map()) {
   const system = [];
@@ -234,7 +199,7 @@ export const geminiProvider = {
   label: "Google Gemini",
   requiresApiKey: true,
   defaultModel: GEMINI_DEFAULT_MODEL,
-  listModels: listGeminiModels,
+  models: GEMINI_MODELS,
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   transcription: geminiTranscription,

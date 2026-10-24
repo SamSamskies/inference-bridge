@@ -51,7 +51,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 7. Choose a default provider:
    - **OpenAI** — paste your API key and choose a default model
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
-   - **Google Gemini** — paste a Google AI Studio API key and click **Save** to load the live model list, then choose a model
+   - **Google Gemini** — paste a Google AI Studio API key and choose a default model from the curated list
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
@@ -64,7 +64,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
-| Google Gemini | Google AI Studio API key in Options | Filtered live Models API catalog in a regular select; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
+| Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
@@ -73,8 +73,8 @@ This installs a temporary development build. See the [Firefox release checklist]
 For local or self-hosted OpenAI-compatible servers, use the named-endpoint UI. To implement another built-in provider, see [AGENTS.md](AGENTS.md#layout) and the provider contracts in [`src/providers/types.js`](src/providers/types.js).
 
 Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey).
-Only eligible models returned by authenticated discovery appear in its picker;
-a catalog entry does not guarantee account access. Google AI Pro/Ultra
+The curated chat model picker is available before a key is saved;
+a listed model does not guarantee account access. Google AI Pro/Ultra
 subscriptions and Antigravity credentials do not authorize Gemini API calls.
 API availability and charges depend on the project and model; see
 [Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).

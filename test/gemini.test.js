@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   geminiProvider,
-  listGeminiModels,
   mapMessagesForGemini,
 } from "../src/providers/gemini.js";
 import {
@@ -11,6 +10,7 @@ import {
 } from "../src/providers/gemini-capabilities.js";
 import { geminiFetch, readGeminiEvents } from "../src/providers/gemini-api.js";
 import { geminiCallState } from "../src/providers/gemini-call-state.js";
+import { resolveProviderModels } from "../src/providers/registry.js";
 
 const key = "private-test-gemini-key";
 const model = "gemini-3.8-flash";
@@ -85,51 +85,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe("Gemini discovery and capability boundaries", () => {
-  it("paginates the live catalog and excludes dedicated media, agents, and embeddings", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          Response.json({
-            models: [
-              metadata(model),
-              metadata("gemma-4-26b-a4b-it"),
-              metadata("gemini-3.1-flash-lite"),
-              metadata("gemini-3.5-flash-lite"),
-              metadata("gemini-3.6-flash"),
-              metadata("gemini-2.5-flash"),
-              metadata("gemini-3.1-flash-lite-preview"),
-              metadata("gemini-3.1-pro-preview"),
-              metadata("gemini-3.1-pro-preview-customtools"),
-              metadata("gemini-flash-latest"),
-              metadata("gemini-flash-lite-latest"),
-              metadata("gemini-pro-latest"),
-              metadata("nano-banana-pro-preview"),
-              metadata("gemini-nano-banana-2.1"),
-              metadata("antigravity-preview-latest"),
-              metadata("gemini-3.8-flash-tts"),
-              metadata("gemini-3.5-transcribe"),
-              {
-                name: "models/gemini-embedding-2",
-                supportedGenerationMethods: ["embedContent"],
-              },
-            ],
-            nextPageToken: "next page",
-          })
-        )
-        .mockResolvedValueOnce(
-          Response.json({
-            models: [
-              metadata("gemini-4-argon"),
-              metadata("gemma-4-31b-it"),
-              metadata(model),
-            ],
-          })
-        )
-    );
-    const models = await listGeminiModels({ apiKey: key });
+describe("Gemini curated models and capability boundaries", () => {
+  it.each([undefined, key])("lists the curated chat models without network access (key: %s)", async (apiKey) => {
+    const models = await resolveProviderModels(geminiProvider, { apiKey });
     expect(models.map((entry) => entry.id)).toEqual([
       "gemma-4-26b-a4b-it",
       "gemini-3.1-flash-lite",
@@ -144,24 +102,12 @@ describe("Gemini discovery and capability boundaries", () => {
       "Gemini 3.8 Flash",
       "Gemini 4 Argon",
     ]);
-    expect(models[3].inputModalities).toContain("image");
-    expect(models[0].inputModalities).toEqual(["text", "image"]);
-    expect(models[1].inputModalities).toEqual(["text", "image"]);
-    expect(fetch.mock.calls[1][0]).toContain("pageToken=next%20page");
-    for (const [url, init] of fetch.mock.calls) {
-      expect(url).not.toContain(key);
-      expect(init.headers["x-goog-api-key"]).toBe(key);
-    }
+    expect(models.every((entry) => entry.inputModalities.includes("image"))).toBe(true);
+    expect(models.every((entry) => entry.outputModalities.join() === "text")).toBe(true);
+    expect(geminiProvider.defaultModel).toBe(model);
+    expect(fetch).not.toHaveBeenCalled();
   });
-  it("shows only account-discovered eligible models and rejects removed saved routes before acceptance", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ models: [metadata(model)] }))
-    );
-    expect(
-      (await listGeminiModels({ apiKey: key })).map((entry) => entry.id)
-    ).toEqual([model]);
-    fetch.mockClear();
+  it("rejects removed saved routes before acceptance", async () => {
     await expect(
       geminiProvider.preflightChat({
         model: "gemini-3.1-pro-preview",
@@ -170,15 +116,14 @@ describe("Gemini discovery and capability boundaries", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("rejects malformed catalogs and repeated pagination", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ models: [], nextPageToken: "same" }))
-    );
-    await expect(listGeminiModels({ apiKey: key })).rejects.toMatchObject({
-      code: "provider_error",
-    });
-    expect(fetch).toHaveBeenCalledTimes(2);
+  it("still checks model access before sending chat to Google", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      error: { message: "Model unavailable for this project" },
+    }, { status: 404 })));
+    await expect(chat()).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain(`/v1beta/models/${model}`);
+    expect(fetch.mock.calls[0][1].headers["x-goog-api-key"]).toBe(key);
   });
   it("never infers optional capabilities from a model prefix", () => {
     expect(geminiCapabilities("gemini-4-unknown")).toEqual({});

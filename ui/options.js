@@ -600,7 +600,6 @@ const API_KEY_SETUP_LINKS = Object.freeze({
   gemini: {
     href: "https://aistudio.google.com/apikey",
     label: "Create a key in Google AI Studio",
-    detail: ". Save the key to load models.",
   },
   ollama: {
     href: "https://ollama.com/settings/keys",
