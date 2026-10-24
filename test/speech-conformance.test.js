@@ -74,7 +74,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     permissions = await import("../src/permissions.js");
     await import("../background/service-worker.js");
     await storage.saveSettings({
-      apiKeys: { openai: "test-key", gemini: "test-gemini-key" },
+      apiKeys: { openai: "test-key", gemini: "test-gemini-key", openrouter: "test-openrouter-key" },
       operationDefaults: routes,
     });
     for (const [method, route] of Object.entries(routes)) {
@@ -159,19 +159,38 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     expect(fetch.mock.calls.every(([url]) => url.includes("generativelanguage.googleapis.com"))).toBe(true);
   });
 
+  it("preserves streamed native OpenAI WAV through MAIN, relay and worker", async () => {
+    fetch.mockImplementation(async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(wav.slice(0, 20));
+        controller.enqueue(wav.slice(20));
+        controller.close();
+      },
+    }), { headers: { "Content-Type": "audio/wav" } }));
+    const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
+    const report = await assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
+    expect(report.deltas).toBeGreaterThan(1);
+    expect(report.done.audio).toEqual({ mediaType: "audio/wav", byteLength: wav.byteLength });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe("https://api.openai.com/v1/audio/speech");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+      model: routes.synthesize.model, voice: routes.synthesize.voice, response_format: "wav",
+    });
+  });
+
   it("filters WAV approval choices and sends no provider traffic until approval", async () => {
     await storage.revokeOriginOperation(origin, "synthesize");
     const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method: "synthesize", mediaType: "audio/wav" }, {}, resolve
     ));
-    expect(listed.providers.map((p) => p.id)).toEqual(["gemini"]);
+    expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini"]);
     const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
     const result = assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
     let pending;
     await vi.waitFor(() => {
       const started = packets.find((p) => p.type === "started");
       pending = started && permissions.getPendingApproval(started.streamId);
-      expect(pending).toMatchObject({ providerId: "gemini", mediaType: "audio/wav" });
+      expect(pending).toMatchObject({ providerId: "openai", mediaType: "audio/wav" });
     });
     expect(fetch).not.toHaveBeenCalled();
     expect(packets.some((p) => p.chunk?.type === "accepted")).toBe(false);
@@ -180,7 +199,10 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
   });
 
   it.each(["audio/wav", "audio/mpeg"])("rejects an incompatible saved route for %s without switching providers", async (mediaType) => {
-    if (mediaType === "audio/mpeg") await storage.grantOriginOperationAlways(origin, "synthesize", wavRoute);
+    const incompatibleRoute = mediaType === "audio/mpeg"
+      ? wavRoute
+      : { providerId: "openrouter", model: "openai/gpt-4o-mini-tts", voice: "alloy" };
+    await storage.grantOriginOperationAlways(origin, "synthesize", incompatibleRoute);
     const chunks = [];
     await expect((async () => {
       for await (const chunk of inference.request({ method: "synthesize", text: "Hello", output: { mediaType } })) chunks.push(chunk);
