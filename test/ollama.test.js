@@ -201,6 +201,23 @@ describe("ollamaProvider.streamChat", () => {
     });
   });
 
+  it("refuses speech models on the chat route", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      ollamaProvider.streamChat({
+        model: "phonon",
+        messages: [{ role: "user", content: "hi" }],
+        signal: new AbortController().signal,
+        onDelta: () => {},
+      })
+    ).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("synthesize"),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   const visionUser = {
     role: "user",
     content: [

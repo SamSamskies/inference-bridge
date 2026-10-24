@@ -546,8 +546,11 @@ Current implementation limits (Bridge-specific, not IPA constants):
   transcripts and are excluded from the transcription picker. WAV is the
   most compatible Ollama input; MP3 is currently offered only for the verified
   `gemma4:e4b` model because other model/runtime combinations may reject it.
-  Anthropic, On-device, generic OpenAI-compatible endpoints, and Ollama
-  synthesis are unavailable rather than emulated through chat.
+  Ollama synthesis is opportunistically available for installed models whose
+  `/api/show` response reports `speech` (Phonon on Ollama 0.40.9+). It returns
+  native WAV only; omitted/MP3 synthesis does not list Ollama. Speech models
+  are excluded from chat. Anthropic, On-device, and generic OpenAI-compatible
+  endpoints remain unavailable for speech rather than emulated through chat.
 - Google Gemini uses dedicated `gemini-3.5-transcribe` with a Files API upload
   and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
   Bridge's 24 MB limit. Remote file deletion is attempted after success,
@@ -562,7 +565,7 @@ Paste-ready synthesis example:
 
 ```js
 const parts = [];
-const mediaType = "audio/mpeg"; // Use "audio/wav" for a Gemini TTS route.
+const mediaType = "audio/mpeg"; // Use "audio/wav" for a Gemini or Ollama TTS route.
 let done;
 for await (const chunk of window.inference.request({
   method: "synthesize",
@@ -852,18 +855,20 @@ Node tests cover validation, storage, permissions, provider adapters, tools, and
 
 These tests do not replace installed-browser checks or live provider verification. Use the manual checklist below for approvals, playback, provider behavior, and browser lifecycle checks.
 
-Optional local Ollama transcription integration uses the checked-in 16 kHz
-mono WAV fixture and never pulls a model automatically:
+Optional local Ollama speech integration uses the checked-in 16 kHz
+mono WAV fixture for transcription and never pulls a model automatically.
+Synthesis skips unless an installed model reports `speech`:
 
 ```bash
 OLLAMA_SPEECH_INTEGRATION=1 \
 OLLAMA_SPEECH_MODEL=gemma4:e2b \
+OLLAMA_TTS_MODEL=phonon \
 npx vitest run test/ollama-speech.integration.test.js
 ```
 
-The test skips when the daemon/model is absent or `/api/show` does not report
-`audio`. Once capability is advertised, endpoint or transcript failures fail
-the test.
+Transcription skips when the daemon/model is absent or `/api/show` does not
+report `audio`. Synthesis skips when `/api/show` does not report `speech`.
+Once a capability is advertised, endpoint or payload failures fail the test.
 
 Build runtime-only packages:
 
@@ -957,12 +962,13 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] Discovery exposes normalized `methods.transcribe.acceptedMedia` constraints plus `methods.synthesize`, with no provider/model/voice IDs; each operation still needs its own site approval
 - [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
 - [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
-- [ ] Optional Ollama transcription lists only installed `/api/show` models with both `audio` and `completion` (excluding audio embedding models), accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS
+- [ ] Optional Ollama transcription lists only installed `/api/show` models with both `audio` and `completion` (excluding audio embedding models), accepts the WAV fixture through `/v1/audio/transcriptions`, and offers MP3 only for verified `gemma4:e4b`
+- [ ] Optional Ollama synthesis lists only installed `/api/show` models with `speech` (for example `phonon` on Ollama 0.40.9+), appears for explicit WAV, does not appear for omitted/MP3 output, and yields a playable 24 kHz mono WAV after rewriting streaming size fields
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
 - [ ] OpenAI synthesis yields non-empty `audio_delta` chunks for MP3 and explicit WAV; concatenated bytes equal `done.audio.byteLength` and produce playable audio in the requested format
 - [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
-- [ ] Explicit WAV lists OpenAI and Gemini synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops generation and fragment delivery
+- [ ] Explicit WAV lists OpenAI, Gemini, and Ollama synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops generation and fragment delivery
 - [ ] A saved MP3-only route rejects WAV, and a saved WAV-only route rejects omitted output, before `accepted` without switching routes
 - [ ] Synthesis approval shows the text summary, requested format, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice

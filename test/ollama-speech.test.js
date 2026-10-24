@@ -1,17 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  listOllamaSynthesisModels,
   listOllamaTranscriptionModels,
   OLLAMA_BASE_URL,
   ollamaProvider,
 } from "../src/providers/ollama.js";
 import {
+  isOllamaSpeechModel,
+  listOllamaSynthesisVoices,
   OLLAMA_MP3_TRANSCRIPTION_MODELS,
   OLLAMA_MULTIPART_MAX_BYTES,
+  OLLAMA_SYNTHESIS_DEFAULT_MODEL,
+  OLLAMA_SYNTHESIS_DEFAULT_VOICE,
+  OLLAMA_SYNTHESIS_MEDIA_TYPES,
   OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
+  ollamaModelSupportsSynthesis,
   ollamaModelSupportsTranscription,
   ollamaTranscriptionMediaTypesForModel,
+  synthesizeOllama,
   transcribeOllama,
 } from "../src/providers/ollama-speech.js";
+import { AUDIO_TRANSFER_CHUNK_BYTES } from "../src/speech.js";
 import { resetOllamaOriginBypassMemoForTests } from "../src/ollama-origin-bypass.js";
 
 function jsonResponse(body, status = 200) {
@@ -299,6 +308,251 @@ describe("Ollama transcription", () => {
     );
     await expect(transcribeOllama(aborted)).rejects.toMatchObject({
       code: "aborted",
+    });
+  });
+});
+
+function pcmWav(dataBytes = 8, { unbounded = false } = {}) {
+  const bytes = new Uint8Array(44 + dataBytes);
+  const view = new DataView(bytes.buffer);
+  const write = (offset, text) => {
+    for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i);
+  };
+  write(0, "RIFF");
+  view.setUint32(4, unbounded ? 0xffffffff : bytes.byteLength - 8, true);
+  write(8, "WAVE");
+  write(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 24000, true);
+  view.setUint32(28, 48000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, "data");
+  view.setUint32(40, unbounded ? 0xffffffff : dataBytes, true);
+  return bytes;
+}
+
+describe("Ollama synthesis capability", () => {
+  it("advertises WAV-only synthesis with Phonon defaults", () => {
+    expect(OLLAMA_SYNTHESIS_MEDIA_TYPES).toEqual(["audio/wav"]);
+    expect(ollamaProvider.synthesis).toMatchObject({
+      defaultModel: OLLAMA_SYNTHESIS_DEFAULT_MODEL,
+      defaultVoice: OLLAMA_SYNTHESIS_DEFAULT_VOICE,
+      outputMediaTypes: ["audio/wav"],
+    });
+    expect(typeof ollamaProvider.synthesize).toBe("function");
+    expect(isOllamaSpeechModel("phonon")).toBe(true);
+    expect(isOllamaSpeechModel("phonon:latest")).toBe(true);
+    expect(isOllamaSpeechModel("gemma4:e4b")).toBe(false);
+  });
+
+  it("requires the speech capability from /api/show", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const model = JSON.parse(init.body).model;
+      return jsonResponse(
+        model === "phonon"
+          ? { capabilities: ["speech"], voices: ["Zoey"] }
+          : { capabilities: ["completion", "audio"] }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(ollamaModelSupportsSynthesis("phonon")).resolves.toBe(true);
+    await expect(ollamaModelSupportsSynthesis("gemma4:e4b")).resolves.toBe(false);
+    await expect(listOllamaSynthesisVoices({ model: "phonon" })).resolves.toEqual([
+      { id: "default" },
+      { id: "Zoey" },
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls.at(-1)[1].body).verbose).toBe(true);
+  });
+
+  it("falls back to verbose voices.* tensors when /api/show omits voices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          capabilities: ["speech"],
+          tensors: [
+            { name: "flow_lm.bos_emb" },
+            { name: "voices.Zoey" },
+            { name: "voices.Easton" },
+            { name: "voices.default" },
+          ],
+        })
+      )
+    );
+    await expect(listOllamaSynthesisVoices({ model: "phonon" })).resolves.toEqual([
+      { id: "default" },
+      { id: "Zoey" },
+      { id: "Easton" },
+    ]);
+  });
+
+  it("prefers the documented voices field over tensor names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          capabilities: ["speech"],
+          voices: ["Freya"],
+          tensors: [{ name: "voices.Zoey" }],
+        })
+      )
+    );
+    await expect(listOllamaSynthesisVoices({ model: "phonon" })).resolves.toEqual([
+      { id: "default" },
+      { id: "Freya" },
+    ]);
+  });
+
+  it("filters installed models through individual fresh speech probes", async () => {
+    const fetchMock = vi.fn(async (url, init) => {
+      if (String(url).endsWith("/api/tags")) {
+        return jsonResponse({
+          models: [{ name: "gemma4:e2b" }, { name: "phonon" }, { name: "custom-tts" }],
+        });
+      }
+      const model = JSON.parse(init.body).model;
+      return jsonResponse({
+        capabilities: model === "gemma4:e2b" ? ["completion", "audio"] : ["speech"],
+        voices: ["default"],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listOllamaSynthesisModels()).resolves.toEqual([
+      { id: "custom-tts" },
+      { id: "phonon" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("excludes speech models from the chat catalog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).endsWith("/api/tags")) {
+          return jsonResponse({
+            models: [{ name: "gemma4:e2b" }, { name: "phonon" }, { name: "phonon:latest" }],
+          });
+        }
+        return jsonResponse({ capabilities: ["completion"] });
+      })
+    );
+    await expect(ollamaProvider.listModels()).resolves.toEqual([{ id: "gemma4:e2b" }]);
+  });
+});
+
+describe("Ollama synthesis", () => {
+  const request = (extra = {}) => ({
+    model: "phonon",
+    voice: "Zoey",
+    text: "Hello from Ollama.",
+    mediaType: "audio/wav",
+    signal: new AbortController().signal,
+    onAudioDelta: vi.fn(),
+    ...extra,
+  });
+
+  it("rewrites streaming WAV sizes then emits bounded PCM fragments", async () => {
+    const wav = pcmWav(AUDIO_TRANSFER_CHUNK_BYTES + 4, { unbounded: true });
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).endsWith("/api/show")) {
+        return jsonResponse({ capabilities: ["speech"], voices: ["Zoey"] });
+      }
+      return new Response(wav, { headers: { "Content-Type": "audio/wav" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const parts = [];
+    const result = await synthesizeOllama(
+      request({
+        onAudioDelta: (chunk) => parts.push(chunk.slice()),
+      })
+    );
+    const [speechUrl, init] = fetchMock.mock.calls[1];
+    expect(speechUrl).toBe(`${OLLAMA_BASE_URL}/v1/audio/speech`);
+    expect(JSON.parse(init.body)).toEqual({
+      model: "phonon",
+      input: "Hello from Ollama.",
+      voice: "Zoey",
+      response_format: "wav",
+    });
+    expect(parts.length).toBe(2);
+    const combined = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0));
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.byteLength;
+    }
+    expect(combined).toEqual(pcmWav(AUDIO_TRANSFER_CHUNK_BYTES + 4));
+    expect(result).toEqual({
+      model: "phonon",
+      audio: { mediaType: "audio/wav", byteLength: wav.byteLength },
+      usage: { inputCharacters: 18 },
+    });
+  });
+
+  it("matches voices without regard to case or accents", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["speech"], voices: ["Freya"] }))
+        .mockResolvedValueOnce(new Response(pcmWav(), { headers: { "Content-Type": "audio/wav" } }))
+    );
+    await expect(
+      synthesizeOllama(request({ voice: "fréya", onAudioDelta: vi.fn() }))
+    ).resolves.toMatchObject({ audio: { mediaType: "audio/wav" } });
+  });
+
+  it("rejects MP3, chat/audio models, and unknown voices before the speech request", async () => {
+    const fetchMock = vi.fn(async (url, init) => {
+      const model = JSON.parse(init.body).model;
+      return jsonResponse({
+        capabilities: model === "phonon" ? ["speech"] : ["completion", "audio"],
+        voices: ["Zoey"],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(synthesizeOllama(request({ mediaType: "audio/mpeg" }))).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    await expect(synthesizeOllama(request({ model: "gemma4:e4b" }))).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining('"speech" capability'),
+    });
+    await expect(synthesizeOllama(request({ voice: "missing" }))).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("voice is unavailable"),
+    });
+    expect(fetchMock.mock.calls.every(([url]) => String(url).endsWith("/api/show"))).toBe(true);
+  });
+
+  it("rejects malformed WAV and mismatched media types before emitting audio", async () => {
+    const onAudioDelta = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["speech"], voices: ["Zoey"] }))
+        .mockResolvedValueOnce(
+          new Response(pcmWav(), { headers: { "Content-Type": "audio/mpeg" } })
+        )
+    );
+    await expect(synthesizeOllama(request({ onAudioDelta }))).rejects.toMatchObject({
+      code: "provider_error",
+    });
+    expect(onAudioDelta).not.toHaveBeenCalled();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ capabilities: ["speech"], voices: ["Zoey"] }))
+        .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3])))
+    );
+    await expect(synthesizeOllama(request({ onAudioDelta }))).rejects.toMatchObject({
+      code: "provider_error",
     });
   });
 });

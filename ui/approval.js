@@ -795,6 +795,8 @@ async function loadModelsForProvider(providerId, preferredModel) {
           ? "No installed Ollama audio model has verified MP3 support. WAV is more compatible."
           : providerId === "ollama" && requestMethod === "decide"
           ? "No installed decision models. Upgrade to Ollama 0.35+ and run ollama pull nimble; Clef requires 0.35.1+."
+          : providerId === "ollama" && requestMethod === "synthesize"
+          ? "No installed speech models. Upgrade to Ollama 0.40.9+ and run ollama pull phonon."
           : providerId.startsWith("compat:")
           ? "Could not list models from /v1/models. Type a model id manually."
           : "No models available for this provider."

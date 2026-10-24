@@ -20,12 +20,23 @@ import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
 import { mapTemperatureForOllama } from "./temperature.js";
 import {
+  OLLAMA_SYNTHESIS_DEFAULT_MODEL,
+  OLLAMA_SYNTHESIS_DEFAULT_VOICE,
+  OLLAMA_SYNTHESIS_MEDIA_TYPES,
   OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
+  isOllamaSpeechModel,
+  listOllamaSynthesisVoices,
+  ollamaModelSupportsSynthesis,
   ollamaModelSupportsTranscription,
   ollamaTranscriptionMediaTypesForModel,
+  synthesizeOllama,
   transcribeOllama,
 } from "./ollama-speech.js";
-import { TRANSCRIPTION_INPUT_MAX_BYTES } from "../speech.js";
+import {
+  SYNTHESIS_OUTPUT_MAX_BYTES,
+  SYNTHESIS_TEXT_MAX_CODE_POINTS,
+  TRANSCRIPTION_INPUT_MAX_BYTES,
+} from "../speech.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
 
@@ -218,6 +229,25 @@ export async function listOllamaTranscriptionModels({ signal } = {}) {
     installed.map(async (model) => ({
       model,
       supported: await ollamaModelSupportsTranscription(model.id, { signal }),
+    }))
+  );
+  return support
+    .filter((entry) => entry.supported)
+    .map((entry) => entry.model);
+}
+
+/**
+ * List only installed models whose fresh `/api/show` response advertises the
+ * `speech` capability. Gemma and other audio-input models cannot synthesize
+ * speech and must not appear in this catalog.
+ * @param {{ signal?: AbortSignal }} [args]
+ */
+export async function listOllamaSynthesisModels({ signal } = {}) {
+  const installed = await listOllamaModels({ signal });
+  const support = await Promise.all(
+    installed.map(async (model) => ({
+      model,
+      supported: await ollamaModelSupportsSynthesis(model.id, { signal }),
     }))
   );
   return support
@@ -702,11 +732,24 @@ export const ollamaProvider = {
     },
   },
   transcribe: transcribeOllama,
+  synthesis: {
+    defaultModel: OLLAMA_SYNTHESIS_DEFAULT_MODEL,
+    defaultVoice: OLLAMA_SYNTHESIS_DEFAULT_VOICE,
+    listModels: listOllamaSynthesisModels,
+    listVoices: listOllamaSynthesisVoices,
+    outputMediaTypes: OLLAMA_SYNTHESIS_MEDIA_TYPES,
+    maxTextCodePoints: SYNTHESIS_TEXT_MAX_CODE_POINTS,
+    maxOutputBytes: SYNTHESIS_OUTPUT_MAX_BYTES,
+  },
+  synthesize: synthesizeOllama,
 
   async listModels(args) {
     const models = await listOllamaModels(args);
     await filterOllamaDecisionModels(models, args);
-    return models.filter((model) => !isOllamaDecisionModel(model.id));
+    return models.filter(
+      (model) =>
+        !isOllamaDecisionModel(model.id) && !isOllamaSpeechModel(model.id)
+    );
   },
   decisions: { defaultModel: "nimble", listModels: listOllamaDecisionModels },
   async decide(args) {
@@ -740,6 +783,12 @@ export const ollamaProvider = {
       throwInference(
         "unavailable",
         "Decision models require method decide, not chat."
+      );
+    }
+    if (isOllamaSpeechModel(model)) {
+      throwInference(
+        "unavailable",
+        "Speech models require method synthesize, not chat."
       );
     }
     if (hostedWebSearchActive(tools, toolChoice)) {

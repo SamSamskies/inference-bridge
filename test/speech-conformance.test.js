@@ -183,7 +183,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method: "synthesize", mediaType: "audio/wav" }, {}, resolve
     ));
-    expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini"]);
+    expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini", "ollama"]);
     const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
     const result = assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
     let pending;
