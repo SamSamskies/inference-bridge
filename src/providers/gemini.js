@@ -223,6 +223,11 @@ function sourceLink(source) {
   }
 }
 
+function sourceLabel(title, index) {
+  // Titles are plain text, even when the page renders the response as Markdown.
+  return (title || `Source ${index + 1}`).replace(/[\\[\]<>`*_]/g, "\\$&");
+}
+
 /** @type {import("./types.js").Provider} */
 export const geminiProvider = {
   id: "gemini",
@@ -364,8 +369,14 @@ export const geminiProvider = {
         );
       for (const item of items || []) {
         const link = sourceLink(item);
-        if (link && (!apiKey || !link.includes(apiKey)))
-          sources.set(link, link);
+        if (!link || (apiKey && link.includes(apiKey))) continue;
+        const title =
+          typeof item.title === "string" && (!apiKey || !item.title.includes(apiKey))
+            ? item.title.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 512)
+            : "";
+        // A citation can supply a title after an untitled search-result event.
+        if (!sources.has(link) || (!sources.get(link) && title))
+          sources.set(link, title);
       }
     }
     function collectStep(step, index, emitText) {
@@ -513,11 +524,13 @@ export const geminiProvider = {
         "provider_error",
         "Google Gemini returned no text or function calls; the response may have been blocked"
       );
-    // IPA has no structured citation field. Preserve safe URLs in both the
-    // append-only stream and done.message.content, without interpreting HTML.
+    // IPA has no structured citation field. Use plain-text titles as link labels
+    // while preserving Google's URLs, including grounding redirect destinations.
     if (sources.size)
       emit(
-        `\n\nSources:\n${[...sources.keys()].map((url) => `- <${url}>`).join("\n")}`
+        `\n\nSources:\n${[...sources.entries()]
+          .map(([url, title], index) => `- [${sourceLabel(title, index)}](<${url}>)`)
+          .join("\n")}`
       );
     checkGeminiAbort(signal);
     const message = {

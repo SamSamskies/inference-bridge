@@ -564,12 +564,51 @@ describe("Gemini native chat", () => {
     });
     expect(result.message.toolCalls).toBeUndefined();
     expect(result.message.content).toBe(
-      "Grounded answer.\n\nSources:\n- <https://example.com/source>\n- <https://example.com/other>"
+      "Grounded answer.\n\nSources:\n- [Source](<https://example.com/source>)\n- [Source 2](<https://example.com/other>)"
     );
     expect(text.join("")).toBe(result.message.content);
     expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).tools).toEqual([
       { type: "google_search" },
     ]);
+  });
+  it("uses citation titles for redirect links, enriching and deduplicating streamed sources", async () => {
+    const url = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/opaque-token";
+    installStream([
+      start({ type: "google_search_result", result: [{ url }] }),
+      start({ type: "model_output" }, 1),
+      delta("Answer.", 1),
+      {
+        event_type: "step.delta", index: 1,
+        delta: { type: "text_annotation_delta", annotations: [{ url, title: "  Official\n source  " }] },
+      },
+      end({ steps: [{ type: "model_output", content: [{ type: "text", text: "Answer.", annotations: [{ url }] }] }] }),
+    ], { fragment: true });
+    const chunks = [];
+    const result = await chat({ tools: [search], onDelta: (text) => chunks.push(text) });
+    expect(result.message.content).toBe(`Answer.\n\nSources:\n- [Official source](<${url}>)`);
+    expect(chunks.join("")).toBe(result.message.content);
+    expect(fetch.mock.calls.every(([requestUrl]) =>
+      new URL(requestUrl).hostname === "generativelanguage.googleapis.com"
+    )).toBe(true); // No redirect-resolution requests.
+  });
+
+  it("escapes source titles and uses short fallbacks without exposing credentials", async () => {
+    const title = "[Source](javascript:alert(1)) <img> *text* \\";
+    installStream([
+      start({ type: "model_output", content: [{ type: "text", text: "Answer.", annotations: [
+        { url: "https://example.com/a_(b)", title },
+        { url: "https://example.com/blank", title: "\n\t" },
+        { url: "https://example.com/private", title: `Source ${key}` },
+        { url: "https://user:password@example.com/hidden", title: "Hidden" },
+        { url: "javascript:alert(1)", title: "Hidden" },
+      ] }] }), end(),
+    ]);
+    const result = await chat({ tools: [search] });
+    expect(result.message.content).toBe(
+      "Answer.\n\nSources:\n- [\\[Source\\](javascript:alert(1)) \\<img\\> \\*text\\* \\\\](<https://example.com/a_(b)>)\n- [Source 2](<https://example.com/blank>)\n- [Source 3](<https://example.com/private>)"
+    );
+    expect(result.message.content).not.toContain(key);
+    expect(result.message.content).not.toContain("Hidden");
   });
   it.each([undefined, "none"])(
     "does not enable search when not active (%s)",
