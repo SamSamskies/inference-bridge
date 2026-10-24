@@ -2271,6 +2271,19 @@ saveButton.addEventListener("click", async () => {
       await saveSettings({ apiKeys: { gemini: apiKeyDrafts.gemini || "" } });
       modelCache.delete("gemini");
       await refreshDefaultModels("gemini", model || preferredDefaultModel("gemini"));
+      // The shared model control is rebound on provider change. Do not re-read
+      // it unless this tab is still showing Gemini — otherwise another
+      // provider's selection can pass Gemini's id checks and be persisted.
+      if (
+        providerSelect.value !== "gemini" ||
+        modelBoundProviderId !== "gemini"
+      ) {
+        setStatus(
+          "Gemini key saved. Switch back to Google Gemini to choose a model and save the default route.",
+          "err",
+        );
+        return;
+      }
       model = readDefaultModelValue("gemini");
       if (!isModelValid(model, defaultModels, { allowUnknown: false })) {
         setStatus("Gemini key saved. Load the catalog and choose an available model to save the default route.", "err");
