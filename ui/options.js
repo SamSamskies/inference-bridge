@@ -76,6 +76,7 @@ const transcriptionModelSelect = document.getElementById("transcriptionModel");
 const synthesisProviderSelect = document.getElementById("synthesisProvider");
 const synthesisModelSelect = document.getElementById("synthesisModel");
 const synthesisVoiceSelect = document.getElementById("synthesisVoice");
+const synthesisVoicePreview = document.getElementById("synthesisVoicePreview");
 const originsEl = document.getElementById("origins");
 const originsEmpty = document.getElementById("originsEmpty");
 const speechOriginsEl = document.getElementById("speechOrigins");
@@ -1717,6 +1718,7 @@ async function persistDecisionDefault() {
 }
 
 async function loadSynthesisVoices(providerId, model, preferredVoice) {
+  synthesisVoicePreview.hidden = providerId !== "gemini";
   synthesisVoiceSelect.disabled = true;
   const response = await chrome.runtime.sendMessage({
     type: "list-voices",

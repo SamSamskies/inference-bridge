@@ -70,6 +70,7 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const voiceField = document.getElementById("voiceField");
 const voiceSelect = document.getElementById("voice");
+const voicePreview = document.getElementById("voicePreview");
 const voiceHint = document.getElementById("voiceHint");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
@@ -823,6 +824,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
 async function loadVoicesForProvider(providerId, preferredVoice) {
   const loadId = ++voicesLoadId;
+  voicePreview.hidden = providerId !== "gemini";
   if (requestMethod !== "synthesize") {
     voiceField.hidden = true;
     voicesReady = true;
