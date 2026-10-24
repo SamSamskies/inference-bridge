@@ -72,13 +72,6 @@ This installs a temporary development build. See the [Firefox release checklist]
 
 For local or self-hosted OpenAI-compatible servers, use the named-endpoint UI. To implement another built-in provider, see [AGENTS.md](AGENTS.md#layout) and the provider contracts in [`src/providers/types.js`](src/providers/types.js).
 
-Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey).
-The curated chat model picker is available before a key is saved;
-a listed model does not guarantee account access. Google AI Pro/Ultra
-subscriptions and Antigravity credentials do not authorize Gemini API calls.
-API availability and charges depend on the project and model; see
-[Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).
-
 ## Try it
 
 ### OpenAI
@@ -114,6 +107,18 @@ for await (const chunk of window.inference.request({
 3. Run the snippet above on an HTTPS or localhost page
 
 Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`POST /v1/messages`), not OpenAI Chat Completions.
+
+### Google Gemini
+
+1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey)
+2. In Options, set **Default provider** to Google Gemini, paste the key under **Google Gemini API key**, choose a model (defaults to Gemini 3.8 Flash), and click **Save**
+3. Run the snippet above on an HTTPS or localhost page
+
+The curated chat model picker is available before a key is saved;
+a listed model does not guarantee account access. Google AI Pro/Ultra
+subscriptions and Antigravity credentials do not authorize Gemini API calls.
+API availability and charges depend on the project and model; see
+[Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
 ### OpenRouter
 
