@@ -243,6 +243,42 @@ export async function geminiTranscribe({
   }
 }
 
+const GEMINI_FEATURED_VOICES = Object.freeze([
+  "Zephyr",
+  "Puck",
+  "Charon",
+  "Kore",
+  "Fenrir",
+  "Leda",
+  "Orus",
+  "Aoede",
+  "Callirrhoe",
+  "Autonoe",
+  "Enceladus",
+  "Iapetus",
+  "Umbriel",
+  "Algieba",
+  "Despina",
+  "Erinome",
+  "Algenib",
+  "Rasalgethi",
+  "Laomedeia",
+  "Achernar",
+  "Alnilam",
+  "Schedar",
+  "Gacrux",
+  "Pulcherrima",
+  "Achird",
+  "Zubenelgenubi",
+  "Vindemiatrix",
+  "Sadachbia",
+  "Sadaltager",
+  "Sulafat",
+]);
+const GEMINI_FEATURED_VOICE_NAMES = new Map(
+  GEMINI_FEATURED_VOICES.map((name) => [name.toLowerCase(), name])
+);
+
 export async function listGeminiVoices(args = {}) {
   const voices = new Map();
   const tokens = new Set();
@@ -259,14 +295,28 @@ export async function listGeminiVoices(args = {}) {
       );
     for (const voice of page.voices) {
       // Only documented prebuilt voices, never automatically select a user's
-      // custom/replicated voice. IDs and metadata come from the live library.
+      // custom/replicated voice. Keep the picker to Gemini's 30 featured
+      // studio voices; the extended catalog contains hundreds of variants.
       const id = voice.id;
+      const name =
+        typeof id === "string"
+          ? GEMINI_FEATURED_VOICE_NAMES.get(id.toLowerCase())
+          : undefined;
       if (
         voice.type === "prebuilt" &&
-        typeof id === "string" &&
-        /^[a-zA-Z0-9_-]+$/.test(id)
-      )
-        voices.set(id, { id, label: voice.display_name || id });
+        name &&
+        !voices.has(name)
+      ) {
+        const style =
+          typeof voice.display_name === "string" &&
+          voice.display_name.toLowerCase() !== name.toLowerCase()
+            ? voice.display_name
+            : "";
+        voices.set(name, {
+          id,
+          label: style ? `${name} — ${style}` : name,
+        });
+      }
     }
     token = page.next_page_token || "";
     if (

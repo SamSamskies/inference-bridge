@@ -193,7 +193,7 @@ describe("operation-scoped provider capabilities", () => {
   it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
     const all = listProviders();
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
-      .toEqual(["gemini"]);
+      .toEqual(["openai", "gemini"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
       .toEqual(["openai", "openrouter"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);

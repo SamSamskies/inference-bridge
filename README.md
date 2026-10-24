@@ -539,8 +539,9 @@ Current implementation limits (Bridge-specific, not IPA constants):
   two-letter language hints; richer hints fail with `unavailable` before upload
   instead of being reduced silently. Omit the hint for detection.
 - OpenAI and OpenRouter are supported through their dedicated transcription
-  and speech endpoints. Ollama transcription is opportunistically available
-  for installed models whose `/api/show` response reports both `audio` and
+  and speech endpoints. OpenAI synthesis supports native MP3 and WAV output;
+  OpenRouter synthesis currently supports MP3 output. Ollama transcription is
+  opportunistically available for installed models whose `/api/show` response reports both `audio` and
   `completion`. Audio embedding models such as EmbeddingGemma 2 cannot produce
   transcripts and are excluded from the transcription picker. WAV is the
   most compatible Ollama input; MP3 is currently offered only for the verified
@@ -959,9 +960,9 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] Optional Ollama transcription lists only installed `/api/show` models with both `audio` and `completion` (excluding audio embedding models), accepts the WAV fixture through `/v1/audio/transcriptions`, offers MP3 only for verified `gemma4:e4b`, and does not offer TTS
 - [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
 - [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
-- [ ] OpenAI synthesis yields non-empty `audio_delta` chunks; concatenated bytes equal `done.audio.byteLength` and produce a playable MP3
+- [ ] OpenAI synthesis yields non-empty `audio_delta` chunks for MP3 and explicit WAV; concatenated bytes equal `done.audio.byteLength` and produce playable audio in the requested format
 - [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
-- [ ] Explicit WAV lists only Gemini synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops unary generation and fragment delivery
+- [ ] Explicit WAV lists OpenAI and Gemini synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops generation and fragment delivery
 - [ ] A saved MP3-only route rejects WAV, and a saved WAV-only route rejects omitted output, before `accepted` without switching routes
 - [ ] Synthesis approval shows the text summary, requested format, model, voice, synthetic-speech notice, and provider-cost notice
 - [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice

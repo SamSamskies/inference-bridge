@@ -22,6 +22,7 @@ import { streamOpenAIResponsesChat } from "./openai-responses.js";
 import { decideOpenAI, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
 import {
   OPENAI_SYNTHESIS_MODELS,
+  OPENAI_SYNTHESIS_MEDIA_TYPES,
   OPENAI_SYNTHESIS_VOICES,
   OPENAI_TRANSCRIPTION_MEDIA_TYPES,
   OPENAI_TRANSCRIPTION_MODELS,
@@ -101,7 +102,7 @@ export const openaiProvider = {
     async listVoices({ model } = {}) {
       return openAIVoicesForModel(model || OPENAI_SYNTHESIS_MODELS[0]);
     },
-    outputMediaTypes: Object.freeze(["audio/mpeg"]),
+    outputMediaTypes: OPENAI_SYNTHESIS_MEDIA_TYPES,
     maxTextCodePoints: SYNTHESIS_TEXT_MAX_CODE_POINTS,
     maxOutputBytes: SYNTHESIS_OUTPUT_MAX_BYTES,
   },

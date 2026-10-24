@@ -269,7 +269,10 @@ describe("OpenAI synthesis", () => {
     );
   });
 
-  it("streams response bytes with backpressure and returns exact metadata", async () => {
+  it.each([
+    ["audio/mpeg", "mp3"],
+    ["audio/wav", "wav"],
+  ])("streams %s response bytes with backpressure and exact metadata", async (mediaType, responseFormat) => {
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(Uint8Array.from([1, 2]));
@@ -279,7 +282,7 @@ describe("OpenAI synthesis", () => {
     });
     const fetchMock = vi.fn(async () =>
       new Response(stream, {
-        headers: { "Content-Type": "audio/mpeg" },
+        headers: { "Content-Type": mediaType },
       })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -290,7 +293,7 @@ describe("OpenAI synthesis", () => {
       model: "gpt-4o-mini-tts",
       voice: "coral",
       text: "Hi 😀",
-      mediaType: "audio/mpeg",
+      mediaType,
       signal: new AbortController().signal,
       onAudioDelta: async (chunk) => {
         chunks.push([...chunk]);
@@ -303,7 +306,7 @@ describe("OpenAI synthesis", () => {
       model: "gpt-4o-mini-tts",
       input: "Hi 😀",
       voice: "coral",
-      response_format: "mp3",
+      response_format: responseFormat,
     });
     expect(chunks).toEqual([
       [1, 2],
@@ -311,7 +314,7 @@ describe("OpenAI synthesis", () => {
     ]);
     expect(result).toEqual({
       model: "gpt-4o-mini-tts",
-      audio: { mediaType: "audio/mpeg", byteLength: 5 },
+      audio: { mediaType, byteLength: 5 },
       usage: { inputCharacters: 4 },
     });
   });
@@ -363,7 +366,7 @@ describe("OpenAI synthesis", () => {
       synthesizeOpenAI({
         ...common,
         voice: "alloy",
-        mediaType: "audio/wav",
+        mediaType: "audio/ogg",
       })
     ).rejects.toMatchObject({ code: "unavailable" });
 
@@ -375,6 +378,25 @@ describe("OpenAI synthesis", () => {
         mediaType: "audio/mpeg",
       })
     ).rejects.toMatchObject({ code: "provider_error" });
+  });
+
+  it.each([
+    ["audio/wav", "audio/mpeg"],
+    ["audio/mpeg", "audio/wav"],
+  ])("rejects %s output returned as %s before emitting audio", async (mediaType, returnedType) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Uint8Array.of(1), {
+      headers: { "Content-Type": returnedType },
+    })));
+    const onAudioDelta = vi.fn();
+    await expect(synthesizeOpenAI({
+      model: "gpt-4o-mini-tts",
+      voice: "alloy",
+      text: "hello",
+      mediaType,
+      signal: new AbortController().signal,
+      onAudioDelta,
+    })).rejects.toMatchObject({ code: "provider_error" });
+    expect(onAudioDelta).not.toHaveBeenCalled();
   });
 
   it("maps upstream and aborted requests to IPA-style errors", async () => {

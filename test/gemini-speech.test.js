@@ -260,11 +260,14 @@ describe("Gemini dedicated transcription", () => {
 });
 
 describe("Gemini WAV synthesis", () => {
-  it("uses the live prebuilt voice library, including snake-case pagination", async () => {
+  it("limits the picker to featured voices and includes voice names in labels", async () => {
     fetch.mockResolvedValueOnce(
       Response.json({
         voices: [
           { id: "kore", display_name: "Kore", type: "prebuilt" },
+          { id: "KORE", display_name: "Duplicate", type: "prebuilt" },
+          { id: "voice_123", display_name: "Custom", type: "prompted" },
+          { id: "RegionalVoice", display_name: "Regional", type: "prebuilt" },
           { id: "Private", type: "prompted" },
         ],
         next_page_token: "next page",
@@ -277,7 +280,7 @@ describe("Gemini WAV synthesis", () => {
     );
     expect(await listGeminiVoices({ apiKey })).toEqual([
       { id: "kore", label: "Kore" },
-      { id: "Puck", label: "Upbeat" },
+      { id: "Puck", label: "Puck — Upbeat" },
     ]);
     expect(fetch.mock.calls[0][0]).toContain("type=prebuilt");
     expect(fetch.mock.calls[1][0]).toContain("page_token=next%20page");

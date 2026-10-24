@@ -1,5 +1,4 @@
 import {
-  SYNTHESIS_OUTPUT_MEDIA_TYPE,
   SYNTHESIS_OUTPUT_MAX_BYTES,
   SYNTHESIS_TEXT_MAX_CODE_POINTS,
   TRANSCRIPTION_INPUT_MAX_BYTES,
@@ -16,6 +15,11 @@ export const OPENAI_SYNTHESIS_MODELS = Object.freeze([
   "gpt-4o-mini-tts",
   "tts-1",
   "tts-1-hd",
+]);
+
+export const OPENAI_SYNTHESIS_MEDIA_TYPES = Object.freeze([
+  "audio/mpeg",
+  "audio/wav",
 ]);
 
 export const OPENAI_SYNTHESIS_VOICES = Object.freeze([
@@ -270,16 +274,16 @@ async function readStreamingTranscription(response, args) {
  *   model: string,
  *   voice: string,
  *   text: string,
- *   mediaType: "audio/mpeg",
+ *   mediaType: "audio/mpeg" | "audio/wav",
  *   signal: AbortSignal,
  *   onAudioDelta: (data: Uint8Array) => void | Promise<void>,
  * }} args
  */
 export async function synthesizeOpenAI(args) {
-  if (args.mediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE) {
+  if (!OPENAI_SYNTHESIS_MEDIA_TYPES.includes(args.mediaType)) {
     throw inferenceError(
       "unavailable",
-      'OpenAI synthesis currently supports only "audio/mpeg".'
+      'OpenAI synthesis supports "audio/mpeg" and "audio/wav".'
     );
   }
   if (
@@ -312,7 +316,7 @@ export async function synthesizeOpenAI(args) {
         model: args.model,
         input: args.text,
         voice: args.voice,
-        response_format: "mp3",
+        response_format: args.mediaType === "audio/wav" ? "wav" : "mp3",
       }),
       signal: args.signal,
     });
@@ -326,7 +330,7 @@ export async function synthesizeOpenAI(args) {
     .split(";")[0]
     .trim()
     .toLowerCase();
-  if (responseMediaType && responseMediaType !== SYNTHESIS_OUTPUT_MEDIA_TYPE) {
+  if (responseMediaType && responseMediaType !== args.mediaType) {
     throw inferenceError(
       "provider_error",
       `OpenAI returned unsupported synthesis media type: ${responseMediaType}.`
@@ -373,7 +377,7 @@ export async function synthesizeOpenAI(args) {
   return {
     model: args.model,
     audio: {
-      mediaType: SYNTHESIS_OUTPUT_MEDIA_TYPE,
+      mediaType: args.mediaType,
       byteLength,
     },
     usage: { inputCharacters: [...args.text].length },
