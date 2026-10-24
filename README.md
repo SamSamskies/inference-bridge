@@ -64,13 +64,20 @@ This installs a temporary development build. See the [Firefox release checklist]
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
-| Google Gemini | Google AI Studio API key in Options | Live Models API catalog in a regular select; native Interactions chat/search and dedicated transcription. See the [Gemini guide](docs/gemini.md). |
+| Google Gemini | Google AI Studio API key in Options | Filtered live Models API catalog in a regular select; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
 For local or self-hosted OpenAI-compatible servers, use the named-endpoint UI. To implement another built-in provider, see [AGENTS.md](AGENTS.md#layout) and the provider contracts in [`src/providers/types.js`](src/providers/types.js).
+
+Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey).
+Only eligible models returned by authenticated discovery appear in its picker;
+a catalog entry does not guarantee account access. Google AI Pro/Ultra
+subscriptions and Antigravity credentials do not authorize Gemini API calls.
+API availability and charges depend on the project and model; see
+[Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
 ## Try it
 
@@ -265,7 +272,7 @@ Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → 
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, Google Gemini, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -481,6 +488,12 @@ console.log("[final]", final.message.content);
 
 Approval lists function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**. Unsupported providers disable Allow with a setup hint. A plain-chat grant does not authorize tools: Bridge prompts again unless the saved grant already covers the requested tool set. Expanding that set requires approval. An Allow-once tool loop can continue through its matching tool-result turns without another prompt.
 
+Gemini function continuation requires replaying the returned assistant content
+and tool calls unchanged. Opaque native signatures stay in bounded extension
+memory, as described in [PRIVACY.md](PRIVACY.md). Cache expiry, eviction or a
+worker restart requires a fresh conversation; missing state fails before
+`accepted` with an actionable error.
+
 ## Bounded speech
 
 Bounded transcription and speech synthesis are optional IPA methods on stable
@@ -538,10 +551,12 @@ Current implementation limits (Bridge-specific, not IPA constants):
 - Google Gemini uses dedicated `gemini-3.5-transcribe` with a Files API upload
   and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
   Bridge's 24 MB limit. Remote file deletion is attempted after success,
-  failure, or cancellation. See the [Gemini guide](docs/gemini.md) for retention
-  and capability limits. Dedicated `gemini-3.8-flash-tts` and
+  failure, or cancellation; if cleanup fails, files may remain until Google's
+  48-hour expiry. See [PRIVACY.md](PRIVACY.md) for retention details.
+  Dedicated `gemini-3.8-flash-tts` and
   `gemini-3.8-flash-lite-tts` return a single native WAV file with 24 kHz mono
   16-bit PCM, split into bounded transport fragments without changing bytes.
+  Kore is the default voice; only prebuilt voices are offered.
 
 Paste-ready synthesis example:
 
