@@ -145,7 +145,8 @@ describe("Gemini discovery and capability boundaries", () => {
       "Gemini 4 Argon",
     ]);
     expect(models[3].inputModalities).toContain("image");
-    expect(models[0].inputModalities).toEqual(["text"]);
+    expect(models[0].inputModalities).toEqual(["text", "image"]);
+    expect(models[1].inputModalities).toEqual(["text", "image"]);
     expect(fetch.mock.calls[1][0]).toContain("pageToken=next%20page");
     for (const [url, init] of fetch.mock.calls) {
       expect(url).not.toContain(key);
@@ -630,7 +631,7 @@ describe("Gemini native chat", () => {
     });
     await expect(
       chat({
-        model: "gemma-4-26b-a4b-it",
+        model: "gemma-4-31b-it",
         messages: [
           {
             role: "user",
@@ -641,15 +642,14 @@ describe("Gemini native chat", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("allows verified Gemma grounding without enabling unverified capabilities", async () => {
-    const gemma = "gemma-4-26b-a4b-it";
-    expect(geminiRequestWarning(gemma, { tools: [search] })).toBe("");
-    expect(geminiRequestWarning(gemma, { tools: [fn] })).toContain("not verified");
-    expect(geminiRequestWarning(gemma, { tools: [search, fn] })).toContain("not verified");
+  it.each(["gemma-4-26b-a4b-it", "gemini-3.1-flash-lite"])("allows grounding on %s without enabling unverified capabilities", async (searchModel) => {
+    expect(geminiRequestWarning(searchModel, { tools: [search] })).toBe("");
+    expect(geminiRequestWarning(searchModel, { tools: [fn] })).toContain("not verified");
+    expect(geminiRequestWarning(searchModel, { tools: [search, fn] })).toContain("not verified");
     expect(geminiRequestWarning("gemma-4-31b-it", { tools: [search] })).toContain("not verified");
-    expect(mapGeminiReasoningEffort(gemma, "high")).toBeUndefined();
+    expect(mapGeminiReasoningEffort(searchModel, "high")).toBeUndefined();
     await geminiProvider.preflightChat({
-      apiKey: key, model: gemma,
+      apiKey: key, model: searchModel,
       messages: [{ role: "user", content: "Search for Gemma 4" }],
       tools: [search],
     });
@@ -661,18 +661,36 @@ describe("Gemini native chat", () => {
           type: "url_citation", title: "deepmind.google", url: "https://deepmind.google/models/gemma/",
         }],
       }] }, 2),
-      end({ model: gemma }),
+      end({ model: searchModel }),
     ], { fragment: true });
     const chunks = [];
-    const result = await chat({ model: gemma, tools: [search], onDelta: text => chunks.push(text) });
+    const result = await chat({ model: searchModel, tools: [search], onDelta: text => chunks.push(text) });
     const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
-    expect(body.model).toBe(gemma);
+    expect(body.model).toBe(searchModel);
     expect(body.tools).toEqual([{ type: "google_search" }]);
     expect(body.store).toBe(false);
     expect(body.stream).toBe(true);
     expect(result.message.content).toBe("Grounded Gemma answer.\n\nSources:\n- [deepmind.google](<https://deepmind.google/models/gemma/>)");
     expect(chunks.join("")).toBe(result.message.content);
     expect(result.message.toolCalls).toBeUndefined();
+  });
+  it.each(["gemma-4-26b-a4b-it", "gemini-3.1-flash-lite"])("passes image input through preflight and native chat on %s", async (imageModel) => {
+    const image = { type: "image", mediaType: "image/png", data: "AQID" };
+    const messages = [{ role: "user", content: [
+      { type: "text", text: "Describe this image." }, image,
+    ] }];
+    expect(geminiRequestWarning(imageModel, { imageInput: true })).toBe("");
+    await geminiProvider.preflightChat({ apiKey: key, model: imageModel, messages });
+    await chat({ model: imageModel, messages });
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body.model).toBe(imageModel);
+    expect(body.input).toEqual([{ type: "user_input", content: [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mime_type: "image/png", data: image.data },
+    ] }]);
+    expect(body.store).toBe(false);
+    expect(body.stream).toBe(true);
+    expect(geminiRequestWarning("gemma-4-31b-it", { imageInput: true })).toContain("not verified");
   });
   it("normalizes function argument fragments, and does not duplicate repeated completed steps", async () => {
     const call = {

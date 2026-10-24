@@ -9,9 +9,14 @@
 const PROFILES = new Map([
   [
     "gemma-4-26b-a4b-it",
-    // Live Interactions check, 2026-10-23: Google Search call/result steps and
-    // URL citation annotations returned with store:false. Other tools unverified.
-    { search: true },
+    // Live Interactions checks, 2026-10-23: search steps/citations and correct
+    // identification of a randomized PNG with store:false. Other tools unverified.
+    { image: true, search: true },
+  ],
+  [
+    "gemini-3.1-flash-lite",
+    // Live app checks, 2026-10-23: hosted search and image input both passed.
+    { image: true, search: true },
   ],
   [
     "gemini-4-argon",
