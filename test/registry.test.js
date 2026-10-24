@@ -187,13 +187,13 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "gemini", "openrouter"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ollama"]);
   });
 
   it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
     const all = listProviders();
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
-      .toEqual(["openai", "gemini"]);
+      .toEqual(["openai", "gemini", "ollama"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
       .toEqual(["openai", "openrouter"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);
