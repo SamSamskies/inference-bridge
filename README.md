@@ -114,12 +114,6 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 2. In Options, set **Default provider** to Google Gemini, paste the key under **Google Gemini API key**, choose a model (defaults to Gemini 3.8 Flash), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
 
-The curated chat model picker is available before a key is saved;
-a listed model does not guarantee account access. Google AI Pro/Ultra
-subscriptions and Antigravity credentials do not authorize Gemini API calls.
-API availability and charges depend on the project and model; see
-[Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).
-
 ### OpenRouter
 
 1. Create an API key at [openrouter.ai/keys](https://openrouter.ai/keys)
