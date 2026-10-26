@@ -49,6 +49,9 @@ describe("mapReasoningEffortForOpenAICompat", () => {
     expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-sol")).toBe(
       "none"
     );
+    expect(mapReasoningEffortForOpenAICompat("none", "gpt-6.1-terra")).toBe(
+      "none"
+    );
     expect(mapReasoningEffortForOpenAICompat("none", "gpt-6-luna")).toBe(
       "none"
     );

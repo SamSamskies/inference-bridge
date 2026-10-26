@@ -59,7 +59,7 @@ describe("openaiProvider.streamChat", () => {
     ]);
   });
 
-  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])(
+  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"])(
     "uses Responses for %s when only function tools are present",
     async (model) => {
       const fetchMock = vi.fn(async () =>

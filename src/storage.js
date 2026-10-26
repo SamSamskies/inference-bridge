@@ -59,7 +59,23 @@ const DEFAULTS = Object.freeze({
   operationLastUsed: Object.freeze({}),
 });
 
-const OPENAI_MODEL_SET = new Set(OPENAI_MODELS);
+// Keep retired picker entries recognizable when migrating older preferences.
+const OPENAI_MODEL_SET = new Set([
+  ...OPENAI_MODELS,
+  "gpt-6-sol",
+  "gpt-5.6-luna",
+  "gpt-5.6-terra",
+  "gpt-5.6-sol",
+  "gpt-5.4-nano",
+  "gpt-5.4-mini",
+  "gpt-5.4",
+  "gpt-5-mini",
+  "gpt-4.1-nano",
+  "gpt-4.1-mini",
+  "gpt-4.1",
+  "gpt-4o-mini",
+  "gpt-4o",
+]);
 
 /**
  * @param {string} providerId

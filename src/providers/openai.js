@@ -42,26 +42,14 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 export const OPENAI_MODELS = Object.freeze([
   "gpt-6-astra",
   "gpt-6.1-sol",
-  "gpt-6-sol",
+  "gpt-6.1-terra",
   "gpt-6-luna",
-  "gpt-5.6-luna",
-  "gpt-5.6-terra",
-  "gpt-5.6-sol",
-  "gpt-5.4-nano",
-  "gpt-5.4-mini",
-  "gpt-5.4",
   "gpt-5-nano",
-  "gpt-5-mini",
-  "gpt-4.1-nano",
-  "gpt-4.1-mini",
-  "gpt-4.1",
-  "gpt-4o-mini",
-  "gpt-4o",
 ]);
 
 /**
  * GPT-6 models support Chat Completions for text, but OpenAI recommends the
- * Responses API for function calling. Astra and GPT-6.1 Sol require Responses;
+ * Responses API for function calling. Astra, GPT-6.1 Sol and Terra require Responses;
  * GPT-6 Sol and Luna only support Chat Completions function calls at `none`.
  * @param {unknown} model
  * @returns {boolean}
