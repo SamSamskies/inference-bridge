@@ -604,7 +604,7 @@ const API_KEY_SETUP_LINKS = Object.freeze({
   ollama: {
     href: "https://ollama.com/settings/keys",
     label: "Get an Ollama API key",
-    detail: ". Used only for hosted web search via ollama.com — local chat on localhost:11434 does not need this key.",
+    detail: ". Used for hosted web search via ollama.com.",
   },
 });
 
@@ -632,7 +632,7 @@ function updateApiKeyField(providerId) {
 
   apiKeyBoundProviderId = provider.id;
   if (provider.id === "ollama") {
-    apiKeyLabel.textContent = "Ollama API key (optional, for web search)";
+    apiKeyLabel.textContent = "Ollama API key (optional)";
     apiKeyInput.placeholder = "Ollama account API key";
   } else if (provider.id === "gemini") {
     apiKeyLabel.textContent = "Google Gemini API key";
