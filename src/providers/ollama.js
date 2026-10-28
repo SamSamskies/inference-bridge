@@ -728,7 +728,7 @@ export const ollamaProvider = {
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   transcription: {
-    defaultModel: "gemma4:e2b",
+    defaultModel: "lfm3-audio:latest",
     listModels: listOllamaTranscriptionModels,
     acceptedMediaTypes: OLLAMA_TRANSCRIPTION_MEDIA_TYPES,
     maxInputBytes: TRANSCRIPTION_INPUT_MAX_BYTES,
