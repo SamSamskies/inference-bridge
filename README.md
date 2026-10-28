@@ -543,7 +543,8 @@ Current implementation limits (Bridge-specific, not IPA constants):
   OpenRouter synthesis currently supports MP3 output. Ollama transcription is
   opportunistically available for installed models whose `/api/show` response reports both `audio` and
   `completion`. Audio embedding models such as EmbeddingGemma 2 cannot produce
-  transcripts and are excluded from the transcription picker. WAV is the
+  transcripts and are excluded from the transcription picker. The default is
+  `lfm3-audio:latest` when installed. WAV is the
   most compatible Ollama input; MP3 is currently offered only for the verified
   `gemma4:e4b` model because other model/runtime combinations may reject it.
   Ollama synthesis is opportunistically available for installed models whose
@@ -861,13 +862,14 @@ Synthesis skips unless an installed model reports `speech`:
 
 ```bash
 OLLAMA_SPEECH_INTEGRATION=1 \
-OLLAMA_SPEECH_MODEL=gemma4:e2b \
+OLLAMA_SPEECH_MODEL=lfm3-audio:latest \
 OLLAMA_TTS_MODEL=phonon \
 npx vitest run test/ollama-speech.integration.test.js
 ```
 
 Transcription skips when the daemon/model is absent or `/api/show` does not
-report `audio`. Synthesis skips when `/api/show` does not report `speech`.
+report both `audio` and `completion`. Synthesis skips when `/api/show` does not
+report `speech`.
 Once a capability is advertised, endpoint or payload failures fail the test.
 
 Build runtime-only packages:

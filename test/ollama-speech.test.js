@@ -125,7 +125,7 @@ describe("Ollama transcription capability", () => {
 
 describe("Ollama transcription", () => {
   const request = () => ({
-    model: "gemma4:e2b",
+    model: "lfm3-audio:latest",
     audio: {
       data: new Blob([Uint8Array.from([1, 2, 3])], { type: "audio/wav" }),
       mediaType: "audio/wav",
@@ -159,14 +159,14 @@ describe("Ollama transcription", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe(`${OLLAMA_BASE_URL}/v1/audio/transcriptions`);
-    expect(init.body.get("model")).toBe("gemma4:e2b");
+    expect(init.body.get("model")).toBe("lfm3-audio:latest");
     expect(init.body.get("response_format")).toBe("json");
     expect(init.body.get("language")).toBe("en-US");
     const file = init.body.get("file");
     expect(file.name).toBe("recording.wav");
     expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([1, 2, 3]);
     expect(result).toEqual({
-      model: "gemma4:e2b",
+      model: "lfm3-audio:latest",
       transcript: { text: "Why is the sky blue?", language: "en" },
       usage: { inputSeconds: 5.3 },
     });

@@ -8,7 +8,7 @@ import {
 } from "../src/providers/ollama-speech.js";
 
 const enabled = process.env.OLLAMA_SPEECH_INTEGRATION === "1";
-const model = process.env.OLLAMA_SPEECH_MODEL || "gemma4:e2b";
+const model = process.env.OLLAMA_SPEECH_MODEL || "lfm3-audio:latest";
 
 describe.skipIf(!enabled)("Ollama speech integration", () => {
   it("transcribes the checked-in 16 kHz mono WAV fixture", async ({ skip }) => {
