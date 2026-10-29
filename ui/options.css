@@ -77,6 +77,75 @@
   font-weight: 650;
 }
 
+.allowed-sites > li {
+  display: block;
+  padding: 0;
+}
+
+.allowed-site > summary {
+  padding: 12px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.allowed-site > summary:focus-visible,
+#allowed-sites-heading:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.site-capabilities {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.site-capability {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 12px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.site-capability h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.site-capability button {
+  white-space: normal;
+}
+
+.site-actions {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 520px) {
+  .site-capability,
+  #blocked > li {
+    flex-direction: column;
+  }
+
+  #blocked code {
+    overflow-wrap: anywhere;
+  }
+
+  .site-capability .origin-meta,
+  .site-capability .origin-model select,
+  .site-capability .origin-model input[type="text"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
 @media (max-width: 420px) {
   .settings-tab {
     padding-inline: 2px;

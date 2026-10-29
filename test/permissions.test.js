@@ -18,7 +18,9 @@ import {
   getOriginLastUsed,
   isOriginBlocked,
   revokeOrigin,
+  revokeAllOriginAccess,
   saveSettings,
+  saveApprovalChoice,
   setOriginLastUsed,
   setOriginProviderModel,
   clearOriginToolsScope,
@@ -66,6 +68,43 @@ beforeEach(() => {
   clearToolEpisodes();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("full-site revocation", () => {
+  it("requires fresh approval for every capability despite remembered routes and preferences", async () => {
+    const origin = "https://all-access.example";
+    const chatRoute = { providerId: "openai", model: "gpt-6-luna" };
+    await saveApprovalChoice(origin, {
+      ...chatRoute, always: true, toolFingerprint: "fn:get_weather", imageInput: true,
+      imageOutput: true, chatReasoningEffort: "high",
+    });
+    const routes = {
+      transcribe: { providerId: "openai", model: "whisper-1" },
+      synthesize: { providerId: "openai", model: "tts-1", voice: "alloy" },
+      decide: { providerId: "openrouter", model: "typesafe/jev" },
+    };
+    for (const [operation, route] of Object.entries(routes)) {
+      await saveApprovalChoice(origin, { ...route, operation, always: true });
+    }
+    await revokeAllOriginAccess(origin);
+    expect(await getOriginGrant(origin)).toBeNull();
+    const pendingChat = ensurePermission({
+      requestId: "revoked-chat", origin, messages: [{ role: "user", content: "Hello" }],
+    });
+    await waitForPending("revoked-chat");
+    expect(getPendingApproval("revoked-chat")).toMatchObject({ origin, ...chatRoute, chatReasoningEffort: "high" });
+    await resolveApproval("revoked-chat", { decision: "deny" });
+    await expect(pendingChat).resolves.toMatchObject({ allowed: false });
+
+    for (const [method, route] of Object.entries(routes)) {
+      const requestId = `revoked-${method}`;
+      const pending = ensureSpeechPermission({ requestId, origin, method, text: "Hello" });
+      await waitForPending(requestId);
+      expect(getPendingApproval(requestId)).toMatchObject({ origin, method, ...route });
+      await resolveApproval(requestId, { decision: "deny" });
+      await expect(pending).resolves.toMatchObject({ allowed: false });
+    }
+  });
 });
 
 describe("speech permissions", () => {

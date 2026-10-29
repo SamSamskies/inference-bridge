@@ -270,7 +270,9 @@ Changes save automatically and apply to the next chat request on sites that inhe
 
 The **chat approval popup** also offers **Reasoning effort for this site** under **Advanced options**, collapsed by default. An active site override stays visible in the summary (for example, **Advanced options · Reasoning: High**). The selector starts with **Use global setting** (showing the current global choice), or restores the site's previous selection. Choose **Use page preference** to let that app choose even when a global override is set, **Auto** to use its provider/model default, or **None / Low / Medium / High** for a site override. The selection is saved when you allow, including **Allow once**, and applies to the current and later chat requests for that exact origin. Denying or closing the popup does not save a change. Choosing **Use global setting** removes the site override so later global changes apply. Site preferences are stored separately from access grants and never grant permission themselves; revoking access leaves the preference available for the next approval. Decisions and speech approvals do not show this control.
 
-To edit a saved preference for an Always-allowed chat origin, open **Options → Site access** and use its autosaving **Reasoning effort** selector. Choosing **Use global setting** clears the override. These edits affect the next chat request and leave provider/model, tools, images, and access permissions unchanged. Sites using Allow once, or whose access was revoked, can change their remembered preference in the next approval popup, just like their remembered provider/model choice.
+To edit a saved preference for an Always-allowed chat origin, open **Options → Site access → Allowed sites**, expand the site, and use its autosaving **Reasoning effort** selector under **Chat**. Choosing **Use global setting** clears the override. These edits affect the next chat request and leave provider/model, tools, images, and access permissions unchanged. Sites using Allow once, or whose access was revoked, can change their remembered preference in the next approval popup, just like their remembered provider/model choice.
+
+**Allowed sites** groups persistent grants by exact origin, including sites with only speech or decisions access. Each site shows only its granted capabilities. Revoke chat, tools, images, transcription, synthesis, or decisions individually. Sites with multiple granted capabilities also offer **Revoke all access** to remove every persistent grant for that site. Future requests for revoked access require approval; remembered routes and reasoning preferences remain available in the next prompt. Blocks remain separate under **Blocked origins**.
 
 Effort is a best-effort preference for response time, cost, and reasoning. The effective value goes through the same provider mappings above; providers/models may ignore it or use a supported fallback. **None does not guarantee thinking is disabled.** On-device chat currently ignores effort. Gemini uses its model-specific thinking-level mapping when available.
 
@@ -909,6 +911,14 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 ```
 
 ### Manual checks
+
+#### Allowed sites
+
+- [ ] In Chrome and Firefox, grant chat (including tools/images), transcription, synthesis, and decisions to one origin. Confirm **Site access → Allowed sites** shows one expandable card, all granted capabilities, saved routes/voice, and editable chat provider/model/reasoning effort.
+- [ ] Grant chat only, each speech operation only, and decisions only to other origins. Confirm each appears once with only its granted capability and no redundant Revoke all access button; different schemes, hosts, or ports remain separate.
+- [ ] Revoke tools/images, chat, or one operation. Confirm unrelated grants still work, the summary updates, and the card stays expanded. Remove the final grant and confirm the card disappears; remove all grants and confirm a single empty state.
+- [ ] Use **Revoke all access** on a mixed-capability site. Confirm subsequent chat (including tools/images), speech, and decisions requests require approval, other sites retain access, and blocked sites stay blocked.
+- [ ] At 320px width and with a long origin/model, confirm controls wrap without horizontal overflow. Use Tab and Enter/Space to expand a site and revoke access; confirm focus returns to its summary, a neighboring site, or the Allowed sites heading when the list becomes empty. Verify capability names and site-specific revoke labels with a screen reader.
 
 #### Persistence failures
 

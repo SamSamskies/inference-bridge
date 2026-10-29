@@ -2,10 +2,9 @@ import {
   getSettings,
   saveSettings,
   saveCompatEndpoints,
-  listAllowedOrigins,
-  listOriginOperationGrants,
   listBlockedOrigins,
   revokeOrigin,
+  revokeAllOriginAccess,
   revokeOriginOperation,
   clearOriginToolsScope,
   clearOriginImageScope,
@@ -36,6 +35,7 @@ import {
 } from "../src/prompt-api-core.js";
 import { isFirefoxBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
+import { groupAllowedSites } from "./allowed-sites.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -70,8 +70,6 @@ const decisionsStatus = document.getElementById("decisionsStatus");
 const decisionsProviderSelect = document.getElementById("decisionsProvider");
 const decisionsModelSelect = document.getElementById("decisionsModel");
 const decisionsModelHint = document.getElementById("decisionsModelHint");
-const decisionsOriginsEl = document.getElementById("decisionsOrigins");
-const decisionsOriginsEmpty = document.getElementById("decisionsOriginsEmpty");
 const transcriptionProviderSelect = document.getElementById(
   "transcriptionProvider",
 );
@@ -79,10 +77,9 @@ const transcriptionModelSelect = document.getElementById("transcriptionModel");
 const synthesisProviderSelect = document.getElementById("synthesisProvider");
 const synthesisModelSelect = document.getElementById("synthesisModel");
 const synthesisVoiceSelect = document.getElementById("synthesisVoice");
-const originsEl = document.getElementById("origins");
-const originsEmpty = document.getElementById("originsEmpty");
-const speechOriginsEl = document.getElementById("speechOrigins");
-const speechOriginsEmpty = document.getElementById("speechOriginsEmpty");
+const allowedSitesEl = document.getElementById("allowedSites");
+const allowedSitesEmpty = document.getElementById("allowedSitesEmpty");
+const allowedSitesHeading = document.getElementById("allowed-sites-heading");
 const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
 const compatEndpointsEl = document.getElementById("compatEndpoints");
@@ -1170,6 +1167,7 @@ const SITE_REASONING_CHOICES = [
 
 /** Catch autosave/revoke failures at the UI boundary and keep them visible. */
 async function runSiteAccessAction(action, control) {
+  const hadFocus = control && document.activeElement === control;
   if (control) control.disabled = true;
   setSiteAccessStatus("Saving…");
   try {
@@ -1178,6 +1176,9 @@ async function runSiteAccessAction(action, control) {
     setSiteAccessStatus(error instanceof Error ? error.message : "Could not save this site permission. Retry the change.", "err");
   } finally {
     if (control) control.disabled = false;
+    if (hadFocus && control.isConnected && document.activeElement === document.body) {
+      control.focus();
+    }
   }
 }
 
@@ -1226,493 +1227,544 @@ function createSiteReasoningControl(origin, preference) {
   return label;
 }
 
-async function renderOrigins() {
-  const grants = await listAllowedOrigins();
-  const { originChatReasoningEfforts } = await getSettings();
+async function renderAllowedSites(focusOrigin) {
+  const previousCards = [...allowedSitesEl.querySelectorAll("details[data-origin]")];
+  const expanded = new Set(previousCards.filter((card) => card.open).map((card) => card.dataset.origin));
+  const focusedIndex = previousCards.findIndex((card) => focusOrigin ? card.dataset.origin === focusOrigin : card.contains(document.activeElement));
+  const focusedOrigin = previousCards[focusedIndex]?.dataset.origin;
+  const settings = await getSettings();
+  const sites = groupAllowedSites(settings);
   originModelCommitters = [];
-  originsEl.replaceChildren();
-  originsEmpty.hidden = grants.length > 0;
+  const fragment = document.createDocumentFragment();
 
-  for (const grant of grants) {
+  for (const site of sites) {
     const li = document.createElement("li");
+    const card = document.createElement("details");
+    card.className = "allowed-site";
+    card.dataset.origin = site.origin;
+    card.open = expanded.has(site.origin);
+    const summary = document.createElement("summary");
+    const origin = document.createElement("code");
+    origin.textContent = site.origin;
+    const capabilities = document.createElement("span");
+    capabilities.className = "site-capabilities";
+    capabilities.textContent = site.capabilities.join(" · ");
+    summary.append(origin, capabilities);
+    card.append(summary);
 
-    const meta = document.createElement("div");
-    meta.className = "origin-meta";
+    if (site.chat) {
+      card.append(createChatGrantControl(site.chat, settings.originChatReasoningEfforts));
+    }
+    for (const grant of site.operations) {
+      card.append(createOperationGrantControl(grant));
+    }
 
-    const code = document.createElement("code");
-    code.textContent = grant.origin;
-    meta.append(code);
-
-    const providerLabel = document.createElement("label");
-    providerLabel.className = "origin-model";
-    const providerCaption = document.createElement("span");
-    providerCaption.textContent = "Provider";
-    const originProviderSelect = document.createElement("select");
-    originProviderSelect.setAttribute(
-      "aria-label",
-      `Provider for ${grant.origin}`,
-    );
-    // Keep an already-granted Ollama selection visible even if currently unavailable.
-    // Unknown providerIds stay selected as "(unknown)" — never remapped to a
-    // registered provider (that would silently overwrite the fail-closed grant).
-    const { providerId: originProviderId, known: providerKnown } =
-      populateOriginProviderSelect(originProviderSelect, grant.providerId);
-    providerLabel.append(providerCaption, originProviderSelect);
-    meta.append(providerLabel);
-
-    const modelLabel = document.createElement("label");
-    modelLabel.className = "origin-model";
-    const modelCaption = document.createElement("span");
-    modelCaption.textContent = "Model";
-    const originModelSelect = document.createElement("select");
-    originModelSelect.setAttribute("aria-label", `Model for ${grant.origin}`);
-    const originModelInput = document.createElement("input");
-    originModelInput.type = "text";
-    originModelInput.autocomplete = "off";
-    originModelInput.spellcheck = false;
-    originModelInput.placeholder = "Type to search models…";
-    originModelInput.hidden = true;
-    const datalistId = `origin-models-${encodeURIComponent(grant.origin)}`;
-    originModelInput.setAttribute("list", datalistId);
-    originModelInput.setAttribute("aria-label", `Model for ${grant.origin}`);
-    const originModelList = document.createElement("datalist");
-    originModelList.id = datalistId;
-    modelLabel.append(
-      modelCaption,
-      originModelSelect,
-      originModelInput,
-      originModelList,
-    );
-    meta.append(modelLabel);
-
-    const modelStatus = document.createElement("p");
-    modelStatus.className = "hint origin-model-hint";
-    meta.append(modelStatus);
-    meta.append(createSiteReasoningControl(grant.origin, originChatReasoningEfforts[grant.origin]));
-
-    const toolLabels = summarizeToolFingerprintLabels(
-      grant.toolFingerprint,
-      { id: grant.providerId },
-      { toolChoiceNone: grant.toolChoiceNone === true },
-    );
-    /** @type {string[]} */
-    const imageLabels = [];
-    if (grant.imageInput === true) imageLabels.push("Image input");
-    if (grant.imageOutput === true) imageLabels.push("Image output");
-
-    /**
-     * @param {string} caption
-     * @param {string[]} labels
-     * @param {{ ariaLabel: string, onClick: () => Promise<void> }} revoke
-     */
-    function appendScopeRow(caption, labels, revoke) {
-      if (labels.length === 0) return;
-      const scope = document.createElement("div");
-      scope.className = "origin-scope";
-      const scopeCaption = document.createElement("span");
-      scopeCaption.textContent = caption;
-      const row = document.createElement("div");
-      row.className = "origin-scope-row";
-      const scopeText = document.createElement("p");
-      scopeText.className = "origin-scope-labels";
-      scopeText.textContent = labels.join(" · ");
-      const revokeBtn = document.createElement("button");
-      revokeBtn.type = "button";
-      revokeBtn.className = "linkish";
-      revokeBtn.textContent = "Revoke";
-      revokeBtn.setAttribute("aria-label", revoke.ariaLabel);
-      revokeBtn.addEventListener("click", () => {
-        void runSiteAccessAction(revoke.onClick, revokeBtn);
+    if (site.capabilities.length > 1) {
+      const actions = document.createElement("div");
+      actions.className = "site-actions";
+      const revokeAll = document.createElement("button");
+      revokeAll.type = "button";
+      revokeAll.className = "danger";
+      revokeAll.textContent = "Revoke all access";
+      revokeAll.setAttribute("aria-label", `Revoke all access for ${site.origin}`);
+      revokeAll.addEventListener("click", () => {
+        void runSiteAccessAction(async () => {
+          await revokeAllOriginAccess(site.origin);
+          await renderAllowedSites(site.origin);
+          setSiteAccessStatus(`Revoked all access for ${site.origin}. Future requests require approval.`, "ok");
+        }, revokeAll);
       });
-      row.append(scopeText, revokeBtn);
-      scope.append(scopeCaption, row);
-      meta.append(scope);
+      actions.append(revokeAll);
+      card.append(actions);
     }
+    li.append(card);
+    fragment.append(li);
+  }
 
-    appendScopeRow("Tools", toolLabels, {
-      ariaLabel: `Revoke tools for ${grant.origin}`,
-      onClick: async () => {
-        const ok = await clearOriginToolsScope(grant.origin);
-        await renderOrigins();
-        setSiteAccessStatus(
-          ok
-            ? `Revoked tools for ${grant.origin}`
-            : `Could not revoke tools for ${grant.origin}`,
-          ok ? "ok" : "err",
-        );
-      },
-    });
-    appendScopeRow("Images", imageLabels, {
-      ariaLabel: `Revoke images for ${grant.origin}`,
-      onClick: async () => {
-        const ok = await clearOriginImageScope(grant.origin);
-        await renderOrigins();
-        setSiteAccessStatus(
-          ok
-            ? `Revoked images for ${grant.origin}`
-            : `Could not revoke images for ${grant.origin}`,
-          ok ? "ok" : "err",
-        );
-      },
-    });
-
-    /** Bumped on each model load for this grant so slower fetches cannot repaint. */
-    let originModelsLoadId = 0;
-    /** @type {Array<{ id: string, label?: string }>} */
-    let originModels = [];
-
-    /**
-     * @param {string} providerId
-     * @returns {string}
-     */
-    function readOriginModelValue(providerId) {
-      if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
-      if (usesModelAutosuggest(providerId, originModels)) {
-        return originModelInput.value.trim();
-      }
-      return originModelSelect.value;
-    }
-
-    /**
-     * @param {string} providerId
-     * @param {Array<{ id: string, label?: string }>} models
-     * @param {string | undefined} selected
-     * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
-     */
-    function populateOriginModelControl(
-      providerId,
-      models,
-      selected,
-      opts = {},
-    ) {
-      const allowUnknown = opts.allowUnknown !== false;
-      const disabled = Boolean(opts.disabled);
-      const autosuggest = usesModelAutosuggest(providerId, models);
-      originModelSelect.hidden = autosuggest;
-      originModelInput.hidden = !autosuggest;
-
-      if (autosuggest) {
-        populateModelInput(
-          originModelInput,
-          originModelList,
-          models,
-          selected,
-          {
-            allowUnknown,
-          },
-        );
-        originModelInput.disabled = disabled;
-        originModelSelect.disabled = true;
-        return;
-      }
-
-      populateModelSelect(originModelSelect, models, selected, {
-        allowUnknown,
-      });
-      originModelSelect.disabled = disabled;
-      originModelInput.disabled = true;
-    }
-
-    /**
-     * @param {string} providerId
-     * @param {string | undefined} selectedModel
-     * @returns {Promise<boolean>} true when this load still matches the select
-     */
-    async function loadOriginModels(providerId, selectedModel) {
-      const loadId = ++originModelsLoadId;
-
-      if (providerId === ON_DEVICE_PROVIDER_ID) {
-        originModels = [
-          { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
-        ];
-        populateOriginModelControl(
-          providerId,
-          originModels,
-          ON_DEVICE_MODEL_ID,
-          {
-            allowUnknown: false,
-            disabled: true,
-          },
-        );
-        if (!isOnDeviceOffered()) {
-          modelStatus.textContent =
-            "On-device AI is not available in this browser.";
-          return false;
-        }
-        if (!isOnDeviceReady()) {
-          modelStatus.textContent =
-            "Install the on-device model on the Providers tab before using it for this site.";
-          return false;
-        }
-        modelStatus.textContent = "Browser-chosen on-device model.";
-        return true;
-      }
-
-      populateOriginModelControl(providerId, [], selectedModel, {
-        allowUnknown: true,
-        disabled: true,
-      });
-      modelStatus.textContent = "Loading models…";
-      const { models, error } = await fetchModels(providerId);
-      // Ignore stale responses after the user switches providers mid-flight.
-      if (
-        loadId !== originModelsLoadId ||
-        originProviderSelect.value !== providerId
-      ) {
-        return false;
-      }
-
-      // Keep the saved Ollama grant model visible (read-only) while Ollama is
-      // down — same pattern as refreshDefaultModels / unknown-provider grants.
-      if (providerId === "ollama" && !ollamaStatus.available) {
-        originModels = selectedModel ? [{ id: selectedModel }] : [];
-        populateOriginModelControl(
-          providerId,
-          selectedModel ? [{ id: selectedModel }] : [],
-          selectedModel,
-          { allowUnknown: true, disabled: true },
-        );
-        modelStatus.textContent =
-          error ||
-          "Ollama is unavailable. The saved model is shown read-only until it is running again.";
-        return true;
-      }
-
-      originModels = models;
-      const allowUnknown = allowUnknownFor(providerId);
-      populateOriginModelControl(providerId, models, selectedModel, {
-        allowUnknown,
-        disabled: models.length === 0 && !allowUnknown,
-      });
-      if (error) {
-        modelStatus.textContent = error;
-      } else if (models.length === 0) {
-        modelStatus.textContent = "No models available.";
-      } else {
-        modelStatus.textContent = "";
-      }
-      return true;
-    }
-
-    /** Last provider/model written for this row — skip no-op rewrites. */
-    let persistedProviderId = grant.providerId;
-    let persistedModel =
-      typeof grant.model === "string" ? grant.model.trim() : "";
-
-    /**
-     * @returns {Promise<boolean>}
-     */
-    async function persistGrant() {
-      const providerId = originProviderSelect.value;
-      // Refuse to rewrite an unknown grant via the model control (or any path
-      // that still has the stale id selected). Only an explicit switch to a
-      // registered provider may update storage.
-      if (!providers.some((p) => p.id === providerId)) {
-        setSiteAccessStatus(
-          `Choose a registered provider for ${grant.origin} before updating.`,
-          "err",
-        );
-        return false;
-      }
-      const model = readOriginModelValue(providerId);
-      if (
-        !isModelValid(model, originModels, {
-          allowUnknown: allowUnknownFor(providerId),
-        })
-      ) {
-        setSiteAccessStatus(
-          `Choose a valid model for ${grant.origin}`,
-          "err",
-        );
-        return false;
-      }
-      if (providerId === persistedProviderId && model === persistedModel) {
-        return true;
-      }
-      // Same gate as default-provider Save: do not write site grants for a
-      // provider whose optional host access was revoked (Firefox built-in or
-      // compat endpoint). Provider change and model edits both go through here.
-      if (providersWithRevokedHostAccess.has(providerId)) {
-        setSiteAccessStatus(
-          providerAccessError(providerId) ||
-            "Provider host access was revoked.",
-          "err",
-        );
-        await renderOrigins();
-        return false;
-      }
-      try {
-        setSiteAccessStatus(`Saving ${grant.origin}…`);
-        const ok = await setOriginProviderModel(grant.origin, {
-          providerId,
-          model,
-        });
-        if (ok) {
-          persistedProviderId = providerId;
-          persistedModel = model;
-          setSiteAccessStatus(`Updated ${grant.origin}`, "ok");
-          return true;
-        }
-        setSiteAccessStatus(`Could not update ${grant.origin}`, "err");
-        await renderOrigins();
-        return false;
-      } catch (error) {
-        await renderOrigins().catch(() => {});
-        setSiteAccessStatus(error instanceof Error ? error.message : "Could not save this site's route. Retry the change.", "err");
-        return false;
-      }
-    }
-
-    originProviderSelect.addEventListener("change", async () => {
-      originProviderSelect.disabled = true;
-      const providerId = originProviderSelect.value;
-      try {
-        if (!providers.some((p) => p.id === providerId)) {
-          // User re-selected the unknown placeholder; keep the grant untouched.
-          return;
-        }
-
-        // Prefer the provider default (e.g. openrouter/auto). OpenRouter uses an
-        // autosuggest input that stays blank when selected is omitted, unlike
-        // <select> which auto-picks the first catalog entry.
-        const preferredModel =
-          providerId === ON_DEVICE_PROVIDER_ID
-            ? ON_DEVICE_MODEL_ID
-            : providers.find((p) => p.id === providerId)?.defaultModel ||
-              undefined;
-        const applied = await loadOriginModels(providerId, preferredModel);
-        if (!applied || originProviderSelect.value !== providerId) {
-          return;
-        }
-
-        if (
-          !isModelValid(readOriginModelValue(providerId), originModels, {
-            allowUnknown: allowUnknownFor(providerId),
-          })
-        ) {
-          // The select changes before dynamic model discovery completes.
-          // Restore the persisted grant when the new provider cannot supply a
-          // model so the UI never implies an unpersisted provider is active.
-          await renderOrigins();
-          setSiteAccessStatus(
-            `Could not switch ${grant.origin}: no models are available.`,
-            "err",
-          );
-          return;
-        }
-
-        const saved = await persistGrant();
-        // Drop the "(unknown)" option after a successful recovery.
-        if (saved && !providerKnown) {
-          await renderOrigins();
-        }
-      } catch (error) {
-        await renderOrigins().catch(() => {});
-        setSiteAccessStatus(error instanceof Error ? error.message : "Could not update this site's provider.", "err");
-      } finally {
-        originProviderSelect.disabled = false;
-      }
-    });
-
-    originModelSelect.addEventListener("change", () => {
-      void persistGrant();
-    });
-    // Autosuggest <input>: `change` alone waits for blur, so also commit on
-    // blur and when the Options page is hidden (see flushOriginModelEdits).
-    const commitOriginModelInput = () => {
-      void persistGrant();
-    };
-    originModelInput.addEventListener("change", commitOriginModelInput);
-    originModelInput.addEventListener("blur", commitOriginModelInput);
-    originModelCommitters.push(() => {
-      // Blur already commits when focus moves within the page; only flush here
-      // when the field is still focused (e.g. Options tab closed mid-edit).
-      if (document.activeElement !== originModelInput) return;
-      commitOriginModelInput();
-    });
-
-    const actions = document.createElement("div");
-    actions.className = "actions";
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "danger";
-    button.textContent = "Revoke";
-    button.addEventListener("click", async () => {
-      await runSiteAccessAction(async () => {
-        await revokeOrigin(grant.origin);
-        await renderOrigins();
-        setSiteAccessStatus(`Revoked ${grant.origin}`, "ok");
-      }, button);
-    });
-    actions.append(button);
-
-    li.append(meta, actions);
-    originsEl.append(li);
-
-    if (!providerKnown) {
-      // Show the saved model read-only; do not load another provider's catalog.
-      originModels = grant.model ? [{ id: grant.model }] : [];
-      populateOriginModelControl(
-        grant.providerId,
-        grant.model ? [{ id: grant.model }] : [],
-        grant.model,
-        { allowUnknown: true, disabled: true },
-      );
-      modelStatus.textContent = `Unknown provider "${grant.providerId}". Choose a registered provider to update this grant. Requests for this origin fail until then.`;
-    } else {
-      void loadOriginModels(originProviderId, grant.model);
-    }
+  allowedSitesEl.replaceChildren(fragment);
+  allowedSitesEmpty.hidden = sites.length > 0;
+  if (focusedOrigin) {
+    const cards = [...allowedSitesEl.querySelectorAll("details[data-origin]")];
+    const target = cards.find((card) => card.dataset.origin === focusedOrigin)
+      || cards[Math.min(focusedIndex, cards.length - 1)];
+    (target?.querySelector("summary") || allowedSitesHeading).focus();
   }
 }
 
-async function renderOperationOrigins() {
-  const grants = await listOriginOperationGrants();
-  speechOriginsEl.replaceChildren();
-  decisionsOriginsEl.replaceChildren();
-  speechOriginsEmpty.hidden = grants.some((grant) => grant.operation !== "decide");
-  decisionsOriginsEmpty.hidden = grants.some((grant) => grant.operation === "decide");
+function createChatGrantControl(grant, originChatReasoningEfforts) {
+  const section = document.createElement("section");
+  section.className = "site-capability";
+  section.setAttribute("aria-label", `Chat for ${grant.origin}`);
 
-  for (const grant of grants) {
-    const li = document.createElement("li");
-    const meta = document.createElement("div");
-    meta.className = "origin-meta";
-    const origin = document.createElement("code");
-    origin.textContent = grant.origin;
-    const operation =
-      grant.operation === "decide" ? "Decisions" : grant.operation === "transcribe" ? "Transcription" : "Synthesis";
-    const provider =
-      providers.find((candidate) => candidate.id === grant.providerId)?.label ||
-      grant.providerId;
-    const details = document.createElement("p");
-    details.className = "origin-scope-labels";
-    details.textContent = [
-      operation,
-      provider,
-      grant.model,
-      ...(grant.voice ? [`Voice: ${grant.voice}`] : []),
-    ].join(" · ");
-    meta.append(origin, details);
+  const meta = document.createElement("div");
+  meta.className = "origin-meta";
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "danger";
-    button.textContent = "Revoke";
-    button.addEventListener("click", async () => {
-      await runSiteAccessAction(async () => {
-        const ok = await revokeOriginOperation(grant.origin, grant.operation);
-        await renderOperationOrigins();
-        setSiteAccessStatus(
-          ok
-            ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
-            : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
-          ok ? "ok" : "err",
-        );
-      }, button);
+  const heading = document.createElement("h4");
+  heading.textContent = "Chat";
+  meta.append(heading);
+
+  const providerLabel = document.createElement("label");
+  providerLabel.className = "origin-model";
+  const providerCaption = document.createElement("span");
+  providerCaption.textContent = "Provider";
+  const originProviderSelect = document.createElement("select");
+  originProviderSelect.setAttribute(
+    "aria-label",
+    `Provider for ${grant.origin}`,
+  );
+  // Keep an already-granted Ollama selection visible even if currently unavailable.
+  // Unknown providerIds stay selected as "(unknown)" — never remapped to a
+  // registered provider (that would silently overwrite the fail-closed grant).
+  const { providerId: originProviderId, known: providerKnown } =
+    populateOriginProviderSelect(originProviderSelect, grant.providerId);
+  providerLabel.append(providerCaption, originProviderSelect);
+  meta.append(providerLabel);
+
+  const modelLabel = document.createElement("label");
+  modelLabel.className = "origin-model";
+  const modelCaption = document.createElement("span");
+  modelCaption.textContent = "Model";
+  const originModelSelect = document.createElement("select");
+  originModelSelect.setAttribute("aria-label", `Model for ${grant.origin}`);
+  const originModelInput = document.createElement("input");
+  originModelInput.type = "text";
+  originModelInput.autocomplete = "off";
+  originModelInput.spellcheck = false;
+  originModelInput.placeholder = "Type to search models…";
+  originModelInput.hidden = true;
+  const datalistId = `origin-models-${encodeURIComponent(grant.origin)}`;
+  originModelInput.setAttribute("list", datalistId);
+  originModelInput.setAttribute("aria-label", `Model for ${grant.origin}`);
+  const originModelList = document.createElement("datalist");
+  originModelList.id = datalistId;
+  modelLabel.append(
+    modelCaption,
+    originModelSelect,
+    originModelInput,
+    originModelList,
+  );
+  meta.append(modelLabel);
+
+  const modelStatus = document.createElement("p");
+  modelStatus.className = "hint origin-model-hint";
+  meta.append(modelStatus);
+  meta.append(createSiteReasoningControl(grant.origin, originChatReasoningEfforts[grant.origin]));
+
+  const toolLabels = summarizeToolFingerprintLabels(
+    grant.toolFingerprint,
+    { id: grant.providerId },
+    { toolChoiceNone: grant.toolChoiceNone === true },
+  );
+  /** @type {string[]} */
+  const imageLabels = [];
+  if (grant.imageInput === true) imageLabels.push("Image input");
+  if (grant.imageOutput === true) imageLabels.push("Image output");
+
+  /**
+   * @param {string} caption
+   * @param {string[]} labels
+   * @param {{ ariaLabel: string, onClick: () => Promise<void> }} revoke
+   */
+  function appendScopeRow(caption, labels, revoke) {
+    if (labels.length === 0) return;
+    const scope = document.createElement("div");
+    scope.className = "origin-scope";
+    const scopeCaption = document.createElement("span");
+    scopeCaption.textContent = caption;
+    const row = document.createElement("div");
+    row.className = "origin-scope-row";
+    const scopeText = document.createElement("p");
+    scopeText.className = "origin-scope-labels";
+    scopeText.textContent = labels.join(" · ");
+    const revokeBtn = document.createElement("button");
+    revokeBtn.type = "button";
+    revokeBtn.className = "linkish";
+    revokeBtn.textContent = "Revoke";
+    revokeBtn.setAttribute("aria-label", revoke.ariaLabel);
+    revokeBtn.addEventListener("click", () => {
+      void runSiteAccessAction(revoke.onClick, revokeBtn);
     });
-    li.append(meta, button);
-    (grant.operation === "decide" ? decisionsOriginsEl : speechOriginsEl).append(li);
+    row.append(scopeText, revokeBtn);
+    scope.append(scopeCaption, row);
+    meta.append(scope);
   }
+
+  appendScopeRow("Tools", toolLabels, {
+    ariaLabel: `Revoke tools for ${grant.origin}`,
+    onClick: async () => {
+      const ok = await clearOriginToolsScope(grant.origin);
+      await renderAllowedSites(grant.origin);
+      setSiteAccessStatus(
+        ok
+          ? `Revoked tools for ${grant.origin}`
+          : `Could not revoke tools for ${grant.origin}`,
+        ok ? "ok" : "err",
+      );
+    },
+  });
+  appendScopeRow("Images", imageLabels, {
+    ariaLabel: `Revoke images for ${grant.origin}`,
+    onClick: async () => {
+      const ok = await clearOriginImageScope(grant.origin);
+      await renderAllowedSites(grant.origin);
+      setSiteAccessStatus(
+        ok
+          ? `Revoked images for ${grant.origin}`
+          : `Could not revoke images for ${grant.origin}`,
+        ok ? "ok" : "err",
+      );
+    },
+  });
+
+  /** Bumped on each model load for this grant so slower fetches cannot repaint. */
+  let originModelsLoadId = 0;
+  /** @type {Array<{ id: string, label?: string }>} */
+  let originModels = [];
+
+  /**
+   * @param {string} providerId
+   * @returns {string}
+   */
+  function readOriginModelValue(providerId) {
+    if (providerId === ON_DEVICE_PROVIDER_ID) return ON_DEVICE_MODEL_ID;
+    if (usesModelAutosuggest(providerId, originModels)) {
+      return originModelInput.value.trim();
+    }
+    return originModelSelect.value;
+  }
+
+  /**
+   * @param {string} providerId
+   * @param {Array<{ id: string, label?: string }>} models
+   * @param {string | undefined} selected
+   * @param {{ allowUnknown?: boolean, disabled?: boolean }} [opts]
+   */
+  function populateOriginModelControl(
+    providerId,
+    models,
+    selected,
+    opts = {},
+  ) {
+    const allowUnknown = opts.allowUnknown !== false;
+    const disabled = Boolean(opts.disabled);
+    const autosuggest = usesModelAutosuggest(providerId, models);
+    originModelSelect.hidden = autosuggest;
+    originModelInput.hidden = !autosuggest;
+
+    if (autosuggest) {
+      populateModelInput(
+        originModelInput,
+        originModelList,
+        models,
+        selected,
+        {
+          allowUnknown,
+        },
+      );
+      originModelInput.disabled = disabled;
+      originModelSelect.disabled = true;
+      return;
+    }
+
+    populateModelSelect(originModelSelect, models, selected, {
+      allowUnknown,
+    });
+    originModelSelect.disabled = disabled;
+    originModelInput.disabled = true;
+  }
+
+  /**
+   * @param {string} providerId
+   * @param {string | undefined} selectedModel
+   * @returns {Promise<boolean>} true when this load still matches the select
+   */
+  async function loadOriginModels(providerId, selectedModel) {
+    const loadId = ++originModelsLoadId;
+
+    if (providerId === ON_DEVICE_PROVIDER_ID) {
+      originModels = [
+        { id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" },
+      ];
+      populateOriginModelControl(
+        providerId,
+        originModels,
+        ON_DEVICE_MODEL_ID,
+        {
+          allowUnknown: false,
+          disabled: true,
+        },
+      );
+      if (!isOnDeviceOffered()) {
+        modelStatus.textContent =
+          "On-device AI is not available in this browser.";
+        return false;
+      }
+      if (!isOnDeviceReady()) {
+        modelStatus.textContent =
+          "Install the on-device model on the Providers tab before using it for this site.";
+        return false;
+      }
+      modelStatus.textContent = "Browser-chosen on-device model.";
+      return true;
+    }
+
+    populateOriginModelControl(providerId, [], selectedModel, {
+      allowUnknown: true,
+      disabled: true,
+    });
+    modelStatus.textContent = "Loading models…";
+    const { models, error } = await fetchModels(providerId);
+    // Ignore stale responses after the user switches providers mid-flight.
+    if (
+      loadId !== originModelsLoadId ||
+      originProviderSelect.value !== providerId
+    ) {
+      return false;
+    }
+
+    // Keep the saved Ollama grant model visible (read-only) while Ollama is
+    // down — same pattern as refreshDefaultModels / unknown-provider grants.
+    if (providerId === "ollama" && !ollamaStatus.available) {
+      originModels = selectedModel ? [{ id: selectedModel }] : [];
+      populateOriginModelControl(
+        providerId,
+        selectedModel ? [{ id: selectedModel }] : [],
+        selectedModel,
+        { allowUnknown: true, disabled: true },
+      );
+      modelStatus.textContent =
+        error ||
+        "Ollama is unavailable. The saved model is shown read-only until it is running again.";
+      return true;
+    }
+
+    originModels = models;
+    const allowUnknown = allowUnknownFor(providerId);
+    populateOriginModelControl(providerId, models, selectedModel, {
+      allowUnknown,
+      disabled: models.length === 0 && !allowUnknown,
+    });
+    if (error) {
+      modelStatus.textContent = error;
+    } else if (models.length === 0) {
+      modelStatus.textContent = "No models available.";
+    } else {
+      modelStatus.textContent = "";
+    }
+    return true;
+  }
+
+  /** Last provider/model written for this row — skip no-op rewrites. */
+  let persistedProviderId = grant.providerId;
+  let persistedModel =
+    typeof grant.model === "string" ? grant.model.trim() : "";
+
+  /**
+   * @returns {Promise<boolean>}
+   */
+  async function persistGrant() {
+    const providerId = originProviderSelect.value;
+    // Refuse to rewrite an unknown grant via the model control (or any path
+    // that still has the stale id selected). Only an explicit switch to a
+    // registered provider may update storage.
+    if (!providers.some((p) => p.id === providerId)) {
+      setSiteAccessStatus(
+        `Choose a registered provider for ${grant.origin} before updating.`,
+        "err",
+      );
+      return false;
+    }
+    const model = readOriginModelValue(providerId);
+    if (
+      !isModelValid(model, originModels, {
+        allowUnknown: allowUnknownFor(providerId),
+      })
+    ) {
+      setSiteAccessStatus(
+        `Choose a valid model for ${grant.origin}`,
+        "err",
+      );
+      return false;
+    }
+    if (providerId === persistedProviderId && model === persistedModel) {
+      return true;
+    }
+    // Same gate as default-provider Save: do not write site grants for a
+    // provider whose optional host access was revoked (Firefox built-in or
+    // compat endpoint). Provider change and model edits both go through here.
+    if (providersWithRevokedHostAccess.has(providerId)) {
+      setSiteAccessStatus(
+        providerAccessError(providerId) ||
+          "Provider host access was revoked.",
+        "err",
+      );
+      await renderAllowedSites();
+      return false;
+    }
+    try {
+      setSiteAccessStatus(`Saving ${grant.origin}…`);
+      const ok = await setOriginProviderModel(grant.origin, {
+        providerId,
+        model,
+      });
+      if (ok) {
+        persistedProviderId = providerId;
+        persistedModel = model;
+        setSiteAccessStatus(`Updated ${grant.origin}`, "ok");
+        return true;
+      }
+      setSiteAccessStatus(`Could not update ${grant.origin}`, "err");
+      await renderAllowedSites();
+      return false;
+    } catch (error) {
+      await renderAllowedSites().catch(() => {});
+      setSiteAccessStatus(error instanceof Error ? error.message : "Could not save this site's route. Retry the change.", "err");
+      return false;
+    }
+  }
+
+  originProviderSelect.addEventListener("change", async () => {
+    originProviderSelect.disabled = true;
+    const providerId = originProviderSelect.value;
+    try {
+      if (!providers.some((p) => p.id === providerId)) {
+        // User re-selected the unknown placeholder; keep the grant untouched.
+        return;
+      }
+
+      // Prefer the provider default (e.g. openrouter/auto). OpenRouter uses an
+      // autosuggest input that stays blank when selected is omitted, unlike
+      // <select> which auto-picks the first catalog entry.
+      const preferredModel =
+        providerId === ON_DEVICE_PROVIDER_ID
+          ? ON_DEVICE_MODEL_ID
+          : providers.find((p) => p.id === providerId)?.defaultModel ||
+            undefined;
+      const applied = await loadOriginModels(providerId, preferredModel);
+      if (!applied || originProviderSelect.value !== providerId) {
+        return;
+      }
+
+      if (
+        !isModelValid(readOriginModelValue(providerId), originModels, {
+          allowUnknown: allowUnknownFor(providerId),
+        })
+      ) {
+        // The select changes before dynamic model discovery completes.
+        // Restore the persisted grant when the new provider cannot supply a
+        // model so the UI never implies an unpersisted provider is active.
+        await renderAllowedSites();
+        setSiteAccessStatus(
+          `Could not switch ${grant.origin}: no models are available.`,
+          "err",
+        );
+        return;
+      }
+
+      const saved = await persistGrant();
+      // Drop the "(unknown)" option after a successful recovery.
+      if (saved && !providerKnown) {
+        await renderAllowedSites();
+      }
+    } catch (error) {
+      await renderAllowedSites().catch(() => {});
+      setSiteAccessStatus(error instanceof Error ? error.message : "Could not update this site's provider.", "err");
+    } finally {
+      originProviderSelect.disabled = false;
+    }
+  });
+
+  originModelSelect.addEventListener("change", () => {
+    void persistGrant();
+  });
+  // Autosuggest <input>: `change` alone waits for blur, so also commit on
+  // blur and when the Options page is hidden (see flushOriginModelEdits).
+  const commitOriginModelInput = () => {
+    void persistGrant();
+  };
+  originModelInput.addEventListener("change", commitOriginModelInput);
+  originModelInput.addEventListener("blur", commitOriginModelInput);
+  originModelCommitters.push(() => {
+    // Blur already commits when focus moves within the page; only flush here
+    // when the field is still focused (e.g. Options tab closed mid-edit).
+    if (document.activeElement !== originModelInput) return;
+    commitOriginModelInput();
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "danger";
+  button.textContent = "Revoke chat";
+  button.setAttribute("aria-label", `Revoke chat for ${grant.origin}`);
+  button.addEventListener("click", async () => {
+    await runSiteAccessAction(async () => {
+      await revokeOrigin(grant.origin);
+      await renderAllowedSites(grant.origin);
+      setSiteAccessStatus(`Revoked chat for ${grant.origin}`, "ok");
+    }, button);
+  });
+  actions.append(button);
+
+  section.append(meta, actions);
+
+  if (!providerKnown) {
+    // Show the saved model read-only; do not load another provider's catalog.
+    originModels = grant.model ? [{ id: grant.model }] : [];
+    populateOriginModelControl(
+      grant.providerId,
+      grant.model ? [{ id: grant.model }] : [],
+      grant.model,
+      { allowUnknown: true, disabled: true },
+    );
+    modelStatus.textContent = `Unknown provider "${grant.providerId}". Choose a registered provider to update this grant. Requests for this origin fail until then.`;
+  } else {
+    void loadOriginModels(originProviderId, grant.model);
+  }
+  return section;
+}
+
+function createOperationGrantControl(grant) {
+  const section = document.createElement("section");
+  section.className = "site-capability";
+  section.setAttribute("aria-label", `${grant.label} for ${grant.origin}`);
+  const meta = document.createElement("div");
+  meta.className = "origin-meta";
+  const heading = document.createElement("h4");
+  heading.textContent = grant.label;
+  const provider =
+    providers.find((candidate) => candidate.id === grant.providerId)?.label ||
+    grant.providerId;
+  const details = document.createElement("p");
+  details.className = "origin-scope-labels";
+  details.textContent = [
+    provider,
+    grant.model,
+    ...(grant.voice ? [`Voice: ${grant.voice}`] : []),
+  ].join(" · ");
+  meta.append(heading, details);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "danger";
+  button.textContent = `Revoke ${grant.label.toLowerCase()}`;
+  button.setAttribute("aria-label", `Revoke ${grant.label.toLowerCase()} for ${grant.origin}`);
+  button.addEventListener("click", () => {
+    void runSiteAccessAction(async () => {
+      const ok = await revokeOriginOperation(grant.origin, grant.operation);
+      await renderAllowedSites(grant.origin);
+      setSiteAccessStatus(
+        ok
+          ? `Revoked ${grant.label.toLowerCase()} for ${grant.origin}`
+          : `Could not revoke ${grant.label.toLowerCase()} for ${grant.origin}`,
+        ok ? "ok" : "err",
+      );
+    }, button);
+  });
+  section.append(meta, button);
+  return section;
 }
 
 function fillSimpleSelect(select, entries, preferred) {
@@ -2071,7 +2123,7 @@ function renderCompatEndpoints() {
           nextProvider,
           preferredDefaultModel(nextProvider),
         );
-        await renderOrigins();
+        await renderAllowedSites();
         renderCompatEndpoints();
         setCompatStatus(`Removed ${endpoint.name}.`, "ok");
         setStatus(`Removed ${endpoint.name}.`, "ok");
@@ -2157,7 +2209,7 @@ compatSaveButton.addEventListener("click", async () => {
       currentProvider,
       preferredDefaultModel(currentProvider),
     );
-    await renderOrigins();
+    await renderAllowedSites();
     setCompatStatus(`Saved ${name}.`, "ok");
     setStatus(`Saved OpenAI-compatible server ${name}.`, "ok");
   } catch (err) {
@@ -2214,8 +2266,7 @@ async function load() {
   await loadSpeechDefaultControls(settings);
   await loadDecisionDefaultControls(settings);
   renderCompatEndpoints();
-  await renderOrigins();
-  await renderOperationOrigins();
+  await renderAllowedSites();
   await renderBlocked();
 }
 

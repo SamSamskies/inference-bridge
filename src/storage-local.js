@@ -1159,6 +1159,22 @@ export async function revokeOrigin(origin) {
 }
 
 /**
+ * Remove every persistent grant for an exact origin in one write. Chat scopes
+ * live inside the chat grant. Remembered routes/preferences are not grants and
+ * remain available for the next approval; blocks are unchanged.
+ * @param {string} origin
+ * @returns {Promise<boolean>}
+ */
+export async function revokeAllOriginAccess(origin) {
+  if (!isPersistableOriginKey(origin)) return false;
+  const { allowedOrigins, operationGrants } = await getSettings();
+  delete allowedOrigins[origin];
+  delete operationGrants[origin];
+  await writeSettings({ allowedOrigins, operationGrants });
+  return true;
+}
+
+/**
  * Drop tools Always-allow scope while keeping chat (and image) grants.
  * @param {string} origin
  * @returns {Promise<boolean>} false if the origin is not granted
