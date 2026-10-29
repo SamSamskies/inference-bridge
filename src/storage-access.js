@@ -6,8 +6,9 @@ let accessReady = null;
 /**
  * Call eagerly on background startup and await before every settings operation.
  * Unsupported browsers (currently Firefox) retain their default storage access.
- * A supported API failure rejects; later calls retry rather than silently using
- * storage whose content-script restriction has not been confirmed.
+ * If a supported call fails, this resolves false and later calls retry — the
+ * same usable fallback as an unsupported browser, because a failed restriction
+ * still leaves content scripts with default storage access.
  * @returns {Promise<boolean>} Whether the restriction is supported and applied.
  */
 export function ensureTrustedStorageAccess() {
@@ -19,7 +20,11 @@ export function ensureTrustedStorageAccess() {
       .then(() => true)
       .catch((error) => {
         accessReady = null;
-        throw error;
+        console.warn(
+          "Could not restrict local storage access. Settings access will retry.",
+          error,
+        );
+        return false;
       });
   }
   return accessReady;

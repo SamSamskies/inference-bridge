@@ -65,9 +65,10 @@ import { ensureTrustedStorageAccess } from "../src/storage-access.js";
 
 // Reapply on every worker/event-page start, including browser restart. Keep
 // event registration synchronous; settings operations await the same promise.
-void ensureTrustedStorageAccess().catch(() => {
-  console.warn("Could not restrict local storage access. Settings access will retry.");
-});
+// Failures resolve false and retry on the next call instead of rejecting here,
+// so a missed restriction cannot disable trusted settings while content scripts
+// still have default storage access.
+void ensureTrustedStorageAccess();
 
 // Drop chrome-extension Origin so local Ollama does not 403 chat requests.
 // Provider calls await their own retry; this eager attempt must not create an

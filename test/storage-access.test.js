@@ -52,28 +52,31 @@ describe("trusted local storage access", () => {
     expect(mock.store.get("apiKeys")).toEqual({ openai: "dummy-key" });
   });
 
-  it.each(["reject", "throw"])("fails closed on a supported API %s and retries", async (mode) => {
+  it.each(["reject", "throw"])("keeps trusted settings usable after a supported API %s and retries", async (mode) => {
     const failure = new Error("Access restriction failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     chrome.storage.local.setAccessLevel.mockImplementationOnce(() => {
       if (mode === "throw") throw failure;
       return Promise.reject(failure);
     });
-    const get = vi.spyOn(chrome.storage.local, "get");
-    const set = vi.spyOn(chrome.storage.local, "set");
     const storage = await import("../src/storage.js");
-    const results = await Promise.allSettled([
-      storage.getSettings(),
-      storage.saveSettings({ apiKeys: { openai: "dummy-key" } }),
-    ]);
-    expect(results).toEqual([
-      { status: "rejected", reason: failure },
-      { status: "rejected", reason: failure },
-    ]);
-    expect(get).not.toHaveBeenCalled();
-    expect(set).not.toHaveBeenCalled();
-    await storage.saveSettings({ apiKeys: { openai: "dummy-key" } });
-    expect((await storage.getSettings()).apiKeys.openai).toBe("dummy-key");
-    expect(chrome.storage.local.setAccessLevel).toHaveBeenCalledTimes(2);
+    try {
+      await Promise.all([
+        storage.getSettings(),
+        storage.saveSettings({ apiKeys: { openai: "dummy-key" } }),
+      ]);
+      expect(mock.store.get("apiKeys")).toEqual({ openai: "dummy-key" });
+      expect(chrome.storage.local.setAccessLevel).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        "Could not restrict local storage access. Settings access will retry.",
+        failure,
+      );
+      await storage.saveSettings({ apiKeys: { openai: "sk-retry" } });
+      expect((await storage.getSettings()).apiKeys.openai).toBe("sk-retry");
+      expect(chrome.storage.local.setAccessLevel).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("reapplies the restriction in a fresh context after restart", async () => {
@@ -82,6 +85,29 @@ describe("trusted local storage access", () => {
     const restarted = await import("../src/storage-access.js");
     await restarted.ensureTrustedStorageAccess();
     expect(chrome.storage.local.setAccessLevel).toHaveBeenCalledTimes(2);
+  });
+
+  it("still registers background listeners when the eager restriction fails", async () => {
+    const failure = new Error("Access restriction failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    chrome.storage.local.setAccessLevel.mockRejectedValueOnce(failure);
+    const event = () => ({ addListener: vi.fn() });
+    chrome.runtime.onConnect = event();
+    chrome.runtime.onMessage = event();
+    chrome.permissions = { onRemoved: event() };
+    chrome.windows.onRemoved = event();
+    chrome.tabs = { onRemoved: event(), onUpdated: event() };
+    chrome.action = { onClicked: event() };
+    try {
+      await import("../background/service-worker.js");
+      expect(chrome.runtime.onConnect.addListener).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        "Could not restrict local storage access. Settings access will retry.",
+        failure,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("eagerly restricts storage on background startup without waiting for settings use", async () => {
