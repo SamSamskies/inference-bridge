@@ -4,6 +4,7 @@
  */
 
 import * as local from "./storage-local.js";
+import { ensureTrustedStorageAccess } from "./storage-access.js";
 
 export {
   isCompatProviderId,
@@ -33,6 +34,7 @@ export {
  */
 function locked(operation) {
   return async (...args) => {
+    await ensureTrustedStorageAccess();
     const locks = globalThis.navigator?.locks;
     if (!locks) {
       throw new Error("Settings access requires the Web Locks API.");

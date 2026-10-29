@@ -25,6 +25,9 @@ async function setup(firefox) {
   vi.resetModules();
   mock = installChromeMock();
   if (firefox) mock.setManifest({ browser_specific_settings: { gecko: {} } });
+  // Exercise real request/approval routing with the supported Chrome API, and
+  // the unsupported Firefox path. This mock does not emulate browser isolation.
+  if (!firefox) chrome.storage.local.setAccessLevel = vi.fn(async () => {});
   chrome.runtime.onConnect = event();
   chrome.runtime.onMessage = event();
   chrome.permissions = { contains: vi.fn(async () => true), onRemoved: event() };
