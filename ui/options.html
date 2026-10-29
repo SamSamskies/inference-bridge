@@ -385,34 +385,16 @@
           </p>
         </header>
 
-        <section class="panel stack" aria-labelledby="chat-origins-heading">
-          <h3 id="chat-origins-heading">Always-allowed chat origins</h3>
+        <section class="panel stack" aria-labelledby="allowed-sites-heading">
+          <h3 id="allowed-sites-heading" tabindex="-1">Allowed sites</h3>
           <p class="hint">
-            Chat origins granted with “Always allow”. Change the provider and
-            model or reasoning effort anytime. Changes save automatically and
-            apply to the next request. Revoke access to require a fresh prompt.
+            Sites granted with “Always allow”, grouped by exact origin. Expand a
+            site to review its access. Chat settings save automatically and apply
+            to the next request. Revoke a capability to require fresh approval,
+            or revoke all access for that site.
           </p>
-          <ul class="list" id="origins"></ul>
-          <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>
-        </section>
-
-        <section class="panel stack" aria-labelledby="speech-origins-heading">
-          <h3 id="speech-origins-heading">Always-allowed speech origins</h3>
-          <p class="hint">
-            Speech grants are separate by origin and operation. Revoke one to
-            require fresh approval without changing chat access.
-          </p>
-          <ul class="list" id="speechOrigins"></ul>
-          <p class="hint" id="speechOriginsEmpty">
-            No persistent speech grants yet.
-          </p>
-        </section>
-
-        <section class="panel stack" aria-labelledby="decisions-origins-heading">
-          <h3 id="decisions-origins-heading">Always-allowed decisions origins</h3>
-          <p class="hint">Decisions grants are separate from chat and speech. Revoke one to require fresh approval.</p>
-          <ul class="list" id="decisionsOrigins"></ul>
-          <p class="hint" id="decisionsOriginsEmpty">No persistent decisions grants yet.</p>
+          <ul class="list allowed-sites" id="allowedSites"></ul>
+          <p class="hint" id="allowedSitesEmpty">No allowed sites yet. Choose “Always allow” in a site's approval prompt to remember its access.</p>
         </section>
 
         <section class="panel stack" aria-labelledby="blocked-origins-heading">

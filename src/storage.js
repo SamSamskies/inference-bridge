@@ -64,6 +64,7 @@ export const unblockOrigin = locked(local.unblockOrigin);
 export const setOriginProviderModel = locked(local.setOriginProviderModel);
 export const setOriginModel = locked(local.setOriginModel);
 export const revokeOrigin = locked(local.revokeOrigin);
+export const revokeAllOriginAccess = locked(local.revokeAllOriginAccess);
 export const clearOriginToolsScope = locked(local.clearOriginToolsScope);
 export const clearOriginImageScope = locked(local.clearOriginImageScope);
 export const listAllowedOrigins = locked(local.listAllowedOrigins);

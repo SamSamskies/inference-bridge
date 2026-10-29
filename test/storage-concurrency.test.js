@@ -148,6 +148,20 @@ describe("settings updates across extension contexts", () => {
     expect(settings.operationGrants[first]).toBeUndefined();
   });
 
+  it("revokes every site grant without losing a concurrent approval for another site", async () => {
+    await worker.grantOriginAlways(first, { ...route, imageInput: true, toolFingerprint: "fn:weather" });
+    await worker.grantOriginOperationAlways(first, "decide", route);
+    await overlapRead(
+      () => options.revokeAllOriginAccess(first),
+      () => worker.saveApprovalChoice(second, { ...route, operation: "synthesize", voice: "alloy", always: true })
+    );
+    const settings = await options.getSettings();
+    expect(settings.allowedOrigins).toEqual({});
+    expect(settings.operationGrants).toEqual({
+      [second]: { synthesize: { ...route, voice: "alloy", allowedAt: expect.any(Number) } },
+    });
+  });
+
   it("merges concurrent provider and operation defaults", async () => {
     await overlapRead(
       () => worker.saveSettings({ apiKeys: { openai: "first-key" }, operationDefaults: { transcribe: route } }),
