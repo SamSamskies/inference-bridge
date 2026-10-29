@@ -145,11 +145,13 @@ describe("mapReasoningEffortForOllama", () => {
     expect(mapReasoningEffortForOllama("auto")).toBeUndefined();
   });
 
-  it("maps none to false and levels to strings", () => {
-    expect(mapReasoningEffortForOllama("none")).toBe(false);
-    expect(mapReasoningEffortForOllama("low")).toBe("low");
-    expect(mapReasoningEffortForOllama("medium")).toBe("medium");
-    expect(mapReasoningEffortForOllama("high")).toBe("high");
+  it("uses only advertised model controls", () => {
+    const thinking = { values: [false, "low", "medium", "high"] };
+    expect(mapReasoningEffortForOllama("none", thinking)).toBe(false);
+    expect(mapReasoningEffortForOllama("low", thinking)).toBe("low");
+    expect(mapReasoningEffortForOllama("medium", thinking)).toBe("medium");
+    expect(mapReasoningEffortForOllama("high", thinking)).toBe("high");
+    expect(mapReasoningEffortForOllama("none")).toBeUndefined();
   });
 });
 

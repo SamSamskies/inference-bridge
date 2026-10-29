@@ -3,6 +3,7 @@ import {
   accumulateOllamaToolCalls,
   finalizeOllamaToolCalls,
   listOllamaModels,
+  getOllamaThinking,
   mapMessagesForOllama,
   ollamaProvider,
   OLLAMA_BASE_URL,
@@ -900,45 +901,39 @@ describe("ollamaProvider.streamChat", () => {
     ]);
   });
 
-  it("maps options.reasoningEffort onto think", async () => {
-    const fetchMock = vi.fn(async () =>
-      ndjsonResponse(
-        JSON.stringify({
-          message: { role: "assistant", content: "ok" },
-          done: true,
-        }) + "\n"
-      )
-    );
+  it.each([
+    ["none", { values: [false, true], default: true }, false],
+    ["none", { values: ["max", "xhigh", "high", "medium", "low"], default: "max" }, "low"],
+    ["medium", { values: ["low", "medium", "high"] }, "medium"],
+    ["medium", { values: [false, true] }, true],
+    ["none", { values: [false], default: false }, false],
+    ["high", { values: [false] }, undefined],
+    ["none", undefined, undefined],
+    ["none", { values: [false, 1] }, undefined],
+    ["auto", { values: [false, true] }, undefined],
+    [undefined, { values: [false, true] }, undefined],
+  ])("maps %s using fresh model thinking controls (%j)", async (effort, thinking, expected) => {
+    const fetchMock = vi.fn(async (url) => url.endsWith("/api/show")
+      ? jsonResponse({ thinking, capabilities: ["thinking"] })
+      : ndjsonResponse(JSON.stringify({
+        message: { role: "assistant", content: "ok", thinking: "trace" }, done: true,
+      }) + "\n"));
     vi.stubGlobal("fetch", fetchMock);
-
-    await ollamaProvider.streamChat({
-      model: "qwen3",
-      messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "none" },
-      signal: new AbortController().signal,
-      onDelta: () => {},
+    const onReasoningDelta = vi.fn();
+    const result = await ollamaProvider.streamChat({
+      model: "test:cloud", messages: [{ role: "user", content: "hi" }],
+      options: { reasoningEffort: effort, temperature: 0.3 },
+      signal: new AbortController().signal, onDelta: () => {}, onReasoningDelta,
     });
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).think).toBe(false);
-
-    await ollamaProvider.streamChat({
-      model: "qwen3",
-      messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "medium" },
-      signal: new AbortController().signal,
-      onDelta: () => {},
-    });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).think).toBe("medium");
-
-    await ollamaProvider.streamChat({
-      model: "qwen3",
-      messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "auto" },
-      signal: new AbortController().signal,
-      onDelta: () => {},
-    });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).not.toHaveProperty(
-      "think"
-    );
+    const body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
+    if (expected === undefined) expect(body).not.toHaveProperty("think");
+    else expect(body.think).toBe(expected);
+    expect(body.options.temperature).toBe(0.3);
+    expect(onReasoningDelta).toHaveBeenCalledWith("trace");
+    expect(result.message.reasoning).toBe("trace");
+    const probes = fetchMock.mock.calls.filter(([url]) => url.endsWith("/api/show"));
+    expect(probes).toHaveLength(effort && effort !== "auto" ? 1 : 0);
+    if (probes.length) expect(JSON.parse(probes[0][1].body)).toEqual({ model: "test:cloud" });
   });
 
   it("maps options.temperature onto options.temperature", async () => {

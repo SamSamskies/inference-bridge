@@ -30,6 +30,7 @@ import {
 } from "../src/prompt-api-core.js";
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
+import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -75,6 +76,17 @@ const voiceHint = document.getElementById("voiceHint");
 const advancedOptions = document.getElementById("advancedOptions");
 const advancedOptionsSummary = document.getElementById("advancedOptionsSummary");
 const chatReasoningEffortSelect = document.getElementById("chatReasoningEffort");
+const ollamaThinkingHint = document.getElementById("ollamaThinkingHint");
+const renderThinkingGuidance = createThinkingGuidance(
+  ollamaThinkingHint, (message) => chrome.runtime.sendMessage(message)
+);
+
+function refreshThinkingGuidance() {
+  return renderThinkingGuidance({
+    method: requestMethod, providerId: providerSelect.value,
+    model: readModelValue(providerSelect.value), ready: modelsReady,
+  });
+}
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
@@ -695,6 +707,7 @@ function fillProviders(selectedId) {
 async function loadModelsForProvider(providerId, preferredModel) {
   const loadId = ++modelsLoadId;
   modelsReady = false;
+  void refreshThinkingGuidance();
   currentModels = [];
   selectedModelHasVision = undefined;
   selectedModelCanGenerateImages = undefined;
@@ -821,6 +834,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
     // Ollama / on-device return before the catalog path. Changing the model
     // control does not fire `change`, so re-check vision after every load.
     if (isCurrentLoad()) {
+      void refreshThinkingGuidance();
       void refreshVisionCapability();
       void loadVoicesForProvider(providerId);
     }
@@ -1291,6 +1305,7 @@ providerSelect.addEventListener("change", () => {
 });
 
 modelSelect.addEventListener("change", () => {
+  void refreshThinkingGuidance();
   if (providerSelect.value === "gemini") setModelHint(geminiModelNote(readModelValue("gemini")));
   updateAllowEnabled();
   void refreshVisionCapability();
@@ -1299,6 +1314,7 @@ modelSelect.addEventListener("change", () => {
   }
 });
 modelInput.addEventListener("input", () => {
+  void refreshThinkingGuidance();
   updateClearModelButton();
   updateAllowEnabled();
   void refreshVisionCapability();
@@ -1322,6 +1338,7 @@ modelInput.addEventListener("input", () => {
 voiceSelect.addEventListener("change", updateAllowEnabled);
 clearModelButton.addEventListener("click", () => {
   modelInput.value = "";
+  void refreshThinkingGuidance();
   updateClearModelButton();
   updateAllowEnabled();
   modelInput.focus();

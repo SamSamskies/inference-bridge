@@ -32,7 +32,7 @@ import {
   providerMethodCatalog,
   resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
-import { ollamaModelHasVision } from "../src/providers/ollama.js";
+import { getOllamaThinking, ollamaModelHasVision } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import { messagesHaveImageParts } from "../src/image-parts.js";
 import {
@@ -458,6 +458,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
       });
     return true; // async sendResponse
+  }
+
+  if (message?.type === "ollama-thinking") {
+    const model = typeof message.model === "string" ? message.model : "";
+    void getOllamaThinking(model)
+      .then((thinking) => sendResponse({ ok: true, thinking }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
 
   if (message?.type === "ollama-vision") {
