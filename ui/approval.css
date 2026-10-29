@@ -128,6 +128,23 @@ body.approval-body {
   color: var(--muted);
 }
 
+.approval-advanced summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.approval-advanced summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.approval-advanced .field {
+  margin-top: 12px;
+}
+
 .tools-panel {
   gap: 8px;
 }

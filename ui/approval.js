@@ -72,7 +72,8 @@ const modelHint = document.getElementById("modelHint");
 const voiceField = document.getElementById("voiceField");
 const voiceSelect = document.getElementById("voice");
 const voiceHint = document.getElementById("voiceHint");
-const chatReasoningField = document.getElementById("chatReasoningField");
+const advancedOptions = document.getElementById("advancedOptions");
+const advancedOptionsSummary = document.getElementById("advancedOptionsSummary");
 const chatReasoningEffortSelect = document.getElementById("chatReasoningEffort");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
@@ -1016,13 +1017,21 @@ function updateRememberHint() {
     : "Allow once, or deny only this request.";
 }
 
+const CHAT_REASONING_LABELS = {
+  page: "Page preference", auto: "Auto", none: "None",
+  low: "Low", medium: "Medium", high: "High",
+};
+
 function updateGlobalReasoningEffortLabel(value) {
-  const labels = {
-    page: "Use page preference", auto: "Auto", none: "None",
-    low: "Low", medium: "Medium", high: "High",
-  };
   chatReasoningEffortSelect.querySelector('[value="global"]').textContent =
-    `Use global setting (${labels[normalizeChatReasoningEffort(value)]})`;
+    `Use global setting (${CHAT_REASONING_LABELS[normalizeChatReasoningEffort(value)]})`;
+}
+
+function updateAdvancedOptionsSummary() {
+  const effort = normalizeSiteChatReasoningEffort(chatReasoningEffortSelect.value);
+  advancedOptionsSummary.textContent = effort === "global"
+    ? "Advanced options"
+    : `Advanced options · Reasoning: ${CHAT_REASONING_LABELS[effort]}`;
 }
 
 /**
@@ -1153,10 +1162,11 @@ async function load() {
     typeof request.providerId === "string" ? request.providerId : "";
   requestPreferredVoice =
     typeof request.voice === "string" ? request.voice : "";
-  chatReasoningField.hidden = requestMethod !== "chat";
+  advancedOptions.hidden = requestMethod !== "chat";
   if (requestMethod === "chat") {
     chatReasoningEffortSelect.value = normalizeSiteChatReasoningEffort(request.chatReasoningEffort);
     updateGlobalReasoningEffortLabel(request.globalChatReasoningEffort);
+    updateAdvancedOptionsSummary();
   }
 
   if (!(await refreshProviders())) {
@@ -1324,6 +1334,7 @@ clearModelButton.addEventListener("click", () => {
   }
 });
 
+chatReasoningEffortSelect.addEventListener("change", updateAdvancedOptionsSummary);
 rememberInput.addEventListener("change", updateRememberHint);
 allowBtn.addEventListener("click", () => decide("allow"));
 denyBtn.addEventListener("click", () => decide("deny"));
