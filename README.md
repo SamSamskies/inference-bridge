@@ -205,6 +205,8 @@ If you are building your own IPA extension with local providers, follow the Orig
 
 The page API in [`content/inject.js`](content/inject.js) sends requests through the isolated [content script](content/content-script.js) to the [background worker](background/service-worker.js). The worker validates requests, checks permission, and calls the selected [provider adapter](src/providers/). Options and approval UI live in [`ui/`](ui/); Chrome's On-device provider runs in an [`offscreen/`](offscreen/) document. Firefox packaging adapts the background to an event page.
 
+Settings access goes through [`src/storage.js`](src/storage.js), which uses a shared [Web Lock](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) across extension pages and the background worker. Each complete read/modify/write operation, including migration and cleanup on reads, holds this lock so a stale map cannot overwrite another context's grant or revocation. The browser releases the lock when the operation finishes, fails, or its context closes. Storage failures reject the caller; a later call reads persisted state and retries any remaining migration cleanup. This coordinates access to `chrome.storage.local`; it does not make multiple storage calls a transaction. Keep imports of the unlocked implementation, `src/storage-local.js`, confined to the storage entry point.
+
 See [AGENTS.md](AGENTS.md#layout) for the directory map.
 
 ## Standards Compatibility
