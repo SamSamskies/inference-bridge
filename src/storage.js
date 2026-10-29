@@ -947,8 +947,8 @@ export async function unblockOrigin(origin) {
 
 /**
  * Update the saved provider/model for an existing always-allow grant.
- * Clears any tools fingerprint so Options rebind cannot keep tools unlocked
- * for a newly selected provider/model without a fresh tools Always-allow.
+ * Tools and image scopes stay until the user revokes them explicitly;
+ * changing the route is not a revoke.
  * @param {string} origin
  * @param {{ providerId: string, model: string }} options
  * @returns {Promise<boolean>} false if the origin is not granted
@@ -960,11 +960,22 @@ export async function setOriginProviderModel(origin, { providerId, model }) {
   if (!grant) return false;
   const nextModel = typeof model === "string" ? model.trim() : "";
   if (!nextModel) return false;
-  allowedOrigins[origin] = {
+  /** @type {OriginGrant} */
+  const next = {
     allowedAt: grant.allowedAt,
     providerId: normalizeProviderId(providerId),
     model: nextModel,
   };
+  if (
+    typeof grant.toolFingerprint === "string" &&
+    grant.toolFingerprint.trim()
+  ) {
+    next.toolFingerprint = grant.toolFingerprint.trim();
+    if (grant.toolChoiceNone === true) next.toolChoiceNone = true;
+  }
+  if (grant.imageInput === true) next.imageInput = true;
+  if (grant.imageOutput === true) next.imageOutput = true;
+  allowedOrigins[origin] = next;
   await chrome.storage.local.set({ allowedOrigins });
   return true;
 }
