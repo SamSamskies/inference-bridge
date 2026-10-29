@@ -4,9 +4,29 @@
  * Other modules must import storage.js rather than this unlocked implementation.
  */
 
+import { pruneLastUsed } from "./storage-retention.js";
+import { SettingsStorageError } from "./storage-errors.js";
+
 import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "./chat-options.js";
+
+/** Storage promises reject on quota and browser persistence failures. */
+async function writeSettings(patch) {
+  try {
+    await chrome.storage.local.set(patch);
+  } catch {
+    throw new SettingsStorageError();
+  }
+}
+
+async function removeSettingsKeys(keys) {
+  try {
+    await chrome.storage.local.remove(keys);
+  } catch {
+    throw new SettingsStorageError();
+  }
+}
 
 /**
  * @typedef {{
@@ -540,6 +560,11 @@ export async function getSettings() {
     }
   }
 
+  // Bound existing installations too, under the same shared settings lock.
+  // Pruning never examines or expires grants, blocks or explicit preferences.
+  if (pruneLastUsed(originLastUsed)) scrubbed = true;
+  if (pruneLastUsed(operationLastUsed, true)) scrubbed = true;
+
   // Persist normalized compat list when stored data was dirty.
   const storedCompatRaw = stored.compatEndpoints;
   if (
@@ -563,14 +588,14 @@ export async function getSettings() {
       operationGrants,
       operationLastUsed,
     };
-    await chrome.storage.local.set(patch);
+    await writeSettings(patch);
     /** @type {string[]} */
     const toRemove = [];
     if (hasLegacyApiKey) toRemove.push("openaiApiKey");
     if (hasLegacyDefaultModel) toRemove.push("defaultModel");
     if (hasLegacySpeechToggle) toRemove.push("experimentalSpeechEnabled");
     if (toRemove.length > 0) {
-      await chrome.storage.local.remove(toRemove);
+      await removeSettingsKeys(toRemove);
     }
   }
 
@@ -706,9 +731,9 @@ export async function saveSettings(patch) {
   }
 
   if (Object.keys(next).length > 0) {
-    await chrome.storage.local.set(next);
+    await writeSettings(next);
     // Drop any leftover flat defaultModel key — the map is the source of truth.
-    await chrome.storage.local.remove("defaultModel");
+    await removeSettingsKeys("defaultModel");
   }
 }
 
@@ -723,7 +748,7 @@ export async function setOriginChatReasoningEffort(origin, preference) {
   const effort = normalizeSiteChatReasoningEffort(preference);
   if (effort === "global") delete originChatReasoningEfforts[origin];
   else originChatReasoningEfforts[origin] = effort;
-  await chrome.storage.local.set({ originChatReasoningEfforts });
+  await writeSettings({ originChatReasoningEfforts });
 }
 
 /**
@@ -734,7 +759,7 @@ export async function setOriginChatReasoningEffort(origin, preference) {
  */
 export async function saveCompatEndpoints(endpoints) {
   const normalized = normalizeCompatEndpoints(endpoints);
-  await chrome.storage.local.set({ compatEndpoints: normalized });
+  await writeSettings({ compatEndpoints: normalized });
   // Re-read so orphan scrubbing (keys, models, grants, defaultProviderId) runs.
   const settings = await getSettings();
   return settings.compatEndpoints;
@@ -761,23 +786,12 @@ export async function isOriginBlocked(origin) {
 }
 
 /**
- * @param {string} origin
- * @param {{
- *   providerId: string,
- *   model: string,
- *   toolFingerprint?: string,
- *   toolChoiceNone?: boolean,
- *   imageInput?: boolean,
- *   imageOutput?: boolean,
- * }} options
+ * Build the exact chat/tool/image scope shared by both grant paths.
+ * @param {{ providerId: string, model: string, toolFingerprint?: string,
+ *   toolChoiceNone?: boolean, imageInput?: boolean, imageOutput?: boolean }} options
+ * @returns {OriginGrant}
  */
-export async function grantOriginAlways(
-  origin,
-  { providerId, model, toolFingerprint, toolChoiceNone, imageInput, imageOutput }
-) {
-  if (!isPersistableOriginKey(origin)) return;
-  const { allowedOrigins, blockedOrigins } = await getSettings();
-  delete blockedOrigins[origin];
+function createOriginGrant({ providerId, model, toolFingerprint, toolChoiceNone, imageInput, imageOutput }) {
   const fp =
     typeof toolFingerprint === "string" && toolFingerprint.trim()
       ? toolFingerprint.trim()
@@ -800,8 +814,89 @@ export async function grantOriginAlways(
   }
   if (imageInput === true) grant.imageInput = true;
   if (imageOutput === true) grant.imageOutput = true;
+  return grant;
+}
+
+/**
+ * Save all choices from one Allow action in one write, so a later cache or
+ * preference failure cannot leave a newly persisted grant behind.
+ * @param {string} origin
+ * @param {{ always: boolean, operation?: ExperimentalOperation,
+ *   providerId: string, model: string, voice?: string,
+ *   chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort,
+ *   toolFingerprint?: string, toolChoiceNone?: boolean,
+ *   imageInput?: boolean, imageOutput?: boolean }} choice
+ */
+export async function saveApprovalChoice(origin, choice) {
+  if (!isPersistableOriginKey(origin)) return;
+  const settings = await getSettings();
+  /** @type {Record<string, unknown>} */
+  const patch = {};
+  if (choice.operation) {
+    const route = normalizeOperationRoute(choice, choice.operation);
+    if (!route) throw new Error("The selected operation route is incomplete.");
+    const { operationLastUsed, operationGrants } = settings;
+    operationLastUsed[origin] = {
+      ...operationLastUsed[origin],
+      [choice.operation]: { ...route, usedAt: Date.now() },
+    };
+    pruneLastUsed(operationLastUsed, true);
+    patch.operationLastUsed = operationLastUsed;
+    if (choice.always) {
+      operationGrants[origin] = {
+        ...operationGrants[origin],
+        [choice.operation]: { ...route, allowedAt: Date.now() },
+      };
+      patch.operationGrants = operationGrants;
+    }
+  } else {
+    const { originLastUsed, allowedOrigins, originChatReasoningEfforts } = settings;
+    originLastUsed[origin] = {
+      providerId: normalizeProviderId(choice.providerId),
+      model: choice.model,
+      usedAt: Date.now(),
+    };
+    pruneLastUsed(originLastUsed);
+    patch.originLastUsed = originLastUsed;
+    if (choice.always) {
+      allowedOrigins[origin] = createOriginGrant(choice);
+      patch.allowedOrigins = allowedOrigins;
+    }
+    if (choice.chatReasoningEffort !== undefined) {
+      const effort = normalizeSiteChatReasoningEffort(choice.chatReasoningEffort);
+      if (effort === "global") delete originChatReasoningEfforts[origin];
+      else originChatReasoningEfforts[origin] = effort;
+      patch.originChatReasoningEfforts = originChatReasoningEfforts;
+    }
+  }
+  if (choice.always) {
+    delete settings.blockedOrigins[origin];
+    patch.blockedOrigins = settings.blockedOrigins;
+  }
+  await writeSettings(patch);
+}
+
+/**
+ * @param {string} origin
+ * @param {{
+ *   providerId: string,
+ *   model: string,
+ *   toolFingerprint?: string,
+ *   toolChoiceNone?: boolean,
+ *   imageInput?: boolean,
+ *   imageOutput?: boolean,
+ * }} options
+ */
+export async function grantOriginAlways(
+  origin,
+  { providerId, model, toolFingerprint, toolChoiceNone, imageInput, imageOutput }
+) {
+  if (!isPersistableOriginKey(origin)) return;
+  const { allowedOrigins, blockedOrigins } = await getSettings();
+  delete blockedOrigins[origin];
+  const grant = createOriginGrant({ providerId, model, toolFingerprint, toolChoiceNone, imageInput, imageOutput });
   allowedOrigins[origin] = grant;
-  await chrome.storage.local.set({ allowedOrigins, blockedOrigins });
+  await writeSettings({ allowedOrigins, blockedOrigins });
 }
 
 /**
@@ -837,7 +932,7 @@ export async function grantOriginOperationAlways(origin, operation, options) {
     ...(operationGrants[origin] || {}),
     [operation]: { ...route, allowedAt: Date.now() },
   };
-  await chrome.storage.local.set({ operationGrants, blockedOrigins });
+  await writeSettings({ operationGrants, blockedOrigins });
   return true;
 }
 
@@ -871,7 +966,8 @@ export async function setOriginOperationLastUsed(origin, operation, options) {
     ...(operationLastUsed[origin] || {}),
     [operation]: { ...route, usedAt: Date.now() },
   };
-  await chrome.storage.local.set({ operationLastUsed });
+  pruneLastUsed(operationLastUsed, true);
+  await writeSettings({ operationLastUsed });
   return true;
 }
 
@@ -890,7 +986,7 @@ export async function revokeOriginOperation(origin, operation) {
   if (Object.keys(operationGrants[origin]).length === 0) {
     delete operationGrants[origin];
   }
-  await chrome.storage.local.set({ operationGrants });
+  await writeSettings({ operationGrants });
   return true;
 }
 
@@ -916,7 +1012,7 @@ export async function setOriginOperationRoute(origin, operation, options) {
     ...route,
     allowedAt: grant.allowedAt,
   };
-  await chrome.storage.local.set({ operationGrants });
+  await writeSettings({ operationGrants });
   return true;
 }
 
@@ -938,7 +1034,7 @@ export async function blockOrigin(origin) {
   delete operationGrants[origin];
   delete operationLastUsed[origin];
   blockedOrigins[origin] = { blockedAt: Date.now() };
-  await chrome.storage.local.set({
+  await writeSettings({
     allowedOrigins,
     blockedOrigins,
     originLastUsed,
@@ -972,7 +1068,8 @@ export async function setOriginLastUsed(origin, { providerId, model }) {
     model: nextModel,
     usedAt: Date.now(),
   };
-  await chrome.storage.local.set({ originLastUsed });
+  pruneLastUsed(originLastUsed);
+  await writeSettings({ originLastUsed });
 }
 
 /**
@@ -982,7 +1079,7 @@ export async function unblockOrigin(origin) {
   if (!isPersistableOriginKey(origin)) return;
   const { blockedOrigins } = await getSettings();
   delete blockedOrigins[origin];
-  await chrome.storage.local.set({ blockedOrigins });
+  await writeSettings({ blockedOrigins });
 }
 
 /**
@@ -1016,7 +1113,7 @@ export async function setOriginProviderModel(origin, { providerId, model }) {
   if (grant.imageInput === true) next.imageInput = true;
   if (grant.imageOutput === true) next.imageOutput = true;
   allowedOrigins[origin] = next;
-  await chrome.storage.local.set({ allowedOrigins });
+  await writeSettings({ allowedOrigins });
   return true;
 }
 
@@ -1044,7 +1141,7 @@ export async function revokeOrigin(origin) {
   if (!isPersistableOriginKey(origin)) return;
   const { allowedOrigins } = await getSettings();
   delete allowedOrigins[origin];
-  await chrome.storage.local.set({ allowedOrigins });
+  await writeSettings({ allowedOrigins });
 }
 
 /**
@@ -1067,7 +1164,7 @@ export async function clearOriginToolsScope(origin) {
   if (grant.imageInput === true) next.imageInput = true;
   if (grant.imageOutput === true) next.imageOutput = true;
   allowedOrigins[origin] = next;
-  await chrome.storage.local.set({ allowedOrigins });
+  await writeSettings({ allowedOrigins });
   return true;
 }
 
@@ -1096,7 +1193,7 @@ export async function clearOriginImageScope(origin) {
     if (grant.toolChoiceNone === true) next.toolChoiceNone = true;
   }
   allowedOrigins[origin] = next;
-  await chrome.storage.local.set({ allowedOrigins });
+  await writeSettings({ allowedOrigins });
   return true;
 }
 

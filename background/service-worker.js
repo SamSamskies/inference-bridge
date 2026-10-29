@@ -247,16 +247,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "resolve-approval") {
-    sendResponse({
-      ok: resolveApproval(message.requestId, {
-        decision: message.decision,
-        providerId: message.providerId,
-        model: message.model,
-        voice: message.voice,
-        chatReasoningEffort: message.chatReasoningEffort,
-      }),
-    });
-    return false;
+    void resolveApproval(message.requestId, {
+      decision: message.decision,
+      providerId: message.providerId,
+      model: message.model,
+      voice: message.voice,
+      chatReasoningEffort: message.chatReasoningEffort,
+    }).then(sendResponse).catch((error) => sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not save the permission decision.",
+    }));
+    return true;
   }
 
   if (message?.type === "on-device-status") {

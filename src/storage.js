@@ -43,6 +43,7 @@ function locked(operation) {
   };
 }
 
+export const saveApprovalChoice = locked(local.saveApprovalChoice);
 export const getSettings = locked(local.getSettings);
 export const saveSettings = locked(local.saveSettings);
 export const setOriginChatReasoningEffort = locked(local.setOriginChatReasoningEffort);

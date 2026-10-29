@@ -62,6 +62,33 @@ describe("settings updates across extension contexts", () => {
       .toEqual([first, second]);
   });
 
+  it("keeps complete approval choices from concurrent contexts", async () => {
+    await overlapRead(
+      () => worker.saveApprovalChoice(first, { ...route, always: true, chatReasoningEffort: "high" }),
+      () => options.saveApprovalChoice(second, { ...route, always: true, operation: "decide" })
+    );
+    const settings = await options.getSettings();
+    expect(settings.allowedOrigins[first]).toMatchObject(route);
+    expect(settings.originLastUsed[first]).toMatchObject(route);
+    expect(settings.originChatReasoningEfforts[first]).toBe("high");
+    expect(settings.operationGrants[second].decide).toMatchObject(route);
+    expect(settings.operationLastUsed[second].decide).toMatchObject(route);
+  });
+
+  it("does not restore a revoked grant while pruning a cache in another context", async () => {
+    await worker.grantOriginAlways(first, route);
+    chromeMock.store.set("originLastUsed", Object.fromEntries(Array.from(
+      { length: 501 }, (_, i) => [`https://site-${i}.example`, { ...route, usedAt: i }]
+    )));
+    await overlapRead(
+      () => options.getSettings(),
+      () => worker.revokeOrigin(first)
+    );
+    const settings = await options.getSettings();
+    expect(settings.allowedOrigins).toEqual({});
+    expect(Object.keys(settings.originLastUsed)).toHaveLength(500);
+  });
+
   it("does not restore a revoked origin with a stale unrelated grant", async () => {
     await options.grantOriginAlways(first, route);
     await overlapRead(
@@ -189,7 +216,9 @@ describe("settings updates across extension contexts", () => {
       worker.grantOriginAlways(first, route),
       options.grantOriginAlways(second, route),
     ]);
-    expect(results[0]).toEqual({ status: "rejected", reason: failure });
+    expect(results[0]).toEqual({ status: "rejected", reason: expect.objectContaining({
+      name: "SettingsStorageError", message: expect.stringContaining("Storage may be full or unavailable"),
+    }) });
     expect(results[1].status).toBe("fulfilled");
     expect((await worker.getSettings()).allowedOrigins).toEqual({
       [second]: expect.objectContaining(route),
@@ -199,7 +228,7 @@ describe("settings updates across extension contexts", () => {
   it("retries interrupted migration cleanup in a fresh context", async () => {
     chromeMock.store.set("openaiApiKey", "legacy-key");
     vi.spyOn(chrome.storage.local, "remove").mockRejectedValueOnce(new Error("cleanup failed"));
-    await expect(worker.getSettings()).rejects.toThrow("cleanup failed");
+    await expect(worker.getSettings()).rejects.toThrow("Storage may be full or unavailable");
     vi.resetModules();
     const restartedWorker = await import("../src/storage.js");
     await restartedWorker.saveSettings({ apiKeys: { openrouter: "new-key" } });

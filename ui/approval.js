@@ -1106,7 +1106,9 @@ async function decide(action) {
         : {}),
     });
     if (!response?.ok) {
-      showError("This permission request is no longer active.");
+      showError(response?.error
+        ? `${response.error} Close this dialog and retry the request from the site.`
+        : "This permission request is no longer active.");
       return;
     }
     window.close();
