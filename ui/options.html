@@ -381,7 +381,7 @@
         <header class="settings-section-heading">
           <h2 id="site-access-heading">Site access</h2>
           <p class="hint">
-            Review persistent permissions and blocks for individual sites.
+            Review permissions, saved chat preferences, and blocks for individual sites.
           </p>
         </header>
 
@@ -389,10 +389,22 @@
           <h3 id="chat-origins-heading">Always-allowed chat origins</h3>
           <p class="hint">
             Chat origins granted with “Always allow”. Change the provider and
-            model anytime, or revoke to require a fresh prompt.
+            model or reasoning effort anytime. Changes save automatically and
+            apply to the next request. Revoke access to require a fresh prompt.
           </p>
           <ul class="list" id="origins"></ul>
           <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>
+        </section>
+
+        <section class="panel stack" id="otherChatPreferencesPanel" aria-labelledby="other-chat-preferences-heading" hidden>
+          <h3 id="other-chat-preferences-heading">Other saved chat preferences</h3>
+          <p class="hint">
+            Reasoning preferences for sites without an Always-allow chat grant,
+            including Allow once choices. These preferences do not grant access.
+            Changes save automatically. Choose Use global setting to remove a
+            saved preference.
+          </p>
+          <ul class="list" id="otherChatPreferences"></ul>
         </section>
 
         <section class="panel stack" aria-labelledby="speech-origins-heading">

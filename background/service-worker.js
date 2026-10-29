@@ -9,8 +9,8 @@ import {
   validateInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
-import { getSettings, hasStoredApiKey } from "../src/storage.js";
-import { applyChatReasoningEffort } from "../src/chat-options.js";
+import { getSettings, hasStoredApiKey, setOriginChatReasoningEffort } from "../src/storage.js";
+import { applyChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import {
   ensurePermission,
   ensureSpeechPermission,
@@ -208,6 +208,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     message?.type === "prompt-api-stream-delta"
   ) {
     return false;
+  }
+
+  if (message?.type === "set-origin-chat-reasoning-effort") {
+    // Keep preference writes in the worker so its queue also serializes edits
+    // from Options with choices saved by concurrent approval popups.
+    const optionsUrl = chrome.runtime.getURL("ui/options.html");
+    if (
+      typeof _sender.url !== "string" ||
+      _sender.url.split(/[?#]/, 1)[0] !== optionsUrl ||
+      !isValidOrigin(message.origin) ||
+      message.chatReasoningEffort === undefined ||
+      normalizeSiteChatReasoningEffort(message.chatReasoningEffort) !== message.chatReasoningEffort
+    ) {
+      sendResponse({ ok: false, error: "Invalid site preference update." });
+      return false;
+    }
+    void setOriginChatReasoningEffort(message.origin, message.chatReasoningEffort)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to save reasoning effort.",
+      }));
+    return true;
   }
 
   if (message?.type === "get-approval") {

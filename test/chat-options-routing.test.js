@@ -80,6 +80,14 @@ async function pending(port) {
 function body() {
   return JSON.parse(fetch.mock.calls.at(-1)[1].body);
 }
+function editPreference(chatReasoningEffort, {
+  requestOrigin = origin,
+  senderUrl = `${chrome.runtime.getURL("ui/options.html")}#site-access`,
+} = {}) {
+  return new Promise((resolve) => chrome.runtime.onMessage.emit({
+    type: "set-origin-chat-reasoning-effort", origin: requestOrigin, chatReasoningEffort,
+  }, { url: senderUrl }, resolve));
+}
 afterEach(() => {
   for (const port of ports) port.onDisconnect.emit();
   vi.unstubAllGlobals();
@@ -88,6 +96,50 @@ afterEach(() => {
 
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
+
+  it("edits existing site effort through Options without changing grant scopes or prompting", async () => {
+    await storage.grantOriginAlways(origin, {
+      ...route, toolFingerprint: "hosted:web_search", imageInput: true, imageOutput: true,
+    });
+    const before = (await storage.getSettings()).allowedOrigins;
+    expect(await editPreference("low")).toEqual({ ok: true });
+    const port = start({ reasoningEffort: "high" });
+    await outcome(port);
+    expect(body().reasoning_effort).toBe("low");
+    expect(permissions.getPendingApproval(port.streamId)).toBeNull();
+    expect((await storage.getSettings()).allowedOrigins).toEqual(before);
+    expect(await editPreference("global")).toEqual({ ok: true });
+    await outcome(start({ reasoningEffort: "high" }));
+    expect(body().reasoning_effort).toBe("high");
+    expect((await storage.getSettings()).originChatReasoningEfforts).toEqual({});
+  });
+
+  it("edits and clears saved preferences without granting access", async () => {
+    expect(await editPreference("high")).toEqual({ ok: true });
+    expect((await storage.getSettings()).originChatReasoningEfforts[origin]).toBe("high");
+    expect((await storage.getSettings()).allowedOrigins).toEqual({});
+    expect(await editPreference("global")).toEqual({ ok: true });
+    expect((await storage.getSettings()).originChatReasoningEfforts).toEqual({});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["high", "https://app.example", "https://app.example"],
+    ["high", "https://app.example", "chrome-extension://test-id/content/inject.js"],
+    ["extreme", "https://app.example", "chrome-extension://test-id/ui/options.html"],
+    ["high", "null", "chrome-extension://test-id/ui/options.html"],
+    [undefined, "https://app.example", "chrome-extension://test-id/ui/options.html"],
+  ])("rejects invalid Options edits (%s, %s, %s)", async (preference, requestOrigin, senderUrl) => {
+    await storage.setOriginChatReasoningEffort(origin, "low");
+    expect(await editPreference(preference, { requestOrigin, senderUrl })).toMatchObject({ ok: false });
+    expect((await storage.getSettings()).originChatReasoningEfforts[origin]).toBe("low");
+  });
+
+  it("reports preference storage failures without granting access", async () => {
+    vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("Storage full"));
+    expect(await editPreference("high")).toEqual({ ok: false, error: "Storage full" });
+    expect((await storage.getSettings()).allowedOrigins).toEqual({});
+  });
 
   it.each([
     ["global", "low"], ["page", "high"], ["auto", undefined],
