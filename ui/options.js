@@ -59,6 +59,9 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
+const chatReasoningEffortSelect = document.getElementById("chatReasoningEffort");
+const chatReasoningStatus = document.getElementById("chatReasoningStatus");
+let savedChatReasoningEffort = "page";
 const siteAccessStatusEl = document.getElementById("siteAccessStatus");
 const speechStatus = document.getElementById(
   "speechStatus",
@@ -2078,6 +2081,9 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
+  savedChatReasoningEffort = settings.chatReasoningEffort;
+  chatReasoningEffortSelect.value = savedChatReasoningEffort;
+  chatReasoningEffortSelect.disabled = false;
   compatEndpoints = settings.compatEndpoints;
   await refreshProviderHostAccess();
   savedDefaultProviderId = settings.defaultProviderId;
@@ -2159,6 +2165,25 @@ async function persistDefaultSettings(providerId, model) {
     await refreshDefaultModels(providerId, model);
   }
 }
+
+chatReasoningEffortSelect.addEventListener("change", async () => {
+  chatReasoningEffortSelect.disabled = true;
+  chatReasoningStatus.textContent = "Saving reasoning effort…";
+  chatReasoningStatus.className = "status";
+  try {
+    await saveSettings({ chatReasoningEffort: chatReasoningEffortSelect.value });
+    savedChatReasoningEffort = chatReasoningEffortSelect.value;
+    chatReasoningStatus.textContent = "Saved. Applies to the next chat request on every site.";
+    chatReasoningStatus.className = "status ok";
+  } catch (err) {
+    chatReasoningEffortSelect.value = savedChatReasoningEffort;
+    chatReasoningStatus.textContent =
+      err instanceof Error ? err.message : "Failed to save reasoning effort.";
+    chatReasoningStatus.className = "status err";
+  } finally {
+    chatReasoningEffortSelect.disabled = false;
+  }
+});
 
 async function updateSpeechControl(operation, update) {
   speechStatus.textContent = "Saving speech default…";

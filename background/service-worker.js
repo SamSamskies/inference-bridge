@@ -10,6 +10,7 @@ import {
   isValidOrigin,
 } from "../src/validate.js";
 import { getSettings, hasStoredApiKey } from "../src/storage.js";
+import { applyChatReasoningEffort } from "../src/chat-options.js";
 import {
   ensurePermission,
   ensureSpeechPermission,
@@ -1329,11 +1330,17 @@ async function handleStart(port, msg, onStreamId) {
       throwInference("unavailable", "No model selected for this provider.");
     }
 
+    // Read after permission so settings changed while approval was open apply
+    // to this request too. The override is never part of a permission grant.
+    const options = applyChatReasoningEffort(
+      validated.value.options,
+      settings.chatReasoningEffort
+    );
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
     await provider.preflightChat?.({
-      ...validated.value, model, origin, apiKey: settings.apiKeys[provider.id],
+      ...validated.value, options, model, origin, apiKey: settings.apiKeys[provider.id],
     });
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
@@ -1361,7 +1368,7 @@ async function handleStart(port, msg, onStreamId) {
       ...(validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
-      ...(validated.value.options ? { options: validated.value.options } : {}),
+      ...(options ? { options } : {}),
       ...(validated.value.output ? { output: validated.value.output } : {}),
       signal: controller.signal,
       onDelta: (content) => {

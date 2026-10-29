@@ -41,6 +41,39 @@ describe("normalizeProviderId", () => {
   });
 });
 
+describe("chat reasoning effort settings", () => {
+  it.each(["page", "auto", "none", "low", "medium", "high"])(
+    "persists %s across unrelated saves without changing permissions",
+    async (chatReasoningEffort) => {
+      await grantOriginAlways("https://app.example", {
+        providerId: "openai", model: "gpt-5-nano", imageInput: true,
+      });
+      const before = await getSettings();
+      await saveSettings({ chatReasoningEffort });
+      await saveSettings({ defaultProviderId: "ollama" });
+      const after = await getSettings();
+      expect(after.chatReasoningEffort).toBe(chatReasoningEffort);
+      expect(after.allowedOrigins).toEqual(before.allowedOrigins);
+      expect(after.originLastUsed).toEqual(before.originLastUsed);
+      expect(after.operationGrants).toEqual(before.operationGrants);
+    }
+  );
+
+  it.each([null, "extreme", 4, {}, ["high"]])(
+    "falls back to page preferences for invalid stored values (%j)",
+    async (value) => {
+      chromeMock.store.set("chatReasoningEffort", value);
+      expect((await getSettings()).chatReasoningEffort).toBe("page");
+    }
+  );
+
+  it("can reset an override to page preference", async () => {
+    await saveSettings({ chatReasoningEffort: "high" });
+    await saveSettings({ chatReasoningEffort: "page" });
+    expect((await getSettings()).chatReasoningEffort).toBe("page");
+  });
+});
+
 describe("hasStoredApiKey", () => {
   it("rejects blank and whitespace-only keys", () => {
     expect(hasStoredApiKey(undefined)).toBe(false);
@@ -67,6 +100,7 @@ describe("getSettings", () => {
     await expect(getSettings()).resolves.toMatchObject({
       apiKeys: {},
       defaultProviderId: "openai",
+      chatReasoningEffort: "page",
       defaultModel: "gpt-6-luna",
       defaultModels: {
         openai: "gpt-6-luna",

@@ -4,6 +4,7 @@
 
 import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
+import { normalizeChatReasoningEffort } from "./chat-options.js";
 
 /**
  * @typedef {{
@@ -31,6 +32,8 @@ const DEFAULTS = Object.freeze({
   /** @type {Record<string, string>} */
   apiKeys: {},
   defaultProviderId: "openai",
+  /** @type {import("./chat-options.js").ChatReasoningEffort} */
+  chatReasoningEffort: "page",
   /** Per-provider remembered models. Active model is defaultModels[defaultProviderId]. */
   /** @type {Readonly<Record<string, string>>} */
   defaultModels: Object.freeze({
@@ -318,6 +321,7 @@ export function normalizeCompatEndpoints(value) {
  * @returns {Promise<{
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
+ *   chatReasoningEffort: import("./chat-options.js").ChatReasoningEffort,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
  *   compatEndpoints: CompatEndpoint[],
@@ -558,6 +562,7 @@ export async function getSettings() {
   return {
     apiKeys,
     defaultProviderId,
+    chatReasoningEffort: normalizeChatReasoningEffort(stored.chatReasoningEffort),
     defaultModel,
     defaultModels,
     compatEndpoints,
@@ -588,6 +593,7 @@ function isPersistableOriginKey(origin) {
  * @param {Partial<{
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
+ *   chatReasoningEffort: import("./chat-options.js").ChatReasoningEffort,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
  *   operationDefaults: Partial<Record<ExperimentalOperation, OperationRoute | null>>,
@@ -597,6 +603,10 @@ export async function saveSettings(patch) {
   const current = await getSettings();
   /** @type {Record<string, unknown>} */
   const next = {};
+
+  if (patch.chatReasoningEffort !== undefined) {
+    next.chatReasoningEffort = normalizeChatReasoningEffort(patch.chatReasoningEffort);
+  }
 
   if (patch.apiKeys && typeof patch.apiKeys === "object") {
     /** @type {Record<string, string>} */

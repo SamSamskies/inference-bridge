@@ -246,6 +246,18 @@ if (features.options?.temperature) {
 
 Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
 
+In **Options → Providers → Chat reasoning effort**, users can set a global override:
+
+| Setting | Behavior |
+| --- | --- |
+| Use page preference (default) | Preserve the page's `options.reasoningEffort`; when omitted, use the provider/model default. |
+| Auto — provider/model default | Override the page's effort with `"auto"`, including when the page requests a specific effort. |
+| None / Low / Medium / High | Override the page's effort with the selected value, even when the page omits `options`. |
+
+Changes save automatically and apply to the next chat request on every site, including requests covered by an existing Always-allow grant or waiting for approval. They do not change an in-progress generation. This applies to stable chat and its deprecated experimental alias, not decisions or speech. It does not change grants, require another prompt, or control exposure of reasoning text. Page options are still validated before applying the override; `temperature` is preserved.
+
+Effort is a best-effort preference for response time, cost, and reasoning. The effective value goes through the same provider mappings above; providers/models may ignore it or use a supported fallback. **None does not guarantee thinking is disabled.** On-device chat currently ignores effort. Gemini uses its model-specific thinking-level mapping when available.
+
 ### `temperature`
 
 IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
@@ -887,6 +899,7 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 - [ ] `window.inference` exists on `https://example.com` after install
 - [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, decisions, and speech methods, without prompting or doing network I/O
 - [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
+- [ ] Options → Providers → Chat reasoning effort saves/reloads; page preference preserves request effort, Auto overrides it with the provider default, and explicit efforts apply to new approvals and existing Always-allow grants without another prompt
 - [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)
 - [ ] Invalid `options.reasoningEffort` or `options.temperature` → `invalid_request`
 - [ ] Unsupported model/provider still succeeds (best-effort mapping / no-op)
