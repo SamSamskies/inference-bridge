@@ -562,8 +562,8 @@ export async function getSettings() {
 
   // Bound existing installations too, under the same shared settings lock.
   // Pruning never examines or expires grants, blocks or explicit preferences.
-  if (pruneLastUsed(originLastUsed)) scrubbed = true;
-  if (pruneLastUsed(operationLastUsed, true)) scrubbed = true;
+  const prunedOriginLastUsed = pruneLastUsed(originLastUsed);
+  const prunedOperationLastUsed = pruneLastUsed(operationLastUsed, true);
 
   // Persist normalized compat list when stored data was dirty.
   const storedCompatRaw = stored.compatEndpoints;
@@ -596,6 +596,20 @@ export async function getSettings() {
     if (hasLegacySpeechToggle) toRemove.push("experimentalSpeechEnabled");
     if (toRemove.length > 0) {
       await removeSettingsKeys(toRemove);
+    }
+  } else if (prunedOriginLastUsed || prunedOperationLastUsed) {
+    // Last-used maps only prefill prompts. Persist them with a prune-only
+    // patch so a full settings rewrite cannot fail a read that is trying to
+    // shrink storage. If even that write fails, still return the in-memory
+    // prune so Options and inference can load; a later write retries persist.
+    /** @type {Record<string, unknown>} */
+    const prunePatch = {};
+    if (prunedOriginLastUsed) prunePatch.originLastUsed = originLastUsed;
+    if (prunedOperationLastUsed) prunePatch.operationLastUsed = operationLastUsed;
+    try {
+      await writeSettings(prunePatch);
+    } catch (error) {
+      if (!(error instanceof SettingsStorageError)) throw error;
     }
   }
 

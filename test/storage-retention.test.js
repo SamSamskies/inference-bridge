@@ -19,7 +19,11 @@ describe("last-used retention", () => {
   it("prunes existing caches on read, leaving grants, blocks and preferences intact", async () => {
     mock.store.set("originLastUsed", routes());
     mock.store.set("operationLastUsed", Object.fromEntries(Object.entries(routes()).map(
-      ([key, value]) => [key, { decide: value, transcribe: value, synthesize: { ...value, voice: "alloy" } }]
+      ([key, value]) => [key, {
+        decide: value,
+        transcribe: value,
+        synthesize: { providerId: value.providerId, model: value.model, voice: "alloy", usedAt: value.usedAt },
+      }]
     )));
     const grants = Object.fromEntries(Object.keys(routes()).map((key) => [key, { ...route, allowedAt: 1, imageInput: true }]));
     const blocks = { "https://blocked.example": { blockedAt: 1 } };
@@ -43,6 +47,10 @@ describe("last-used retention", () => {
     expect(mock.store.get("originLastUsed")).toEqual(result.originLastUsed);
     expect(mock.store.get("operationLastUsed")).toEqual(result.operationLastUsed);
     expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toEqual({
+      originLastUsed: result.originLastUsed,
+      operationLastUsed: result.operationLastUsed,
+    });
     await storage.getSettings();
     expect(write).toHaveBeenCalledTimes(1);
   });
@@ -121,12 +129,14 @@ describe("storage failures", () => {
     await action(); // The shared lock is released after failure, so a retry can save.
   });
 
-  it("retries failed read-time pruning without dropping grants", async () => {
+  it("keeps reads available when persisting a last-used prune fails", async () => {
     mock.store.set("originLastUsed", routes());
     await storage.grantOriginAlways(origin(0), route);
     mock.store.set("originLastUsed", routes());
     vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("disk unavailable"));
-    await expect(storage.getSettings()).rejects.toBeInstanceOf(SettingsStorageError);
+    const result = await storage.getSettings();
+    expect(Object.keys(result.originLastUsed)).toHaveLength(MAX_LAST_USED_ORIGINS);
+    expect(result.allowedOrigins[origin(0)]).toMatchObject(route);
     expect(Object.keys(mock.store.get("originLastUsed"))).toHaveLength(MAX_LAST_USED_ORIGINS + 2);
     expect((await storage.getSettings()).allowedOrigins[origin(0)]).toMatchObject(route);
     expect(Object.keys(mock.store.get("originLastUsed"))).toHaveLength(MAX_LAST_USED_ORIGINS);
