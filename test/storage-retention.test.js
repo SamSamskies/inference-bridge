@@ -114,6 +114,13 @@ describe("last-used retention", () => {
 });
 
 describe("storage failures", () => {
+  it("maps persistence failures to the unavailable inference code", () => {
+    expect(new SettingsStorageError()).toMatchObject({
+      name: "SettingsStorageError",
+      code: "unavailable",
+    });
+  });
+
   it.each([
     () => storage.saveSettings({ defaultModel: "gpt-6-luna" }),
     () => storage.revokeOrigin(origin(0)),
