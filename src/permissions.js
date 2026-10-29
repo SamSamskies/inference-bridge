@@ -4,10 +4,9 @@
 
 import {
   getSettings,
-  grantOriginAlways,
+  saveApprovalChoice,
   getOriginGrant,
   getOriginLastUsed,
-  setOriginLastUsed,
   isOriginBlocked,
   blockOrigin,
   normalizeProviderId,
@@ -16,10 +15,7 @@ import {
   hasStoredApiKey,
   getOriginOperationGrant,
   getOriginOperationLastUsed,
-  grantOriginOperationAlways,
-  setOriginOperationLastUsed,
   isExperimentalOperation,
-  setOriginChatReasoningEffort,
 } from "./storage.js";
 import { normalizeSiteChatReasoningEffort } from "./chat-options.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
@@ -108,7 +104,7 @@ const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
- *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }) => void,
+ *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort, acknowledge?: (result: { ok: boolean, error?: string }) => void }) => void,
  *   windowId?: number,
  * }>} */
 const pendingApprovals = new Map();
@@ -577,69 +573,72 @@ export async function ensureOperationPermission(args) {
       ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries }
       : {}),
   });
-  const chosenProviderId =
-    typeof decision.providerId === "string"
-      ? decision.providerId.trim()
-      : "";
-  const chosenModel =
-    typeof decision.model === "string" ? decision.model.trim() : "";
-  const chosenVoice =
-    args.method === "synthesize" && typeof decision.voice === "string"
-      ? decision.voice.trim()
-      : "";
+  return finishApproval(decision, async () => {
+    const chosenProviderId =
+      typeof decision.providerId === "string"
+        ? decision.providerId.trim()
+        : "";
+    const chosenModel =
+      typeof decision.model === "string" ? decision.model.trim() : "";
+    const chosenVoice =
+      args.method === "synthesize" && typeof decision.voice === "string"
+        ? decision.voice.trim()
+        : "";
 
-  switch (decision.decision) {
-    case "allow_once":
-    case "always": {
-      if (
-        !chosenProviderId ||
-        !chosenModel ||
-        (args.method === "synthesize" && !chosenVoice)
-      ) {
+    switch (decision.decision) {
+      case "allow_once":
+      case "always": {
+        if (
+          !chosenProviderId ||
+          !chosenModel ||
+          (args.method === "synthesize" && !chosenVoice)
+        ) {
+          return {
+            allowed: false,
+            providerId: chosenProviderId,
+            model: chosenModel,
+            ...(chosenVoice ? { voice: chosenVoice } : {}),
+            once: false,
+            code: "unavailable",
+            message: `The selected ${args.method} route is incomplete.`,
+          };
+        }
+        const route = {
+          providerId: chosenProviderId,
+          model: chosenModel,
+          ...(chosenVoice ? { voice: chosenVoice } : {}),
+        };
+        await saveApprovalChoice(args.origin, {
+          ...route,
+          operation: args.method,
+          always: decision.decision === "always",
+        });
+        return {
+          allowed: true,
+          ...route,
+          once: decision.decision === "allow_once",
+        };
+      }
+      case "never":
+        await blockOrigin(args.origin);
         return {
           allowed: false,
           providerId: chosenProviderId,
           model: chosenModel,
           ...(chosenVoice ? { voice: chosenVoice } : {}),
           once: false,
-          code: "unavailable",
-          message: `The selected ${args.method} route is incomplete.`,
         };
-      }
-      const route = {
-        providerId: chosenProviderId,
-        model: chosenModel,
-        ...(chosenVoice ? { voice: chosenVoice } : {}),
-      };
-      if (decision.decision === "always") {
-        await grantOriginOperationAlways(args.origin, args.method, route);
-      }
-      await setOriginOperationLastUsed(args.origin, args.method, route);
-      return {
-        allowed: true,
-        ...route,
-        once: decision.decision === "allow_once",
-      };
+      case "deny":
+      default:
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          ...(chosenVoice ? { voice: chosenVoice } : {}),
+          once: false,
+        };
     }
-    case "never":
-      await blockOrigin(args.origin);
-      return {
-        allowed: false,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        ...(chosenVoice ? { voice: chosenVoice } : {}),
-        once: false,
-      };
-    case "deny":
-    default:
-      return {
-        allowed: false,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        ...(chosenVoice ? { voice: chosenVoice } : {}),
-        once: false,
-      };
-  }
+  });
 }
 
 // Backwards-compatible internal name for speech callers.
@@ -893,135 +892,132 @@ export async function ensurePermission(args) {
     ...(args.output ? { output: args.output } : {}),
   });
 
-  const chosenProviderId = normalizeProviderId(
-    decision.providerId || promptProviderId
-  );
-  // Do not fall back to the pre-prompt provider: hasProviderHostAccess would
-  // then check the wrong object while we still return chosenProviderId
-  // (e.g. a deleted compat:* selection passing via a built-in fallback).
-  const chosenProvider = await getProviderAsync(chosenProviderId);
-  // Honor the approval UI's model choice. The dialog already validates with
-  // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
-  // isPlausibleModelForProvider here would silently replace free-typed
-  // OpenRouter slugs that lack a "/" with the provider default.
-  // If the user picked a different provider in the approval UI, do not fall
-  // back to promptModel (it was resolved for the prompt's provider).
-  const decisionModel =
-    typeof decision.model === "string" && decision.model.trim()
-      ? decision.model.trim()
-      : "";
-  const chosenModel =
-    decisionModel ||
-    (chosenProviderId === promptProviderId ? promptModel : "") ||
-    chosenProvider?.defaultModel ||
-    "";
+  return finishApproval(decision, async () => {
+    const chosenProviderId = normalizeProviderId(
+      decision.providerId || promptProviderId
+    );
+    // Do not fall back to the pre-prompt provider: hasProviderHostAccess would
+    // then check the wrong object while we still return chosenProviderId
+    // (e.g. a deleted compat:* selection passing via a built-in fallback).
+    const chosenProvider = await getProviderAsync(chosenProviderId);
+    // Honor the approval UI's model choice. The dialog already validates with
+    // isModelValid (any non-blank slug for OpenAI/OpenRouter); re-checking
+    // isPlausibleModelForProvider here would silently replace free-typed
+    // OpenRouter slugs that lack a "/" with the provider default.
+    // If the user picked a different provider in the approval UI, do not fall
+    // back to promptModel (it was resolved for the prompt's provider).
+    const decisionModel =
+      typeof decision.model === "string" && decision.model.trim()
+        ? decision.model.trim()
+        : "";
+    const chosenModel =
+      decisionModel ||
+      (chosenProviderId === promptProviderId ? promptModel : "") ||
+      chosenProvider?.defaultModel ||
+      "";
 
-  switch (decision.decision) {
-    case "allow_once":
-    case "always": {
-      // Same host gate as persistent grants: approving without optional host
-      // access (compat origin or Firefox built-in) would only fail later when
-      // streaming. Do not report these as permission_denied — Allow already
-      // succeeded — and never write Always-allow while host access is missing.
-      if (!chosenProvider) {
-        return {
-          allowed: false,
+    switch (decision.decision) {
+      case "allow_once":
+      case "always": {
+        // Same host gate as persistent grants: approving without optional host
+        // access (compat origin or Firefox built-in) would only fail later when
+        // streaming. Do not report these as permission_denied — Allow already
+        // succeeded — and never write Always-allow while host access is missing.
+        if (!chosenProvider) {
+          return {
+            allowed: false,
+            providerId: chosenProviderId,
+            model: chosenModel,
+            once: false,
+            code: "unavailable",
+            message: `Unknown provider "${chosenProviderId}". Open the Inference Bridge options and update this site's grant.`,
+          };
+        }
+        if (!(await hasProviderHostAccess(chosenProvider))) {
+          const label = chosenProvider.label || chosenProviderId;
+          const message = isCompatProviderId(chosenProviderId)
+            ? `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`
+            : `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
+          return {
+            allowed: false,
+            providerId: chosenProviderId,
+            model: chosenModel,
+            once: false,
+            code: "unavailable",
+            message,
+          };
+        }
+        await saveApprovalChoice(args.origin, {
+          always: decision.decision === "always",
           providerId: chosenProviderId,
           model: chosenModel,
-          once: false,
-          code: "unavailable",
-          message: `Unknown provider "${chosenProviderId}". Open the Inference Bridge options and update this site's grant.`,
-        };
-      }
-      if (!(await hasProviderHostAccess(chosenProvider))) {
-        const label = chosenProvider.label || chosenProviderId;
-        const message = isCompatProviderId(chosenProviderId)
-          ? `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`
-          : `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
-        return {
-          allowed: false,
-          providerId: chosenProviderId,
-          model: chosenModel,
-          once: false,
-          code: "unavailable",
-          message,
-        };
-      }
-      if (decision.chatReasoningEffort !== undefined) {
-        await setOriginChatReasoningEffort(args.origin, decision.chatReasoningEffort);
-      }
-      if (decision.decision === "always") {
-        await grantOriginAlways(args.origin, {
-          providerId: chosenProviderId,
-          model: chosenModel,
+          ...(decision.chatReasoningEffort !== undefined
+            ? { chatReasoningEffort: decision.chatReasoningEffort } : {}),
           ...(toolFingerprint ? { toolFingerprint } : {}),
           ...(toolFingerprint && args.toolChoice === "none"
-            ? { toolChoiceNone: true }
-            : {}),
+            ? { toolChoiceNone: true } : {}),
           ...(messagesHaveImageParts(args.messages) ? { imageInput: true } : {}),
           ...(requestWantsImageOutput(args.output) ? { imageOutput: true } : {}),
         });
-        // Always-allow may narrow the persistent grant; drop prior episodes so
-        // broader in-memory fingerprints (e.g. parallel same-length openers)
-        // cannot outlive the storage grant. Tools Always-allow re-seeds below.
-        forgetToolEpisode(args.origin);
-      }
-      if (toolFingerprint) {
-        rememberToolEpisode(args.origin, {
+        if (decision.decision === "always") {
+          // Always-allow may narrow the persistent grant; drop prior episodes so
+          // broader in-memory fingerprints (e.g. parallel same-length openers)
+          // cannot outlive the storage grant. Tools Always-allow re-seeds below.
+          forgetToolEpisode(args.origin);
+        }
+        if (toolFingerprint) {
+          rememberToolEpisode(args.origin, {
+            providerId: chosenProviderId,
+            model: chosenModel,
+            toolFingerprint,
+            messages: args.messages,
+            ...(args.toolChoice === "none" ? { toolChoiceNone: true } : {}),
+            ...imageApprovalFields(null, args.messages, args.output),
+          });
+        }
+        return {
+          allowed: true,
           providerId: chosenProviderId,
           model: chosenModel,
-          toolFingerprint,
-          messages: args.messages,
-          ...(args.toolChoice === "none" ? { toolChoiceNone: true } : {}),
-          ...imageApprovalFields(null, args.messages, args.output),
-        });
+          once: decision.decision === "allow_once",
+        };
       }
-      await setOriginLastUsed(args.origin, {
-        providerId: chosenProviderId,
-        model: chosenModel,
-      });
-      return {
-        allowed: true,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: decision.decision === "allow_once",
-      };
+      case "never":
+        forgetToolEpisode(args.origin);
+        await blockOrigin(args.origin);
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+        };
+      case "deny":
+        // Drop only episodes this request could have matched so a denied
+        // ambiguous/re-prompted continuation cannot later auto-approve once
+        // sibling same-opener episodes diverge — without wiping unrelated
+        // parallel Allow-once flows on the same origin.
+        forgetMatchingToolEpisodes(args.origin, args.messages);
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+        };
+      default:
+        // Fail closed on unknown decisions.
+        return {
+          allowed: false,
+          providerId: chosenProviderId,
+          model: chosenModel,
+          once: false,
+        };
     }
-    case "never":
-      forgetToolEpisode(args.origin);
-      await blockOrigin(args.origin);
-      return {
-        allowed: false,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: false,
-      };
-    case "deny":
-      // Drop only episodes this request could have matched so a denied
-      // ambiguous/re-prompted continuation cannot later auto-approve once
-      // sibling same-opener episodes diverge — without wiping unrelated
-      // parallel Allow-once flows on the same origin.
-      forgetMatchingToolEpisodes(args.origin, args.messages);
-      return {
-        allowed: false,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: false,
-      };
-    default:
-      // Fail closed on unknown decisions.
-      return {
-        allowed: false,
-        providerId: chosenProviderId,
-        model: chosenModel,
-        once: false,
-      };
-  }
+  });
 }
 
 /**
  * @param {ApprovalRequest} request
- * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }>}
+ * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort, acknowledge?: (result: { ok: boolean, error?: string }) => void }>}
  */
 function promptUser(request) {
   return new Promise((resolve, reject) => {
@@ -1080,13 +1076,15 @@ function promptUser(request) {
  * Called by the approval page.
  * @param {string} requestId
  * @param {{ decision: ApprovalDecision, providerId?: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }} result
- * @returns {boolean}
+ * @returns {Promise<{ ok: boolean, error?: string }>}
  */
-export function resolveApproval(requestId, result) {
+export async function resolveApproval(requestId, result) {
   const entry = pendingApprovals.get(requestId);
-  if (!entry) return false;
+  if (!entry) return { ok: false };
   pendingApprovals.delete(requestId);
 
+  let acknowledge;
+  const completion = new Promise((resolve) => { acknowledge = resolve; });
   const decision =
     result?.decision === "allow_once" ||
     result?.decision === "always" ||
@@ -1104,6 +1102,7 @@ export function resolveApproval(requestId, result) {
 
   entry.resolve({
     decision,
+    acknowledge,
     providerId: normalizeProviderId(rawProviderId),
     model: typeof result.model === "string" ? result.model : entry.request.model,
     ...((entry.request.method === undefined || entry.request.method === "chat") &&
@@ -1120,7 +1119,26 @@ export function resolveApproval(requestId, result) {
 
   // Let the approval page close itself after sendMessage succeeds.
   // Avoid windows.remove here — it can race with the page and obscure the decision.
-  return true;
+  return completion;
+}
+
+/**
+ * Complete validation and persistence before the approval UI closes. A failed
+ * write rejects the page request and tells the popup to show the same error.
+ * Cancel/window-close decisions do not have an acknowledgement callback.
+ */
+async function finishApproval(decision, apply) {
+  try {
+    const result = await apply();
+    decision.acknowledge?.({ ok: true });
+    return result;
+  } catch (error) {
+    decision.acknowledge?.({
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not save the permission decision.",
+    });
+    throw error;
+  }
 }
 
 /**

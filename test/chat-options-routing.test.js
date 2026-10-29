@@ -140,8 +140,26 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
 
   it("reports preference storage failures without granting access", async () => {
     vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("Storage full"));
-    expect(await editPreference("high")).toEqual({ ok: false, error: "Storage full" });
+    expect(await editPreference("high")).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
     expect((await storage.getSettings()).allowedOrigins).toEqual({});
+  });
+
+  it.each(["allow_once", "always", "never"])("returns a failed %s through the popup message channel without calling the provider", async (decision) => {
+    const port = start();
+    await pending(port);
+    vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("Storage full"));
+    const response = await new Promise((resolve) => chrome.runtime.onMessage.emit({
+      type: "resolve-approval", requestId: port.streamId, decision,
+      ...route, chatReasoningEffort: "high",
+    }, {}, resolve));
+    expect(response).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.type).toBe("error"));
+    expect(fetch).not.toHaveBeenCalled();
+    const settings = await storage.getSettings();
+    expect(settings.allowedOrigins).toEqual({});
+    expect(settings.blockedOrigins).toEqual({});
+    expect(settings.originLastUsed).toEqual({});
+    expect(settings.originChatReasoningEfforts).toEqual({});
   });
 
   it.each([

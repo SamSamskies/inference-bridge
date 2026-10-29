@@ -209,6 +209,12 @@ The page API in [`content/inject.js`](content/inject.js) sends requests through 
 
 Settings access goes through [`src/storage.js`](src/storage.js), which uses a shared [Web Lock](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) across extension pages and the background worker. Each complete read/modify/write operation, including migration and cleanup on reads, holds this lock so a stale map cannot overwrite another context's grant or revocation. The browser releases the lock when the operation finishes, fails, or its context closes. Storage failures reject the caller; a later call reads persisted state and retries any remaining migration cleanup. This coordinates access to `chrome.storage.local`; it does not make multiple storage calls a transaction. Keep imports of the unlocked implementation, `src/storage-local.js`, confined to the storage entry point.
 
+The `originLastUsed` and `operationLastUsed` prompt-prefill caches each retain at most **500 origins**. Reads prune older installations, and new choices evict the least recently used origin when needed. Operation entries are ranked by their newest operation timestamp and retain all of that origin's operation routes together. There is no time-based expiry. Pruning does not remove access grants, blocks, or explicit reasoning preferences. An evicted choice falls back to the configured default at the next approval prompt.
+
+This is a precaution against unbounded growth, not a measured real-world quota problem. For scale, synthetic JSON with 500 `https://site-N.example` origins, short provider/model ids, and timestamps occupies about 47 KB for chat and 139 KB with all three operation routes; actual size depends on saved values. Settings remain in `storage.local`, with no extra storage permission.
+
+An Allow action saves its remembered route, optional grant, and chat reasoning preference together in one storage write. Approval waits for persistence before closing or allowing the request. Failed writes show a storage recovery message in approval or Options; failed approvals do not proceed to a provider. If a multi-step settings operation fails after an earlier write, check Options for any changes already saved before retrying.
+
 See [AGENTS.md](AGENTS.md#layout) for the directory map.
 
 ## Standards Compatibility
@@ -901,6 +907,21 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 ```
 
 ### Manual checks
+
+#### Persistence failures
+
+Use an isolated test profile with dummy credentials. In the DevTools console for **Options**, temporarily replace `chrome.storage.local.set`:
+
+```js
+const originalStorageSet = chrome.storage.local.set.bind(chrome.storage.local);
+chrome.storage.local.set = async () => { throw new Error("Simulated storage failure"); };
+// After testing:
+// chrome.storage.local.set = originalStorageSet;
+```
+
+- [ ] Save defaults, edit a site's route/effort, revoke chat/tools/images/operation access, unblock a site, and remove a server: failures show an error instead of success; persisted access stays unchanged. Restore the method and retry successfully.
+- [ ] Repeat the replacement in the **background worker's** DevTools console, then request chat, decisions, transcription, or synthesis from a test page. Allow once, Remember + Allow, and Remember + Deny show the failure in the popup and fail the page request without a provider call. Restore the method, close the failed popup, and retry from the site.
+- [ ] Repeat in Firefox's background debugging console and Options toolbox. Reload settings after each failure to confirm what was persisted.
 
 #### Local storage access
 

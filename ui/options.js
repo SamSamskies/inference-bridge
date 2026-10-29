@@ -1168,6 +1168,19 @@ const SITE_REASONING_CHOICES = [
   ["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"],
 ];
 
+/** Catch autosave/revoke failures at the UI boundary and keep them visible. */
+async function runSiteAccessAction(action, control) {
+  if (control) control.disabled = true;
+  setSiteAccessStatus("Saving…");
+  try {
+    await action();
+  } catch (error) {
+    setSiteAccessStatus(error instanceof Error ? error.message : "Could not save this site permission. Retry the change.", "err");
+  } finally {
+    if (control) control.disabled = false;
+  }
+}
+
 function globalReasoningLabel() {
   const labels = {
     page: "Page preference", auto: "Auto", none: "None",
@@ -1309,7 +1322,7 @@ async function renderOrigins() {
       revokeBtn.textContent = "Revoke";
       revokeBtn.setAttribute("aria-label", revoke.ariaLabel);
       revokeBtn.addEventListener("click", () => {
-        void revoke.onClick();
+        void runSiteAccessAction(revoke.onClick, revokeBtn);
       });
       row.append(scopeText, revokeBtn);
       scope.append(scopeCaption, row);
@@ -1528,19 +1541,26 @@ async function renderOrigins() {
         await renderOrigins();
         return false;
       }
-      const ok = await setOriginProviderModel(grant.origin, {
-        providerId,
-        model,
-      });
-      if (ok) {
-        persistedProviderId = providerId;
-        persistedModel = model;
-        setSiteAccessStatus(`Updated ${grant.origin}`, "ok");
-        return true;
+      try {
+        setSiteAccessStatus(`Saving ${grant.origin}…`);
+        const ok = await setOriginProviderModel(grant.origin, {
+          providerId,
+          model,
+        });
+        if (ok) {
+          persistedProviderId = providerId;
+          persistedModel = model;
+          setSiteAccessStatus(`Updated ${grant.origin}`, "ok");
+          return true;
+        }
+        setSiteAccessStatus(`Could not update ${grant.origin}`, "err");
+        await renderOrigins();
+        return false;
+      } catch (error) {
+        await renderOrigins().catch(() => {});
+        setSiteAccessStatus(error instanceof Error ? error.message : "Could not save this site's route. Retry the change.", "err");
+        return false;
       }
-      setSiteAccessStatus(`Could not update ${grant.origin}`, "err");
-      await renderOrigins();
-      return false;
     }
 
     originProviderSelect.addEventListener("change", async () => {
@@ -1586,6 +1606,9 @@ async function renderOrigins() {
         if (saved && !providerKnown) {
           await renderOrigins();
         }
+      } catch (error) {
+        await renderOrigins().catch(() => {});
+        setSiteAccessStatus(error instanceof Error ? error.message : "Could not update this site's provider.", "err");
       } finally {
         originProviderSelect.disabled = false;
       }
@@ -1616,9 +1639,11 @@ async function renderOrigins() {
     button.className = "danger";
     button.textContent = "Revoke";
     button.addEventListener("click", async () => {
-      await revokeOrigin(grant.origin);
-      await renderOrigins();
-      setSiteAccessStatus(`Revoked ${grant.origin}`, "ok");
+      await runSiteAccessAction(async () => {
+        await revokeOrigin(grant.origin);
+        await renderOrigins();
+        setSiteAccessStatus(`Revoked ${grant.origin}`, "ok");
+      }, button);
     });
     actions.append(button);
 
@@ -1674,14 +1699,16 @@ async function renderOperationOrigins() {
     button.className = "danger";
     button.textContent = "Revoke";
     button.addEventListener("click", async () => {
-      const ok = await revokeOriginOperation(grant.origin, grant.operation);
-      await renderOperationOrigins();
-      setSiteAccessStatus(
-        ok
-          ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
-          : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
-        ok ? "ok" : "err",
-      );
+      await runSiteAccessAction(async () => {
+        const ok = await revokeOriginOperation(grant.origin, grant.operation);
+        await renderOperationOrigins();
+        setSiteAccessStatus(
+          ok
+            ? `Revoked ${operation.toLowerCase()} for ${grant.origin}`
+            : `Could not revoke ${operation.toLowerCase()} for ${grant.origin}`,
+          ok ? "ok" : "err",
+        );
+      }, button);
     });
     li.append(meta, button);
     (grant.operation === "decide" ? decisionsOriginsEl : speechOriginsEl).append(li);
@@ -1767,6 +1794,8 @@ async function persistDecisionDefault() {
   const providerId = decisionsProviderSelect.value;
   const model = decisionsModelSelect.value;
   if (!providerId || !model || decisionsModelSelect.disabled) return;
+  decisionsStatus.textContent = "Saving decisions default…";
+  decisionsStatus.className = "status";
   await saveSettings({ operationDefaults: { decide: { providerId, model } } });
   decisionsStatus.textContent = "Decisions default saved.";
   decisionsStatus.className = "status ok";
@@ -1920,9 +1949,11 @@ async function renderBlocked() {
     button.type = "button";
     button.textContent = "Unblock";
     button.addEventListener("click", async () => {
-      await unblockOrigin(block.origin);
-      await renderBlocked();
-      setSiteAccessStatus(`Unblocked ${block.origin}`, "ok");
+      await runSiteAccessAction(async () => {
+        await unblockOrigin(block.origin);
+        await renderBlocked();
+        setSiteAccessStatus(`Unblocked ${block.origin}`, "ok");
+      }, button);
     });
 
     li.append(code, button);
@@ -2017,30 +2048,38 @@ function renderCompatEndpoints() {
     removeBtn.className = "danger";
     removeBtn.textContent = "Remove";
     removeBtn.addEventListener("click", async () => {
-      const next = compatEndpoints.filter((e) => e.id !== endpoint.id);
-      await saveCompatEndpoints(next);
-      delete apiKeyDrafts[endpoint.id];
-      await saveSettings({ apiKeys: { [endpoint.id]: "" } });
-      modelCache.delete(endpoint.id);
-      if (compatEditingId === endpoint.id) resetCompatForm();
-      const settings = await getSettings();
-      compatEndpoints = settings.compatEndpoints;
-      await loadProviders();
-      savedDefaultProviderId = settings.defaultProviderId;
-      const nextProvider = populateProviderSelect(
-        providerSelect,
-        settings.defaultProviderId,
-      );
-      modelBoundProviderId = nextProvider;
-      updateProviderChrome(nextProvider);
-      await refreshDefaultModels(
-        nextProvider,
-        preferredDefaultModel(nextProvider),
-      );
-      await renderOrigins();
-      renderCompatEndpoints();
-      setCompatStatus(`Removed ${endpoint.name}.`, "ok");
-      setStatus(`Removed ${endpoint.name}.`, "ok");
+      removeBtn.disabled = true;
+      setCompatStatus("Removing server…");
+      try {
+        const next = compatEndpoints.filter((e) => e.id !== endpoint.id);
+        await saveCompatEndpoints(next);
+        delete apiKeyDrafts[endpoint.id];
+        await saveSettings({ apiKeys: { [endpoint.id]: "" } });
+        modelCache.delete(endpoint.id);
+        if (compatEditingId === endpoint.id) resetCompatForm();
+        const settings = await getSettings();
+        compatEndpoints = settings.compatEndpoints;
+        await loadProviders();
+        savedDefaultProviderId = settings.defaultProviderId;
+        const nextProvider = populateProviderSelect(
+          providerSelect,
+          settings.defaultProviderId,
+        );
+        modelBoundProviderId = nextProvider;
+        updateProviderChrome(nextProvider);
+        await refreshDefaultModels(
+          nextProvider,
+          preferredDefaultModel(nextProvider),
+        );
+        await renderOrigins();
+        renderCompatEndpoints();
+        setCompatStatus(`Removed ${endpoint.name}.`, "ok");
+        setStatus(`Removed ${endpoint.name}.`, "ok");
+      } catch (error) {
+        setCompatStatus(error instanceof Error ? error.message : "Could not remove server. Retry the change.", "err");
+      } finally {
+        removeBtn.disabled = false;
+      }
     });
 
     actions.append(editBtn, removeBtn);
@@ -2056,6 +2095,7 @@ compatCancelButton.addEventListener("click", () => {
 
 compatSaveButton.addEventListener("click", async () => {
   compatSaveButton.disabled = true;
+  setCompatStatus("Saving server…");
   try {
     const name = compatNameInput.value.trim();
     const baseUrl = normalizeCompatBaseUrl(compatBaseUrlInput.value);
@@ -2315,6 +2355,7 @@ decisionsModelSelect.addEventListener("change", () => {
 });
 saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
+  setStatus("Saving…");
   try {
     const providerId = providerSelect.value;
     let model = readDefaultModelValue(providerId);
