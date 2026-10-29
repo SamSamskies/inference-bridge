@@ -81,8 +81,6 @@ const synthesisModelSelect = document.getElementById("synthesisModel");
 const synthesisVoiceSelect = document.getElementById("synthesisVoice");
 const originsEl = document.getElementById("origins");
 const originsEmpty = document.getElementById("originsEmpty");
-const otherChatPreferencesPanel = document.getElementById("otherChatPreferencesPanel");
-const otherChatPreferencesEl = document.getElementById("otherChatPreferences");
 const speechOriginsEl = document.getElementById("speechOrigins");
 const speechOriginsEmpty = document.getElementById("speechOriginsEmpty");
 const blockedEl = document.getElementById("blocked");
@@ -1178,7 +1176,7 @@ function globalReasoningLabel() {
   return `Use global setting (${labels[savedChatReasoningEffort] || "Page preference"})`;
 }
 
-function createSiteReasoningControl(origin, preference, onSave = () => {}) {
+function createSiteReasoningControl(origin, preference) {
   const label = document.createElement("label");
   label.className = "origin-model";
   const caption = document.createElement("span");
@@ -1204,7 +1202,6 @@ function createSiteReasoningControl(origin, preference, onSave = () => {}) {
       if (!response?.ok) throw new Error(response?.error || "Failed to save reasoning effort.");
       savedPreference = next;
       setSiteAccessStatus(`Saved reasoning effort for ${origin}. Applies to the next chat request.`, "ok");
-      onSave(next);
     } catch (err) {
       select.value = savedPreference;
       setSiteAccessStatus(err instanceof Error ? err.message : "Failed to save reasoning effort.", "err");
@@ -1642,26 +1639,6 @@ async function renderOrigins() {
       void loadOriginModels(originProviderId, grant.model);
     }
   }
-  // Keep Allow-once and revoked-site preferences editable without granting
-  // access or requiring another approval popup just to change a preference.
-  const grantedOrigins = new Set(grants.map((grant) => grant.origin));
-  otherChatPreferencesEl.replaceChildren();
-  for (const [origin, preference] of Object.entries(originChatReasoningEfforts).sort()) {
-    if (grantedOrigins.has(origin)) continue;
-    const li = document.createElement("li");
-    const meta = document.createElement("div");
-    meta.className = "origin-meta";
-    const code = document.createElement("code");
-    code.textContent = origin;
-    meta.append(code, createSiteReasoningControl(origin, preference, (next) => {
-      if (next !== "global") return;
-      li.remove();
-      otherChatPreferencesPanel.hidden = otherChatPreferencesEl.children.length === 0;
-    }));
-    li.append(meta);
-    otherChatPreferencesEl.append(li);
-  }
-  otherChatPreferencesPanel.hidden = otherChatPreferencesEl.children.length === 0;
 }
 
 async function renderOperationOrigins() {
