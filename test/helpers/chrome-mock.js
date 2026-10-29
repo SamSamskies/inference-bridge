@@ -2,6 +2,8 @@
  * Minimal chrome.* stub for unit tests (storage + windows + runtime).
  */
 
+import { createWebLocksMock } from "./web-locks-mock.js";
+
 /**
  * @returns {{
  *   store: Map<string, unknown>,
@@ -98,6 +100,12 @@ export function installChromeMock() {
   };
 
   globalThis.chrome = chrome;
+  // Node 20 (CI) has no Web Locks API. All contexts within this mocked browser
+  // share one manager, including independently imported storage modules.
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { locks: createWebLocksMock() },
+  });
 
   return {
     store,
