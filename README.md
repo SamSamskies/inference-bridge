@@ -251,10 +251,12 @@ if (features.options?.temperature) {
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra / GPT-6.1 Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Opus 5.5 | `think: false` |
-| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | `think: "low"` / `"medium"` / `"high"` |
+| `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra / GPT-6.1 Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Opus 5.5 | `think: false` when advertised; otherwise the lowest known supported level |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | matching supported level; `true` for boolean on/off models; otherwise provider default |
 
 Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
+
+Ollama controls come from a fresh `/api/show` probe for the selected model on each explicit-effort chat turn. Bridge reads `thinking.values` and `thinking.default`; a general `thinking` capability does not imply an off control. For example, Beam advertising Low through Max maps None to Low. Auto leaves `think` unset. Missing, malformed, unavailable, or timed-out metadata leaves the model default unchanged, so None may still produce thinking on older servers. Unrecognized model-defined level names are not assumed to be ordered. The approval popup's Advanced options explains the selected model's None mapping and advertised default, refreshing when the route changes. This applies equally to page options, global settings, and site overrides, including existing grants. See [Ollama thinking controls](https://docs.ollama.com/capabilities/thinking).
 
 In **Options → Providers → Chat reasoning effort**, users can set a global override:
 
@@ -945,6 +947,7 @@ try {
 - [ ] `window.inference` exists on `https://example.com` after install
 - [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, decisions, and speech methods, without prompting or doing network I/O
 - [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
+- [ ] Ollama approval Advanced options follows model changes: None requests off only when advertised, uses Low for Beam, and explains unknown controls on older servers; Auto retains the advertised default and reasoning output remains visible
 - [ ] Options → Providers → Chat reasoning effort saves/reloads; page preference preserves request effort, Auto overrides it with the provider default, and explicit efforts apply to new approvals and existing Always-allow grants without another prompt
 - [ ] Chat approval effort restores the site's choice, persists on Allow once/Always allow, and overrides the global setting; Use global setting resumes inheritance, and Deny/close do not save changes
 - [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)

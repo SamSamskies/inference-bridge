@@ -269,13 +269,4 @@ export function mapReasoningEffortForAnthropic(effort, model) {
   };
 }
 
-/**
- * Ollama `/api/chat`: top-level `think` (boolean or level string).
- * @param {ReasoningEffort | undefined} effort
- * @returns {false | "low" | "medium" | "high" | undefined}
- */
-export function mapReasoningEffortForOllama(effort) {
-  if (effort == null || effort === "auto") return undefined;
-  if (effort === "none") return false;
-  return effort;
-}
+export { mapReasoningEffortForOllama } from "./ollama-thinking.js";

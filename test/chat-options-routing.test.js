@@ -117,6 +117,31 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect((await storage.getSettings()).originChatReasoningEfforts).toEqual({});
   });
 
+  it.each([
+    ["page", "global", "none", "low"],
+    ["none", "global", "high", "low"],
+    ["high", "none", "high", "low"],
+    ["none", "page", "medium", "medium"],
+    ["auto", "global", "none", undefined],
+    ["none", "auto", "none", undefined],
+  ])("maps Ollama metadata after page/global/site resolution (%s, %s, %s)", async (global, site, page, expected) => {
+    const ollamaRoute = { providerId: "ollama", model: "beam:cloud" };
+    await storage.grantOriginAlways(origin, { ...ollamaRoute, imageInput: true, imageOutput: true });
+    await storage.saveSettings({ chatReasoningEffort: global });
+    if (site !== "global") await storage.setOriginChatReasoningEffort(origin, site);
+    const grants = (await storage.getSettings()).allowedOrigins;
+    vi.stubGlobal("fetch", vi.fn(async (url) => url.endsWith("/api/show")
+      ? Response.json({ thinking: { values: ["low", "medium", "high", "xhigh", "max"], default: "max" } })
+      : new Response(JSON.stringify({ message: { role: "assistant", content: "ok" }, done: true }) + "\n")));
+    const port = start({ reasoningEffort: page, temperature: 0.4 });
+    await outcome(port);
+    expect(body().think).toBe(expected);
+    expect(body().model).toBe("beam:cloud");
+    expect(body().options.temperature).toBe(0.4);
+    expect(permissions.getPendingApproval(port.streamId)).toBeNull();
+    expect((await storage.getSettings()).allowedOrigins).toEqual(grants);
+  });
+
   it("edits and clears saved preferences without granting access", async () => {
     expect(await editPreference("high")).toEqual({ ok: true });
     expect((await storage.getSettings()).originChatReasoningEfforts[origin]).toBe("high");

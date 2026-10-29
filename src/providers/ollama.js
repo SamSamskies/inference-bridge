@@ -18,6 +18,7 @@ import {
 } from "../image-parts.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { mapReasoningEffortForOllama } from "./reasoning-effort.js";
+import { parseOllamaThinking } from "./ollama-thinking.js";
 import { mapTemperatureForOllama } from "./temperature.js";
 import {
   OLLAMA_SYNTHESIS_DEFAULT_MODEL,
@@ -39,6 +40,38 @@ import {
 } from "../speech.js";
 
 export const OLLAMA_BASE_URL = "http://localhost:11434";
+
+/**
+ * Probe fresh for each route/request; no cached controls survive a model update.
+ * Older servers and failed probes leave the provider default intact. A short
+ * timeout prevents optional metadata from blocking chat or popup guidance.
+ * @returns {Promise<import("./ollama-thinking.js").OllamaThinking | undefined>}
+ */
+export async function getOllamaThinking(model, { signal } = {}) {
+  if (!model) return undefined;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeout = setTimeout(abort, 3000);
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  try {
+    await ensureOllamaOriginBypass();
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: controller.signal,
+    });
+    if (!response.ok || controller.signal.aborted) return undefined;
+    return parseOllamaThinking(await response.json());
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+    if (signal?.aborted) throwInference("aborted", "Request aborted");
+  }
+}
 
 const decisionModelIds = new Set();
 
@@ -544,7 +577,11 @@ export async function streamOllamaChatTurn({
         // Default matches validateInferenceRequest when tools present.
         body.tool_choice = toolChoice !== undefined ? toolChoice : "auto";
       }
-      const think = mapReasoningEffortForOllama(options?.reasoningEffort);
+      const effort = options?.reasoningEffort;
+      const thinking = effort && effort !== "auto"
+        ? await getOllamaThinking(model, { signal })
+        : undefined;
+      const think = mapReasoningEffortForOllama(effort, thinking);
       if (think !== undefined) {
         body.think = think;
       }
@@ -556,8 +593,7 @@ export async function streamOllamaChatTurn({
       response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Ollama enables thinking by default for supported models; `think` is set
-        // when the page passes options.reasoningEffort (see reasoning-effort.js).
+        // Omit think for Auto or when supported controls cannot be verified.
         body: JSON.stringify(body),
         signal,
       });

@@ -56,7 +56,7 @@
             <summary id="advancedOptionsSummary">Advanced options</summary>
             <label class="field">
               <span>Reasoning effort for this site</span>
-              <select id="chatReasoningEffort" aria-describedby="chatReasoningHint">
+              <select id="chatReasoningEffort" aria-describedby="chatReasoningHint ollamaThinkingHint">
                 <option value="global">Use global setting</option>
                 <option value="page">Use page preference</option>
                 <option value="auto">Auto — provider/model default</option>
@@ -70,6 +70,7 @@
                 preference lets the app choose. Effort is best-effort; None does
                 not guarantee thinking is disabled or hide reasoning text.
               </p>
+              <p class="hint" id="ollamaThinkingHint" aria-live="polite" hidden></p>
             </label>
           </details>
           <label class="field" id="voiceField" hidden>
