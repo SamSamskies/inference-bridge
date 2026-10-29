@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
 import {
   getSettings,
+  setOriginChatReasoningEffort,
   grantOriginAlways,
   isPlausibleModelForProvider,
   normalizeProviderId,
@@ -42,6 +43,37 @@ describe("normalizeProviderId", () => {
 });
 
 describe("chat reasoning effort settings", () => {
+  it("stores site preferences separately and removes overrides when inheriting global", async () => {
+    const before = await getSettings();
+    await setOriginChatReasoningEffort("https://app.example", "page");
+    expect((await getSettings()).originChatReasoningEfforts).toEqual({
+      "https://app.example": "page",
+    });
+    expect((await getSettings()).allowedOrigins).toEqual(before.allowedOrigins);
+    await setOriginChatReasoningEffort("https://app.example", "global");
+    expect((await getSettings()).originChatReasoningEfforts).toEqual({});
+  });
+
+  it("preserves choices from concurrent approvals for different origins", async () => {
+    await Promise.all([
+      setOriginChatReasoningEffort("https://first.example", "high"),
+      setOriginChatReasoningEffort("https://second.example", "low"),
+    ]);
+    expect((await getSettings()).originChatReasoningEfforts).toEqual({
+      "https://first.example": "high", "https://second.example": "low",
+    });
+  });
+
+  it("ignores malformed preferences and nonpersistable origins on read", async () => {
+    chromeMock.store.set("originChatReasoningEfforts", {
+      "https://valid.example": "high", "https://invalid.example": "extreme",
+      "https://inherit.example": "global", null: "high", "file:///tmp/a": "low",
+    });
+    expect((await getSettings()).originChatReasoningEfforts).toEqual({
+      "https://valid.example": "high",
+    });
+  });
+
   it.each(["page", "auto", "none", "low", "medium", "high"])(
     "persists %s across unrelated saves without changing permissions",
     async (chatReasoningEffort) => {
@@ -101,6 +133,7 @@ describe("getSettings", () => {
       apiKeys: {},
       defaultProviderId: "openai",
       chatReasoningEffort: "page",
+      originChatReasoningEfforts: {},
       defaultModel: "gpt-6-luna",
       defaultModels: {
         openai: "gpt-6-luna",

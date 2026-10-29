@@ -45,7 +45,7 @@ async function setup(firefox) {
     { headers: { "Content-Type": "text/event-stream" } }
   )));
 }
-function start(options, experimental = false) {
+function start(options, experimental = false, requestOrigin = origin) {
   const port = {
     name: "ipa-inference",
     sender: { tab: { id: 1 } },
@@ -61,7 +61,7 @@ function start(options, experimental = false) {
   ports.push(port);
   chrome.runtime.onConnect.emit(port);
   port.onMessage.emit({
-    type: "start", origin, pageUrl: `${origin}/`, experimental,
+    type: "start", origin: requestOrigin, pageUrl: `${requestOrigin}/`, experimental,
     request: { ...chat, ...(options ? { options } : {}) },
   });
   return port;
@@ -88,6 +88,87 @@ afterEach(() => {
 
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
+
+  it.each([
+    ["global", "low"], ["page", "high"], ["auto", undefined],
+    ["none", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"],
+  ])("saves popup choice %s and applies it to current and granted requests", async (preference, expected) => {
+    await storage.saveSettings({ chatReasoningEffort: "low" });
+    const port = start({ reasoningEffort: "high", temperature: 0.2 });
+    await pending(port);
+    expect(permissions.getPendingApproval(port.streamId)).toMatchObject({
+      chatReasoningEffort: "global", globalChatReasoningEffort: "low",
+    });
+    // Exercise the popup's runtime message transport, including the new field.
+    const response = await new Promise((resolve) => chrome.runtime.onMessage.emit({
+      type: "resolve-approval", requestId: port.streamId, decision: "always",
+      ...route, chatReasoningEffort: preference,
+    }, {}, resolve));
+    expect(response.ok).toBe(true);
+    await outcome(port);
+    expect(body().reasoning_effort).toBe(expected);
+    expect(body().temperature).toBe(0.2);
+    const settings = await storage.getSettings();
+    expect(settings.originChatReasoningEfforts[origin]).toBe(preference === "global" ? undefined : preference);
+    expect(settings.allowedOrigins[origin]).not.toHaveProperty("chatReasoningEffort");
+    await storage.saveSettings({ chatReasoningEffort: "medium" });
+    const next = start({ reasoningEffort: "high" });
+    await outcome(next);
+    expect(body().reasoning_effort).toBe(preference === "global" ? "medium" : expected);
+    expect(permissions.getPendingApproval(next.streamId)).toBeNull();
+  });
+
+  it("remembers Allow once choices without granting access and restores them on reapproval", async () => {
+    await storage.saveSettings({ chatReasoningEffort: "low" });
+    const first = start();
+    await pending(first);
+    permissions.resolveApproval(first.streamId, {
+      decision: "allow_once", ...route, chatReasoningEffort: "high",
+    });
+    await outcome(first);
+    expect(body().reasoning_effort).toBe("high");
+    expect((await storage.getSettings()).allowedOrigins).toEqual({});
+    const second = start();
+    await pending(second);
+    expect(permissions.getPendingApproval(second.streamId).chatReasoningEffort).toBe("high");
+    permissions.resolveApproval(second.streamId, {
+      decision: "allow_once", ...route, chatReasoningEffort: "global",
+    });
+    await outcome(second);
+    expect(body().reasoning_effort).toBe("low");
+    expect((await storage.getSettings()).originChatReasoningEfforts).toEqual({});
+  });
+
+  it.each(["deny", "never", "close"])("does not save effort on %s", async (decision) => {
+    await storage.setOriginChatReasoningEffort(origin, "low");
+    const port = start();
+    await pending(port);
+    if (decision === "close") permissions.handleApprovalWindowClosed(1001);
+    else permissions.resolveApproval(port.streamId, {
+      decision, ...route, chatReasoningEffort: "high",
+    });
+    await vi.waitFor(() => expect(port.messages.at(-1).error?.code).toBe("permission_denied"));
+    expect((await storage.getSettings()).originChatReasoningEfforts[origin]).toBe("low");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps choices isolated to the exact origin and preserves them when access is revoked", async () => {
+    await storage.setOriginChatReasoningEffort(origin, "high");
+    await storage.grantOriginAlways(origin, route);
+    const other = "https://other.example";
+    await storage.grantOriginAlways(other, route);
+    await storage.saveSettings({ chatReasoningEffort: "low" });
+    await outcome(start(undefined, false, other));
+    expect(body().reasoning_effort).toBe("low");
+    await storage.revokeOrigin(origin);
+    const port = start();
+    await pending(port);
+    expect(permissions.getPendingApproval(port.streamId).chatReasoningEffort).toBe("high");
+    // Older popup callers that omit the field must preserve the saved choice.
+    permissions.resolveApproval(port.streamId, { decision: "allow_once", ...route });
+    await outcome(port);
+    expect(body().reasoning_effort).toBe("high");
+  });
 
   it.each([undefined, "auto", "low"])(
     "preserves page/provider defaults (%s) for existing grants",

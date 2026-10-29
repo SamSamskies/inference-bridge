@@ -4,7 +4,7 @@
 
 import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
-import { normalizeChatReasoningEffort } from "./chat-options.js";
+import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "./chat-options.js";
 
 /**
  * @typedef {{
@@ -34,6 +34,9 @@ const DEFAULTS = Object.freeze({
   defaultProviderId: "openai",
   /** @type {import("./chat-options.js").ChatReasoningEffort} */
   chatReasoningEffort: "page",
+  /** Site preferences are independent of access grants; absence inherits global. */
+  /** @type {Record<string, import("./chat-options.js").ChatReasoningEffort>} */
+  originChatReasoningEfforts: {},
   /** Per-provider remembered models. Active model is defaultModels[defaultProviderId]. */
   /** @type {Readonly<Record<string, string>>} */
   defaultModels: Object.freeze({
@@ -322,6 +325,7 @@ export function normalizeCompatEndpoints(value) {
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
  *   chatReasoningEffort: import("./chat-options.js").ChatReasoningEffort,
+ *   originChatReasoningEfforts: Record<string, import("./chat-options.js").ChatReasoningEffort>,
  *   defaultModel: string,
  *   defaultModels: Record<string, string>,
  *   compatEndpoints: CompatEndpoint[],
@@ -360,6 +364,15 @@ export async function getSettings() {
     normalizeOperationOriginMap(stored.operationLastUsed, "usedAt")
   );
   const compatEndpoints = normalizeCompatEndpoints(stored.compatEndpoints);
+  const originChatReasoningEfforts = {};
+  if (stored.originChatReasoningEfforts && typeof stored.originChatReasoningEfforts === "object" && !Array.isArray(stored.originChatReasoningEfforts)) {
+    for (const [origin, raw] of Object.entries(stored.originChatReasoningEfforts)) {
+      const effort = normalizeSiteChatReasoningEffort(raw);
+      if (isPersistableOriginKey(origin) && effort !== "global") {
+        originChatReasoningEfforts[origin] = effort;
+      }
+    }
+  }
   const compatIds = new Set(compatEndpoints.map((e) => e.id));
 
   // Drop opaque / file principals if a prior build stored grants under them.
@@ -563,6 +576,7 @@ export async function getSettings() {
     apiKeys,
     defaultProviderId,
     chatReasoningEffort: normalizeChatReasoningEffort(stored.chatReasoningEffort),
+    originChatReasoningEfforts,
     defaultModel,
     defaultModels,
     compatEndpoints,
@@ -694,6 +708,28 @@ export async function saveSettings(patch) {
     // Drop any leftover flat defaultModel key — the map is the source of truth.
     await chrome.storage.local.remove("defaultModel");
   }
+}
+
+// Approval popups can finish concurrently. Serialize preference map updates in
+// the worker so saving one origin does not overwrite another origin's choice.
+let originChatReasoningWrite = Promise.resolve();
+
+/**
+ * @param {string} origin
+ * @param {import("./chat-options.js").SiteChatReasoningEffort} preference
+ * @returns {Promise<void>}
+ */
+export function setOriginChatReasoningEffort(origin, preference) {
+  const update = async () => {
+    if (!isPersistableOriginKey(origin)) return;
+    const { originChatReasoningEfforts } = await getSettings();
+    const effort = normalizeSiteChatReasoningEffort(preference);
+    if (effort === "global") delete originChatReasoningEfforts[origin];
+    else originChatReasoningEfforts[origin] = effort;
+    await chrome.storage.local.set({ originChatReasoningEfforts });
+  };
+  originChatReasoningWrite = originChatReasoningWrite.then(update, update);
+  return originChatReasoningWrite;
 }
 
 /**

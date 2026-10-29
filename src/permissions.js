@@ -19,7 +19,9 @@ import {
   grantOriginOperationAlways,
   setOriginOperationLastUsed,
   isExperimentalOperation,
+  setOriginChatReasoningEffort,
 } from "./storage.js";
+import { normalizeSiteChatReasoningEffort } from "./chat-options.js";
 import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
 import {
   hasBuiltInHostPermission,
@@ -60,6 +62,8 @@ import {
  *   toolChoice?: ToolChoice,
  *   output?: { images?: boolean },
  *   method?: "chat",
+ *   chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort,
+ *   globalChatReasoningEffort?: import("./chat-options.js").ChatReasoningEffort,
  * } | {
  *   requestId: string,
  *   origin: string,
@@ -104,7 +108,7 @@ const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
 
 /** @type {Map<string, {
  *   request: ApprovalRequest,
- *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string }) => void,
+ *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }) => void,
  *   windowId?: number,
  * }>} */
 const pendingApprovals = new Map();
@@ -882,6 +886,8 @@ export async function ensurePermission(args) {
     messages: args.messages,
     providerId: promptProviderId,
     model: promptModel,
+    chatReasoningEffort: settings.originChatReasoningEfforts[args.origin] || "global",
+    globalChatReasoningEffort: settings.chatReasoningEffort,
     ...(tools ? { tools } : {}),
     ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
     ...(args.output ? { output: args.output } : {}),
@@ -940,6 +946,9 @@ export async function ensurePermission(args) {
           code: "unavailable",
           message,
         };
+      }
+      if (decision.chatReasoningEffort !== undefined) {
+        await setOriginChatReasoningEffort(args.origin, decision.chatReasoningEffort);
       }
       if (decision.decision === "always") {
         await grantOriginAlways(args.origin, {
@@ -1012,7 +1021,7 @@ export async function ensurePermission(args) {
 
 /**
  * @param {ApprovalRequest} request
- * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string }>}
+ * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }>}
  */
 function promptUser(request) {
   return new Promise((resolve, reject) => {
@@ -1070,7 +1079,7 @@ function promptUser(request) {
 /**
  * Called by the approval page.
  * @param {string} requestId
- * @param {{ decision: ApprovalDecision, providerId?: string, model: string, voice?: string }} result
+ * @param {{ decision: ApprovalDecision, providerId?: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort }} result
  * @returns {boolean}
  */
 export function resolveApproval(requestId, result) {
@@ -1097,6 +1106,11 @@ export function resolveApproval(requestId, result) {
     decision,
     providerId: normalizeProviderId(rawProviderId),
     model: typeof result.model === "string" ? result.model : entry.request.model,
+    ...((entry.request.method === undefined || entry.request.method === "chat") &&
+      result.chatReasoningEffort !== undefined &&
+      normalizeSiteChatReasoningEffort(result.chatReasoningEffort) === result.chatReasoningEffort
+      ? { chatReasoningEffort: result.chatReasoningEffort }
+      : {}),
     ...(typeof result.voice === "string"
       ? { voice: result.voice }
       : "voice" in entry.request && typeof entry.request.voice === "string"

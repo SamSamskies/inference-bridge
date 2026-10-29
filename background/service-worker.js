@@ -222,6 +222,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         providerId: message.providerId,
         model: message.model,
         voice: message.voice,
+        chatReasoningEffort: message.chatReasoningEffort,
       }),
     });
     return false;
@@ -1334,7 +1335,8 @@ async function handleStart(port, msg, onStreamId) {
     // to this request too. The override is never part of a permission grant.
     const options = applyChatReasoningEffort(
       validated.value.options,
-      settings.chatReasoningEffort
+      settings.chatReasoningEffort,
+      settings.originChatReasoningEfforts[origin]
     );
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.

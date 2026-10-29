@@ -52,6 +52,23 @@
             <datalist id="modelList"></datalist>
             <p class="hint" id="modelHint" hidden></p>
           </label>
+          <label class="field" id="chatReasoningField" hidden>
+            <span>Reasoning effort for this site</span>
+            <select id="chatReasoningEffort" aria-describedby="chatReasoningHint">
+              <option value="global">Use global setting</option>
+              <option value="page">Use page preference</option>
+              <option value="auto">Auto — provider/model default</option>
+              <option value="none">None</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <p class="hint" id="chatReasoningHint">
+              Saved for this site when you allow, even with Allow once. Page
+              preference lets the app choose. Effort is best-effort; None does
+              not guarantee thinking is disabled or hide reasoning text.
+            </p>
+          </label>
           <label class="field" id="voiceField" hidden>
             <span>Voice</span>
             <select id="voice"></select>

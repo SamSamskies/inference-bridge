@@ -12,6 +12,7 @@ import {
 } from "../src/permissions.js";
 import {
   blockOrigin,
+  getSettings,
   grantOriginAlways,
   getOriginGrant,
   getOriginLastUsed,
@@ -68,6 +69,22 @@ beforeEach(() => {
 });
 
 describe("speech permissions", () => {
+  it("does not show or persist chat effort for a speech approval", async () => {
+    const route = { providerId: "openai", model: "tts-1", voice: "alloy" };
+    await saveSettings({ operationDefaults: { synthesize: route } });
+    const pending = ensureSpeechPermission({
+      requestId: "speech_no_chat_effort", origin: "https://app.example",
+      method: "synthesize", text: "Hello",
+    });
+    await waitForPending("speech_no_chat_effort");
+    expect(getPendingApproval("speech_no_chat_effort")).not.toHaveProperty("chatReasoningEffort");
+    resolveApproval("speech_no_chat_effort", {
+      decision: "allow_once", ...route, chatReasoningEffort: "high",
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: true });
+    expect((await getSettings()).originChatReasoningEfforts).toEqual({});
+  });
+
   it("fails without an operation route instead of borrowing chat defaults", async () => {
     await saveSettings({
       defaultProviderId: "openai",
