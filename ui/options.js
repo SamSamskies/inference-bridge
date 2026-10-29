@@ -59,6 +59,9 @@ const modelList = document.getElementById("modelList");
 const modelHint = document.getElementById("modelHint");
 const saveButton = document.getElementById("save");
 const statusEl = document.getElementById("status");
+const chatReasoningEffortSelect = document.getElementById("chatReasoningEffort");
+const chatReasoningStatus = document.getElementById("chatReasoningStatus");
+let savedChatReasoningEffort = "page";
 const siteAccessStatusEl = document.getElementById("siteAccessStatus");
 const speechStatus = document.getElementById(
   "speechStatus",
@@ -1159,8 +1162,60 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushOriginModelEdits();
 });
 
+const SITE_REASONING_CHOICES = [
+  ["page", "Use page preference"],
+  ["auto", "Auto — provider/model default"],
+  ["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"],
+];
+
+function globalReasoningLabel() {
+  const labels = {
+    page: "Page preference", auto: "Auto", none: "None",
+    low: "Low", medium: "Medium", high: "High",
+  };
+  return `Use global setting (${labels[savedChatReasoningEffort] || "Page preference"})`;
+}
+
+function createSiteReasoningControl(origin, preference) {
+  const label = document.createElement("label");
+  label.className = "origin-model";
+  const caption = document.createElement("span");
+  caption.textContent = "Reasoning effort";
+  const select = document.createElement("select");
+  select.dataset.originReasoning = origin;
+  select.setAttribute("aria-label", `Reasoning effort for ${origin}`);
+  for (const [value, text] of [["global", globalReasoningLabel()], ...SITE_REASONING_CHOICES]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    select.append(option);
+  }
+  let savedPreference = preference || "global";
+  select.value = savedPreference;
+  select.addEventListener("change", async () => {
+    const next = select.value;
+    select.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "set-origin-chat-reasoning-effort", origin, chatReasoningEffort: next,
+      });
+      if (!response?.ok) throw new Error(response?.error || "Failed to save reasoning effort.");
+      savedPreference = next;
+      setSiteAccessStatus(`Saved reasoning effort for ${origin}. Applies to the next chat request.`, "ok");
+    } catch (err) {
+      select.value = savedPreference;
+      setSiteAccessStatus(err instanceof Error ? err.message : "Failed to save reasoning effort.", "err");
+    } finally {
+      select.disabled = false;
+    }
+  });
+  label.append(caption, select);
+  return label;
+}
+
 async function renderOrigins() {
   const grants = await listAllowedOrigins();
+  const { originChatReasoningEfforts } = await getSettings();
   originModelCommitters = [];
   originsEl.replaceChildren();
   originsEmpty.hidden = grants.length > 0;
@@ -1220,6 +1275,7 @@ async function renderOrigins() {
     const modelStatus = document.createElement("p");
     modelStatus.className = "hint origin-model-hint";
     meta.append(modelStatus);
+    meta.append(createSiteReasoningControl(grant.origin, originChatReasoningEfforts[grant.origin]));
 
     const toolLabels = summarizeToolFingerprintLabels(
       grant.toolFingerprint,
@@ -2078,6 +2134,9 @@ async function load() {
   await loadProviders();
   await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   const settings = await getSettings();
+  savedChatReasoningEffort = settings.chatReasoningEffort;
+  chatReasoningEffortSelect.value = savedChatReasoningEffort;
+  chatReasoningEffortSelect.disabled = false;
   compatEndpoints = settings.compatEndpoints;
   await refreshProviderHostAccess();
   savedDefaultProviderId = settings.defaultProviderId;
@@ -2159,6 +2218,28 @@ async function persistDefaultSettings(providerId, model) {
     await refreshDefaultModels(providerId, model);
   }
 }
+
+chatReasoningEffortSelect.addEventListener("change", async () => {
+  chatReasoningEffortSelect.disabled = true;
+  chatReasoningStatus.textContent = "Saving reasoning effort…";
+  chatReasoningStatus.className = "status";
+  try {
+    await saveSettings({ chatReasoningEffort: chatReasoningEffortSelect.value });
+    savedChatReasoningEffort = chatReasoningEffortSelect.value;
+    for (const option of document.querySelectorAll('select[data-origin-reasoning] option[value="global"]')) {
+      option.textContent = globalReasoningLabel();
+    }
+    chatReasoningStatus.textContent = "Saved. Applies to the next chat request on sites using the global setting.";
+    chatReasoningStatus.className = "status ok";
+  } catch (err) {
+    chatReasoningEffortSelect.value = savedChatReasoningEffort;
+    chatReasoningStatus.textContent =
+      err instanceof Error ? err.message : "Failed to save reasoning effort.";
+    chatReasoningStatus.className = "status err";
+  } finally {
+    chatReasoningEffortSelect.disabled = false;
+  }
+});
 
 async function updateSpeechControl(operation, update) {
   speechStatus.textContent = "Saving speech default…";

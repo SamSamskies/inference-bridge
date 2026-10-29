@@ -29,6 +29,7 @@ import {
   ON_DEVICE_PROVIDER_ID,
 } from "../src/prompt-api-core.js";
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
+import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
@@ -71,6 +72,9 @@ const modelHint = document.getElementById("modelHint");
 const voiceField = document.getElementById("voiceField");
 const voiceSelect = document.getElementById("voice");
 const voiceHint = document.getElementById("voiceHint");
+const advancedOptions = document.getElementById("advancedOptions");
+const advancedOptionsSummary = document.getElementById("advancedOptionsSummary");
+const chatReasoningEffortSelect = document.getElementById("chatReasoningEffort");
 const capabilityWarningEl = document.getElementById("capabilityWarning");
 const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
@@ -1013,6 +1017,23 @@ function updateRememberHint() {
     : "Allow once, or deny only this request.";
 }
 
+const CHAT_REASONING_LABELS = {
+  page: "Page preference", auto: "Auto", none: "None",
+  low: "Low", medium: "Medium", high: "High",
+};
+
+function updateGlobalReasoningEffortLabel(value) {
+  chatReasoningEffortSelect.querySelector('[value="global"]').textContent =
+    `Use global setting (${CHAT_REASONING_LABELS[normalizeChatReasoningEffort(value)]})`;
+}
+
+function updateAdvancedOptionsSummary() {
+  const effort = normalizeSiteChatReasoningEffort(chatReasoningEffortSelect.value);
+  advancedOptionsSummary.textContent = effort === "global"
+    ? "Advanced options"
+    : `Advanced options · Reasoning: ${CHAT_REASONING_LABELS[effort]}`;
+}
+
 /**
  * @param {"allow" | "deny"} action
  */
@@ -1060,6 +1081,7 @@ async function decide(action) {
   allowBtn.disabled = true;
   denyBtn.disabled = true;
   rememberInput.disabled = true;
+  chatReasoningEffortSelect.disabled = true;
 
   /** @type {"allow_once" | "always" | "deny" | "never"} */
   const decision =
@@ -1079,6 +1101,9 @@ async function decide(action) {
       providerId,
       model,
       ...(voice ? { voice } : {}),
+      ...(requestMethod === "chat"
+        ? { chatReasoningEffort: chatReasoningEffortSelect.value }
+        : {}),
     });
     if (!response?.ok) {
       showError("This permission request is no longer active.");
@@ -1137,6 +1162,12 @@ async function load() {
     typeof request.providerId === "string" ? request.providerId : "";
   requestPreferredVoice =
     typeof request.voice === "string" ? request.voice : "";
+  advancedOptions.hidden = requestMethod !== "chat";
+  if (requestMethod === "chat") {
+    chatReasoningEffortSelect.value = normalizeSiteChatReasoningEffort(request.chatReasoningEffort);
+    updateGlobalReasoningEffortLabel(request.globalChatReasoningEffort);
+    updateAdvancedOptionsSummary();
+  }
 
   if (!(await refreshProviders())) {
     showError(
@@ -1234,6 +1265,9 @@ async function load() {
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.chatReasoningEffort) {
+    updateGlobalReasoningEffortLabel(changes.chatReasoningEffort.newValue);
+  }
   if (areaName !== "local" || !changes.apiKeys) return;
   void refreshProviders().then((ok) => {
     if (!ok) return;
@@ -1300,6 +1334,7 @@ clearModelButton.addEventListener("click", () => {
   }
 });
 
+chatReasoningEffortSelect.addEventListener("change", updateAdvancedOptionsSummary);
 rememberInput.addEventListener("change", updateRememberHint);
 allowBtn.addEventListener("click", () => decide("allow"));
 denyBtn.addEventListener("click", () => decide("deny"));

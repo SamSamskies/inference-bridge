@@ -160,6 +160,32 @@
           ></div>
         </section>
 
+        <section class="panel stack" aria-labelledby="chat-reasoning-heading">
+          <h3 id="chat-reasoning-heading">Chat reasoning effort</h3>
+          <label class="field">
+            <span>Reasoning effort for all sites</span>
+            <select id="chatReasoningEffort" aria-describedby="chatReasoningHint" disabled>
+              <option value="page">Use page preference (default)</option>
+              <option value="auto">Auto — provider/model default</option>
+              <option value="none">None</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+          <p class="hint" id="chatReasoningHint">
+            Saves automatically and applies to the next chat request on every site,
+            including sites you always allow, unless you chose a site preference
+            in its approval popup. The default keeps the page's requested
+            effort, or the provider/model default when omitted. Any other choice
+            overrides the page. Effort is a best-effort preference that may affect
+            response time, cost, and reasoning; providers or models may ignore it.
+            None does not guarantee thinking is disabled. This setting does not
+            control whether reasoning text is shared.
+          </p>
+          <div class="status" id="chatReasoningStatus" role="status" aria-live="polite"></div>
+        </section>
+
         <dialog
           id="onDeviceInstallDialog"
           class="confirm-dialog"
@@ -355,7 +381,7 @@
         <header class="settings-section-heading">
           <h2 id="site-access-heading">Site access</h2>
           <p class="hint">
-            Review persistent permissions and blocks for individual sites.
+            Review permissions, saved chat preferences, and blocks for individual sites.
           </p>
         </header>
 
@@ -363,7 +389,8 @@
           <h3 id="chat-origins-heading">Always-allowed chat origins</h3>
           <p class="hint">
             Chat origins granted with “Always allow”. Change the provider and
-            model anytime, or revoke to require a fresh prompt.
+            model or reasoning effort anytime. Changes save automatically and
+            apply to the next request. Revoke access to require a fresh prompt.
           </p>
           <ul class="list" id="origins"></ul>
           <p class="hint" id="originsEmpty">No persistent chat grants yet.</p>

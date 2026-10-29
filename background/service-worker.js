@@ -9,7 +9,8 @@ import {
   validateInferenceRequest,
   isValidOrigin,
 } from "../src/validate.js";
-import { getSettings, hasStoredApiKey } from "../src/storage.js";
+import { getSettings, hasStoredApiKey, setOriginChatReasoningEffort } from "../src/storage.js";
+import { applyChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import {
   ensurePermission,
   ensureSpeechPermission,
@@ -209,6 +210,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  if (message?.type === "set-origin-chat-reasoning-effort") {
+    // Keep preference writes in the worker so its queue also serializes edits
+    // from Options with choices saved by concurrent approval popups.
+    const optionsUrl = chrome.runtime.getURL("ui/options.html");
+    if (
+      typeof _sender.url !== "string" ||
+      _sender.url.split(/[?#]/, 1)[0] !== optionsUrl ||
+      !isValidOrigin(message.origin) ||
+      message.chatReasoningEffort === undefined ||
+      normalizeSiteChatReasoningEffort(message.chatReasoningEffort) !== message.chatReasoningEffort
+    ) {
+      sendResponse({ ok: false, error: "Invalid site preference update." });
+      return false;
+    }
+    void setOriginChatReasoningEffort(message.origin, message.chatReasoningEffort)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to save reasoning effort.",
+      }));
+    return true;
+  }
+
   if (message?.type === "get-approval") {
     sendResponse({ request: getPendingApproval(message.requestId) });
     return false;
@@ -221,6 +245,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         providerId: message.providerId,
         model: message.model,
         voice: message.voice,
+        chatReasoningEffort: message.chatReasoningEffort,
       }),
     });
     return false;
@@ -1329,11 +1354,18 @@ async function handleStart(port, msg, onStreamId) {
       throwInference("unavailable", "No model selected for this provider.");
     }
 
+    // Read after permission so settings changed while approval was open apply
+    // to this request too. The override is never part of a permission grant.
+    const options = applyChatReasoningEffort(
+      validated.value.options,
+      settings.chatReasoningEffort,
+      settings.originChatReasoningEfforts[origin]
+    );
     // Provider-specific message-shape checks (e.g. Anthropic rejects
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
     await provider.preflightChat?.({
-      ...validated.value, model, origin, apiKey: settings.apiKeys[provider.id],
+      ...validated.value, options, model, origin, apiKey: settings.apiKeys[provider.id],
     });
 
     // Always-allow grants skip the approval UI install gate — probe Prompt API
@@ -1361,7 +1393,7 @@ async function handleStart(port, msg, onStreamId) {
       ...(validated.value.toolChoice !== undefined
         ? { toolChoice: validated.value.toolChoice }
         : {}),
-      ...(validated.value.options ? { options: validated.value.options } : {}),
+      ...(options ? { options } : {}),
       ...(validated.value.output ? { output: validated.value.output } : {}),
       signal: controller.signal,
       onDelta: (content) => {

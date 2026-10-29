@@ -246,6 +246,22 @@ if (features.options?.temperature) {
 
 Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
 
+In **Options → Providers → Chat reasoning effort**, users can set a global override:
+
+| Setting | Behavior |
+| --- | --- |
+| Use page preference (default) | Preserve the page's `options.reasoningEffort`; when omitted, use the provider/model default. |
+| Auto — provider/model default | Override the page's effort with `"auto"`, including when the page requests a specific effort. |
+| None / Low / Medium / High | Override the page's effort with the selected value, even when the page omits `options`. |
+
+Changes save automatically and apply to the next chat request on sites that inherit the global setting, including requests covered by an existing Always-allow grant or waiting for approval. They do not change an in-progress generation. This applies to stable chat and its deprecated experimental alias, not decisions or speech. It does not change grants, require another prompt, or control exposure of reasoning text. Page options are still validated before applying the override; `temperature` is preserved.
+
+The **chat approval popup** also offers **Reasoning effort for this site** under **Advanced options**, collapsed by default. An active site override stays visible in the summary (for example, **Advanced options · Reasoning: High**). The selector starts with **Use global setting** (showing the current global choice), or restores the site's previous selection. Choose **Use page preference** to let that app choose even when a global override is set, **Auto** to use its provider/model default, or **None / Low / Medium / High** for a site override. The selection is saved when you allow, including **Allow once**, and applies to the current and later chat requests for that exact origin. Denying or closing the popup does not save a change. Choosing **Use global setting** removes the site override so later global changes apply. Site preferences are stored separately from access grants and never grant permission themselves; revoking access leaves the preference available for the next approval. Decisions and speech approvals do not show this control.
+
+To edit a saved preference for an Always-allowed chat origin, open **Options → Site access** and use its autosaving **Reasoning effort** selector. Choosing **Use global setting** clears the override. These edits affect the next chat request and leave provider/model, tools, images, and access permissions unchanged. Sites using Allow once, or whose access was revoked, can change their remembered preference in the next approval popup, just like their remembered provider/model choice.
+
+Effort is a best-effort preference for response time, cost, and reasoning. The effective value goes through the same provider mappings above; providers/models may ignore it or use a supported fallback. **None does not guarantee thinking is disabled.** On-device chat currently ignores effort. Gemini uses its model-specific thinking-level mapping when available.
+
 ### `temperature`
 
 IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
@@ -887,6 +903,8 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 - [ ] `window.inference` exists on `https://example.com` after install
 - [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, decisions, and speech methods, without prompting or doing network I/O
 - [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
+- [ ] Options → Providers → Chat reasoning effort saves/reloads; page preference preserves request effort, Auto overrides it with the provider default, and explicit efforts apply to new approvals and existing Always-allow grants without another prompt
+- [ ] Chat approval effort restores the site's choice, persists on Allow once/Always allow, and overrides the global setting; Use global setting resumes inheritance, and Deny/close do not save changes
 - [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)
 - [ ] Invalid `options.reasoningEffort` or `options.temperature` → `invalid_request`
 - [ ] Unsupported model/provider still succeeds (best-effort mapping / no-op)
