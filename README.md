@@ -194,6 +194,8 @@ For app-side helpers (TypeScript types, drain a stream to `done`, page-executed 
 - Permission is per HTTP(S) origin and records the chosen provider + model
 - Request validation happens in the extension before any provider call
 - API keys are stored in local extension storage, which Bridge does not encrypt; page scripts cannot read them
+- Where supported, Bridge restricts `storage.local` to trusted extension contexts using [`setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })`](https://developer.chrome.com/docs/extensions/reference/api/storage/StorageArea#method-StorageArea-setAccessLevel). The background applies it on every start, and settings operations await it before reading or writing. Options and approval handling retain access; the content script only relays messages and needs no storage access. If the supported API fails, Bridge keeps trusted settings usable and retries on the next call — a failed restriction still leaves content scripts with default storage access, so rejecting Options and approvals would not reduce that exposure. This is asynchronous defense in depth, so it does not guarantee isolation before startup initialization completes.
+- Browsers without `setAccessLevel` keep their default extension-storage access. [Firefox currently does not support this API](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/StorageArea/setAccessLevel#browser_compatibility), so its extension content scripts retain storage access; page scripts still cannot read extension storage.
 - Ollama chat, transcription, and decisions use local port 11434. Hosted web search sends queries and fetch URLs to `https://ollama.com` with your optional Ollama account key.
 - Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
 - Chrome optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
@@ -899,6 +901,23 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 ```
 
 ### Manual checks
+
+#### Local storage access
+
+Use an isolated test profile with dummy credentials. In Chrome, load the extension, open Options, and confirm saving/reloading settings and site grants works. Request chat from a test page, approve it, and confirm the chosen provider receives the request. In the page's DevTools Console, select **Inference Bridge** in the JavaScript context selector (the isolated content-script world, rather than the page's main world) and run:
+
+```js
+try {
+  await chrome.storage.local.get("defaultProviderId");
+  console.error("FAIL: content script could read local settings");
+} catch {
+  console.log("PASS: content-script storage access denied");
+}
+```
+
+- [ ] Chrome: the content-script read is denied; Options, approvals, and provider requests work
+- [ ] Repeat after extension reload, worker suspension/wake, and browser restart (refresh the test page to get the current content script)
+- [ ] Firefox: startup, Options, approvals, and provider requests work without `setAccessLevel`; the extra content-script restriction is unavailable
 
 #### Page API and permissions
 
