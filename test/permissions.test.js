@@ -2963,44 +2963,128 @@ describe("ensurePermission with tools", () => {
     await expect(turn2).resolves.toMatchObject({ allowed: false });
   });
 
-  it("re-prompts tools after Options changes Always-allow provider", async () => {
-    const origin = "https://tools-grant-edit.example";
+  it("keeps web search and image grants after Options changes Always-allow model", async () => {
+    const origin = "https://tools-grant-model.example";
+    const visionMessages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          { type: "image", mediaType: "image/png", data: "aaa" },
+        ],
+      },
+    ];
     await grantOriginAlways(origin, {
       providerId: "openai",
       model: "gpt-4o-mini",
-      toolFingerprint: "fn:get_weather",
+      toolFingerprint: "hosted:web_search",
+      imageInput: true,
     });
 
     await expect(
       setOriginProviderModel(origin, {
-        providerId: "ollama",
-        model: "gemma4",
+        providerId: "openai",
+        model: "gpt-5.6-luna",
       })
     ).resolves.toBe(true);
     await expect(getOriginGrant(origin)).resolves.toEqual({
       allowedAt: expect.any(Number),
-      providerId: "ollama",
-      model: "gemma4",
+      providerId: "openai",
+      model: "gpt-5.6-luna",
+      toolFingerprint: "hosted:web_search",
+      imageInput: true,
     });
 
-    // Prior tools Always-allow must not cover the new provider binding.
-    const pending = ensurePermission({
-      requestId: "rt8e",
-      origin,
-      messages: [{ role: "user", content: "Weather in Austin?" }],
-      tools: weatherTools,
+    await expect(
+      ensurePermission({
+        requestId: "rt8e-model-search",
+        origin,
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-5.6-luna",
+      once: false,
     });
-    await waitForPending("rt8e");
-    expect(getPendingApproval("rt8e")).toMatchObject({
-      providerId: "ollama",
-      model: "gemma4",
+    expect(getPendingApproval("rt8e-model-search")).toBeNull();
+
+    await expect(
+      ensurePermission({
+        requestId: "rt8e-model-image",
+        origin,
+        messages: visionMessages,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "openai",
+      model: "gpt-5.6-luna",
+      once: false,
     });
-    resolveApproval("rt8e", {
-      decision: "deny",
-      providerId: "ollama",
-      model: "gemma4",
+    expect(getPendingApproval("rt8e-model-image")).toBeNull();
+  });
+
+  it("keeps web search and image grants after Options changes Always-allow provider", async () => {
+    const origin = "https://tools-grant-edit.example";
+    const visionMessages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          { type: "image", mediaType: "image/png", data: "aaa" },
+        ],
+      },
+    ];
+    await grantOriginAlways(origin, {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      imageInput: true,
     });
-    await expect(pending).resolves.toMatchObject({ allowed: false });
+
+    await expect(
+      setOriginProviderModel(origin, {
+        providerId: "anthropic",
+        model: "claude-sonnet-5-5",
+      })
+    ).resolves.toBe(true);
+    await expect(getOriginGrant(origin)).resolves.toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "anthropic",
+      model: "claude-sonnet-5-5",
+      toolFingerprint: "hosted:web_search",
+      imageInput: true,
+    });
+
+    await expect(
+      ensurePermission({
+        requestId: "rt8e",
+        origin,
+        messages: [{ role: "user", content: "search?" }],
+        tools: webSearchTools,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "anthropic",
+      model: "claude-sonnet-5-5",
+      once: false,
+    });
+    expect(getPendingApproval("rt8e")).toBeNull();
+
+    await expect(
+      ensurePermission({
+        requestId: "rt8e-image",
+        origin,
+        messages: visionMessages,
+      })
+    ).resolves.toEqual({
+      allowed: true,
+      providerId: "anthropic",
+      model: "claude-sonnet-5-5",
+      once: false,
+    });
+    expect(getPendingApproval("rt8e-image")).toBeNull();
   });
 });
 

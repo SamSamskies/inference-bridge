@@ -14,6 +14,7 @@ import {
   listAllowedOrigins,
   clearOriginToolsScope,
   clearOriginImageScope,
+  setOriginProviderModel,
   getOriginOperationGrant,
   getOriginOperationLastUsed,
   grantOriginOperationAlways,
@@ -850,6 +851,66 @@ describe("listAllowedOrigins / clear scope", () => {
     await expect(clearOriginImageScope("https://missing.example")).resolves.toBe(
       false
     );
+  });
+});
+
+describe("setOriginProviderModel", () => {
+  it("keeps tools and image scopes when only the model changes", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+      imageOutput: true,
+    });
+
+    await expect(
+      setOriginProviderModel("https://app.example", {
+        providerId: "openai",
+        model: "gpt-5.6-luna",
+      })
+    ).resolves.toBe(true);
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "openai",
+      model: "gpt-5.6-luna",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+      imageOutput: true,
+    });
+  });
+
+  it("keeps tools and image scopes when the provider changes", async () => {
+    await grantOriginAlways("https://app.example", {
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+      imageOutput: true,
+    });
+
+    await expect(
+      setOriginProviderModel("https://app.example", {
+        providerId: "anthropic",
+        model: "claude-sonnet-5-5",
+      })
+    ).resolves.toBe(true);
+    expect(
+      (await getSettings()).allowedOrigins["https://app.example"]
+    ).toEqual({
+      allowedAt: expect.any(Number),
+      providerId: "anthropic",
+      model: "claude-sonnet-5-5",
+      toolFingerprint: "hosted:web_search",
+      toolChoiceNone: true,
+      imageInput: true,
+      imageOutput: true,
+    });
   });
 });
 
