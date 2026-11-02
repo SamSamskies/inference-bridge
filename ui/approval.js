@@ -1,3 +1,5 @@
+import { createModelCapabilityCheck } from "./model-capability-check.js";
+import { UNKNOWN_MODEL_CAPABILITIES } from "../src/providers/model-capabilities.js";
 import {
   isModelValid,
   populateModelInput,
@@ -13,7 +15,6 @@ import {
   blocksAllowForImages,
   imageCapabilityNotes,
   imageCapabilityWarnings,
-  openaiModelSupportsImageOutput,
   messagesHaveImageParts,
   requestWantsImageOutput,
 } from "../src/image-parts.js";
@@ -135,11 +136,7 @@ let requestTools;
 let requestToolChoice;
 let requestImageInput = false;
 let requestImageOutput = false;
-/** @type {boolean | undefined} */
-let selectedModelHasVision;
-/** @type {boolean | undefined} */
-let selectedModelCanGenerateImages;
-let visionCheckId = 0;
+let selectedModelCapabilities = { ...UNKNOWN_MODEL_CAPABILITIES };
 
 // Keep Allow disabled until loadModelsForProvider finishes (HTML also starts disabled).
 allowBtn.disabled = true;
@@ -212,15 +209,13 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
   const request = {
     imageInput: requestImageInput,
     imageOutput: requestImageOutput,
-    modelHasVision: selectedModelHasVision,
-    modelCanGenerateImages: selectedModelCanGenerateImages,
   };
   const warnings = [
     ...capabilityWarnings(provider, requestTools, requestToolChoice),
-    ...imageCapabilityWarnings(provider, request),
+    ...imageCapabilityWarnings(provider, request, selectedModelCapabilities),
     ...(geminiApprovalWarning() ? [geminiApprovalWarning()] : []),
   ];
-  const notes = imageCapabilityNotes(provider, request);
+  const notes = imageCapabilityNotes(request, selectedModelCapabilities);
   if (warnings.length === 0 && notes.length === 0) {
     capabilityWarningEl.hidden = true;
     capabilityWarningEl.textContent = "";
@@ -236,7 +231,6 @@ function geminiApprovalWarning() {
   if (providerSelect.value !== "gemini" || requestMethod !== "chat") return "";
   return geminiRequestWarning(readModelValue("gemini"), {
     tools: requestTools, toolChoice: requestToolChoice,
-    imageInput: requestImageInput, imageOutput: requestImageOutput,
   });
 }
 
@@ -273,100 +267,28 @@ function renderImages() {
   }
 }
 
-function imagesBlockAllow(provider) {
-  return blocksAllowForImages(provider, {
+function imagesBlockAllow() {
+  return blocksAllowForImages(selectedModelCapabilities, {
     imageInput: requestImageInput,
     imageOutput: requestImageOutput,
-    modelHasVision: selectedModelHasVision,
-    modelCanGenerateImages: selectedModelCanGenerateImages,
   });
 }
 
-/**
- * @param {string} model
- * @returns {Promise<{ ok?: boolean, vision?: boolean } | undefined>}
- */
-async function askOllamaVision(model) {
-  try {
-    return await chrome.runtime.sendMessage({
-      type: "ollama-vision",
-      model,
-    });
-  } catch {
-    return undefined;
+const checkModelCapabilities = createModelCapabilityCheck(
+  (message) => chrome.runtime.sendMessage(message),
+  (capabilities) => {
+    selectedModelCapabilities = capabilities;
+    updateCapabilityWarning();
+    updateAllowEnabled();
   }
-}
+);
 
-async function refreshVisionCapability() {
-  const id = ++visionCheckId;
-  const providerId = providerSelect.value;
-  selectedModelHasVision = undefined;
-  selectedModelCanGenerateImages = undefined;
-
-  if ((providerId === "openrouter" || providerId === "gemini") && (requestImageInput || requestImageOutput)) {
-    const model = readModelValue(providerId);
-    const info = currentModels.find((m) => m.id === model);
-    if (info) {
-      selectedModelHasVision = Array.isArray(info.inputModalities)
-        ? info.inputModalities.includes("image")
-        : false;
-      selectedModelCanGenerateImages = Array.isArray(info.outputModalities)
-        ? info.outputModalities.includes("image")
-        : false;
-    } else if (modelsReady) {
-      selectedModelHasVision = false;
-      selectedModelCanGenerateImages = false;
-    }
-    updateCapabilityWarning(providerId);
-    updateAllowEnabled();
-    return;
-  }
-
-  if (providerId === "openai") {
-    if (requestImageOutput) {
-      selectedModelCanGenerateImages = openaiModelSupportsImageOutput(
-        readModelValue(providerId)
-      );
-    }
-    updateCapabilityWarning(providerId);
-    updateAllowEnabled();
-    return;
-  }
-
-  if (providerId !== "ollama" && providerId !== "openrouter") {
-    // Anthropic / OpenAI-compatible / on-device: vision in, no image out.
-    if (requestImageOutput) selectedModelCanGenerateImages = false;
-    updateCapabilityWarning(providerId);
-    updateAllowEnabled();
-    return;
-  }
-  if (!requestImageInput) {
-    if (requestImageOutput) selectedModelCanGenerateImages = false;
-    updateCapabilityWarning(providerId);
-    updateAllowEnabled();
-    return;
-  }
-  const model = readModelValue(providerId);
-  if (!model) {
-    updateCapabilityWarning(providerId);
-    updateAllowEnabled();
-    return;
-  }
-  // Unknown until /api/show returns — do not paint "unsupported" while checking
-  // or when the worker reply is missing (same as a false negative on gemma4:cloud).
-  updateCapabilityWarning(providerId);
-  updateAllowEnabled();
-  let response = await askOllamaVision(model);
-  if (id !== visionCheckId) return;
-  if (!response || response.ok !== true) {
-    response = await askOllamaVision(model);
-    if (id !== visionCheckId) return;
-  }
-  if (response && response.ok === true) {
-    selectedModelHasVision = response.vision === true;
-  }
-  updateCapabilityWarning(providerId);
-  updateAllowEnabled();
+function refreshVisionCapability() {
+  return checkModelCapabilities({
+    providerId: providerSelect.value,
+    model: readModelValue(providerSelect.value),
+    enabled: modelsReady && requestMethod === "chat" && (requestImageInput || requestImageOutput),
+  });
 }
 
 /**
@@ -530,7 +452,7 @@ function updateAllowEnabled() {
     !valid ||
     Boolean(geminiApprovalWarning()) ||
     toolsBlocked ||
-    imagesBlockAllow(provider);
+    imagesBlockAllow();
 }
 
 /**
@@ -709,8 +631,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
   modelsReady = false;
   void refreshThinkingGuidance();
   currentModels = [];
-  selectedModelHasVision = undefined;
-  selectedModelCanGenerateImages = undefined;
+  void checkModelCapabilities({ enabled: false });
   modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
   updateAllowEnabled();
   updateProviderHint(providerId);
@@ -1068,7 +989,7 @@ async function decide(action) {
       }) ||
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
       Boolean(geminiApprovalWarning()) ||
-      imagesBlockAllow(provider)
+      imagesBlockAllow()
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -1288,6 +1209,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   void refreshProviders().then((ok) => {
     if (!ok) return;
     updateProviderHint();
+    void refreshVisionCapability();
     updateCapabilityWarning();
     renderTools(requestTools);
     updateAllowEnabled();

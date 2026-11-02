@@ -18,7 +18,7 @@ import {
   isExperimentalOperation,
 } from "./storage.js";
 import { normalizeSiteChatReasoningEffort } from "./chat-options.js";
-import { getDefaultProvider, getProviderAsync } from "./providers/registry.js";
+import { getDefaultProvider, getProviderAsync, resolveModelCapabilities } from "./providers/registry.js";
 import {
   hasBuiltInHostPermission,
   hasHostPermissionForBaseUrl,
@@ -28,11 +28,8 @@ import {
   blocksAllowForImages,
   isImageGrantCovered,
   messagesHaveImageParts,
-  openaiModelSupportsImageOutput,
   requestWantsImageOutput,
 } from "./image-parts.js";
-import { ollamaModelHasVision } from "./providers/ollama.js";
-import { openrouterModelModalities } from "./providers/openrouter.js";
 import {
   blocksAllowForRequestTools,
   fingerprintTools,
@@ -426,46 +423,21 @@ async function canSkipApprovalPrompt(provider, tools, apiKeys, toolChoice) {
 
 /**
  * Always-allow may skip only when the grant already covers image input/output
- * and the bound provider/model can honor them (Ollama vision in;
- * OpenRouter image in/out when the catalog says so).
- * @param {{ id?: string } | null | undefined} provider
+ * and the bound provider/model's adapter permits them.
+ * @param {import("./providers/types.js").Provider | null | undefined} provider
  * @param {string} model
  * @param {{ imageInput?: boolean, imageOutput?: boolean } | null | undefined} grant
  * @param {ChatMessage[]} messages
  * @param {unknown} [output]
+ * @param {{ apiKey?: string, signal?: AbortSignal }} [config]
  */
-async function imagesAllowAutoApprove(provider, model, grant, messages, output) {
+async function imagesAllowAutoApprove(provider, model, grant, messages, output, config) {
   const imageInput = messagesHaveImageParts(messages);
   const imageOutput = requestWantsImageOutput(output);
   if (!isImageGrantCovered(grant, { imageInput, imageOutput })) return false;
-  /** @type {boolean | undefined} */
-  let modelHasVision;
-  /** @type {boolean | undefined} */
-  let modelCanGenerateImages;
-  if (provider?.id === "ollama" && imageInput) {
-    modelHasVision = await ollamaModelHasVision(model);
-  }
-  if (provider?.id === "openrouter" && (imageInput || imageOutput)) {
-    try {
-      const caps = await openrouterModelModalities(model);
-      modelHasVision = caps.inputImage;
-      modelCanGenerateImages = caps.outputImage;
-    } catch {
-      // Catalog fetch errors must not abort the permission flow. Fail closed
-      // like ollamaModelHasVision so Always-allow re-prompts instead of
-      // turning the page request into an error.
-      return false;
-    }
-  }
-  if (provider?.id === "openai" && imageOutput) {
-    modelCanGenerateImages = openaiModelSupportsImageOutput(model);
-  }
-  return !blocksAllowForImages(provider, {
-    imageInput,
-    imageOutput,
-    modelHasVision,
-    modelCanGenerateImages,
-  });
+  if (!imageInput && !imageOutput) return true;
+  const capabilities = await resolveModelCapabilities(provider, { model, ...config });
+  return !blocksAllowForImages(capabilities, { imageInput, imageOutput });
 }
 
 /**
@@ -647,6 +619,7 @@ export const ensureSpeechPermission = ensureOperationPermission;
 /**
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
+ *   signal?: AbortSignal,
  *   requestId: string,
  *   origin: string,
  *   messages: ChatMessage[],
@@ -771,7 +744,8 @@ export async function ensurePermission(args) {
         grantModel,
         existing,
         args.messages,
-        args.output
+        args.output,
+        { apiKey: settings.apiKeys[grantProviderId], signal: args.signal }
       ))
     ) {
       if (!toolFingerprint) {
@@ -857,7 +831,8 @@ export async function ensurePermission(args) {
         episode.model,
         episode,
         args.messages,
-        args.output
+        args.output,
+        { apiKey: settings.apiKeys[episode.providerId], signal: args.signal }
       ))
     ) {
       rememberToolEpisode(args.origin, {

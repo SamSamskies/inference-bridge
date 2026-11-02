@@ -5,11 +5,13 @@
  * or the model requires Responses for function tools (GPT-6 models).
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
+import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
   assertImagesSupported,
-  openaiModelSupportsImageOutput,
   requestWantsImageOutput,
 } from "../image-parts.js";
+import { openaiModelSupportsImageOutput } from "./openai-capabilities.js";
 import {
   hasHostedWebSearch,
   omitHostedWebSearchIfNone,
@@ -70,6 +72,15 @@ export const openaiProvider = {
   models: OPENAI_MODELS,
   defaultModel: "gpt-6-luna",
   supportsFunctionTools: true,
+  getModelCapabilities({ model }) {
+    return {
+      imageInput: null,
+      imageOutput: openaiModelSupportsImageOutput(model) ? true : null,
+      // Custom model IDs still use the native multimodal transport. A null
+      // result does not assert that an arbitrary model supports image input.
+      imageInputPassthrough: true,
+    };
+  },
   hostedTools: Object.freeze(["web_search"]),
   decisions: {
     defaultModel: OPENAI_DECISION_MODELS[0],
@@ -97,7 +108,7 @@ export const openaiProvider = {
   transcribe: transcribeOpenAI,
   synthesize: synthesizeOpenAI,
 
-  async streamChat({
+  streamChat: withChatErrorBoundary(async function ({
     apiKey,
     model,
     messages,
@@ -110,10 +121,7 @@ export const openaiProvider = {
     onReasoningDelta,
   }) {
     const wantImages = requestWantsImageOutput(output);
-    const canGenerateImages = openaiModelSupportsImageOutput(model);
-    assertImagesSupported(this, messages, output, {
-      imageOutput: wantImages && canGenerateImages,
-    });
+    assertImagesSupported(this, messages, output, await resolveModelCapabilities(this, { model, apiKey, signal }));
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
     const functionTools = filterFunctionTools(toolsForRequest);
     const useResponses =
@@ -153,5 +161,5 @@ export const openaiProvider = {
       onReasoningDelta,
       label: "OpenAI",
     });
-  },
+  }),
 };

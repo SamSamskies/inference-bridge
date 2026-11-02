@@ -1,7 +1,9 @@
 /** Native Gemini Interactions adapter; no OpenAI compatibility or search loop. */
+import { withChatErrorBoundary } from "./chat-errors.js";
 import { messagesHaveImageParts } from "../image-parts.js";
 import {
   geminiCapabilities,
+  geminiModelCapabilities,
   geminiRequestWarning,
   mapGeminiReasoningEffort,
 } from "./gemini-capabilities.js";
@@ -201,6 +203,9 @@ export const geminiProvider = {
   defaultModel: GEMINI_DEFAULT_MODEL,
   models: GEMINI_MODELS,
   supportsFunctionTools: true,
+  getModelCapabilities({ model }) {
+    return geminiModelCapabilities(model);
+  },
   hostedTools: Object.freeze(["web_search"]),
   transcription: geminiTranscription,
   transcribe: geminiTranscribe,
@@ -221,7 +226,7 @@ export const geminiProvider = {
     await prepareMessages(messages, { model, apiKey, origin });
   },
   preflightMessages: mapMessagesForGemini,
-  async streamChat({
+  streamChat: withChatErrorBoundary(async function ({
     apiKey,
     origin,
     model,
@@ -516,5 +521,5 @@ export const geminiProvider = {
       message,
       ...(usage ? { usage } : {}),
     };
-  },
+  }),
 };

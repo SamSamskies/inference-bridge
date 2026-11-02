@@ -1,8 +1,8 @@
+import { openaiModelSupportsImageOutput } from "../src/providers/openai-capabilities.js";
 import { describe, expect, it } from "vitest";
 import {
   assembleAssistantContent,
   imagePartFromOpenAIBase64,
-  openaiModelSupportsImageOutput,
   assertImagesSupported,
   blocksAllowForImages,
   collectOpenRouterImageParts,
@@ -62,103 +62,32 @@ describe("image helpers", () => {
     ).toBe(true);
   });
 
-  it("disables Allow for image output and non-vision Ollama / other providers", () => {
-    expect(
-      blocksAllowForImages(
-        { id: "ollama" },
-        { imageInput: true, modelHasVision: true }
-      )
-    ).toBe(false);
-    expect(
-      blocksAllowForImages(
-        { id: "ollama" },
-        { imageInput: true, modelHasVision: false }
-      )
-    ).toBe(true);
-    expect(
-      blocksAllowForImages({ id: "openai" }, { imageInput: true })
-    ).toBe(false);
-    expect(
-      blocksAllowForImages(
-        { id: "openai" },
-        { imageOutput: true, modelCanGenerateImages: true }
-      )
-    ).toBe(false);
-    expect(
-      blocksAllowForImages({ id: "openai" }, { imageOutput: true })
-    ).toBe(true);
-    expect(
-      blocksAllowForImages({ id: "anthropic" }, { imageInput: true })
-    ).toBe(false);
-    expect(
-      blocksAllowForImages({ id: "compat:local" }, { imageInput: true })
-    ).toBe(false);
-    expect(
-      blocksAllowForImages({ id: "on-device" }, { imageInput: true })
-    ).toBe(false);
-    expect(
-      blocksAllowForImages({ id: "on-device" }, { imageOutput: true })
-    ).toBe(true);
-    expect(
-      blocksAllowForImages({ id: "ollama" }, { imageOutput: true })
-    ).toBe(true);
-    expect(
-      blocksAllowForImages(
-        { id: "openrouter" },
-        { imageOutput: true, modelCanGenerateImages: true }
-      )
-    ).toBe(false);
-    expect(
-      blocksAllowForImages(
-        { id: "openrouter" },
-        { imageOutput: true, modelCanGenerateImages: false }
-      )
-    ).toBe(true);
-    expect(
-      blocksAllowForImages(
-        { id: "openrouter" },
-        { imageInput: true, modelHasVision: true }
-      )
-    ).toBe(false);
+  it("uses resolved model capabilities independently of provider identity", () => {
+    for (const state of [false, null, undefined]) {
+      expect(blocksAllowForImages({ imageInput: state }, { imageInput: true })).toBe(true);
+      expect(blocksAllowForImages({ imageOutput: state }, { imageOutput: true })).toBe(true);
+    }
+    expect(blocksAllowForImages({ imageInput: true }, { imageInput: true })).toBe(false);
+    expect(blocksAllowForImages({ imageOutput: true }, { imageOutput: true })).toBe(false);
+    expect(blocksAllowForImages({ imageInput: false, imageOutput: true }, { imageInput: true, imageOutput: true })).toBe(true);
+    expect(blocksAllowForImages({ imageInput: null, imageInputPassthrough: true }, { imageInput: true })).toBe(false);
+    expect(blocksAllowForImages({ imageInput: false, imageInputPassthrough: true }, { imageInput: true })).toBe(true);
   });
 
-  it("does not claim an Ollama model lacks vision until /api/show says so", () => {
-    expect(
-      imageCapabilityWarnings(
-        { id: "ollama", label: "Ollama" },
-        { imageInput: true }
-      )
-    ).toEqual([]);
-    expect(
-      imageCapabilityWarnings(
-        { id: "ollama", label: "Ollama" },
-        { imageInput: true, modelHasVision: true }
-      )
-    ).toEqual([]);
-    expect(
-      imageCapabilityWarnings(
-        { id: "ollama", label: "Ollama" },
-        { imageInput: true, modelHasVision: false }
-      )
-    ).toMatchObject([expect.stringMatching(/does not support image input/)]);
+  it("distinguishes unverified vision from an unsupported model", () => {
+    const provider = { label: "Ollama" };
+    expect(imageCapabilityWarnings(provider, { imageInput: true }, { imageInput: null }))
+      .toMatchObject([expect.stringMatching(/could not verify image input/)]);
+    expect(imageCapabilityWarnings(provider, { imageInput: true }, { imageInput: false }))
+      .toMatchObject([expect.stringMatching(/does not support image input/)]);
+    expect(imageCapabilityWarnings(provider, { imageInput: true }, { imageInput: true })).toEqual([]);
   });
 
-  it("treats OpenAI-compatible vision guidance as a note, not a blocking warning", () => {
-    expect(
-      imageCapabilityWarnings(
-        { id: "compat:lmstudio", label: "LM Studio" },
-        { imageInput: true }
-      )
-    ).toEqual([]);
-    expect(
-      imageCapabilityNotes(
-        { id: "compat:lmstudio", label: "LM Studio" },
-        { imageInput: true }
-      )
-    ).toMatchObject([expect.stringMatching(/image_url/)]);
-    expect(
-      imageCapabilityNotes({ id: "openai", label: "OpenAI" }, { imageInput: true })
-    ).toEqual([]);
+  it("keeps adapter-supplied guidance informational for unverified native forwarding", () => {
+    const caps = { imageInput: null, imageInputPassthrough: true, imageInputNote: "Forwarded as image_url" };
+    expect(imageCapabilityWarnings({ label: "Local server" }, { imageInput: true }, caps)).toEqual([]);
+    expect(imageCapabilityNotes({ imageInput: true }, caps)).toEqual([caps.imageInputNote]);
+    expect(imageCapabilityNotes({}, caps)).toEqual([]);
     expect(openaiModelSupportsImageOutput("gpt-4o")).toBe(true);
     expect(openaiModelSupportsImageOutput("gpt-5.6-luna")).toBe(true);
     expect(openaiModelSupportsImageOutput("gpt-6-astra")).toBe(true);
@@ -172,12 +101,7 @@ describe("image helpers", () => {
       mediaType: "image/png",
       data: "iVBORw0K",
     });
-    expect(
-      imageCapabilityNotes(
-        { id: "on-device", label: "On-device" },
-        { imageInput: true }
-      )
-    ).toMatchObject([expect.stringMatching(/Prompt API/)]);
+
   });
 
   it("maps mixed content to Ollama string + images", () => {
@@ -198,64 +122,15 @@ describe("image helpers", () => {
     ).toEqual({ content: "", images: ["abc"] });
   });
 
-  it("fail-closes image output and unsupported image input", () => {
-    expect(() =>
-      assertImagesSupported(
-        { id: "openai", label: "OpenAI" },
-        [{ role: "user", content: [pngPart] }],
-        undefined
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertImagesSupported(
-        { id: "anthropic", label: "Anthropic" },
-        [{ role: "user", content: [pngPart] }],
-        undefined
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertImagesSupported(
-        { id: "compat:lmstudio", label: "LM Studio" },
-        [{ role: "user", content: [pngPart] }],
-        undefined
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertImagesSupported(
-        { id: "on-device", label: "On-device" },
-        [{ role: "user", content: [pngPart] }],
-        undefined
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertImagesSupported(
-        { id: "on-device", label: "On-device" },
-        [{ role: "user", content: "draw" }],
-        { images: true }
-      )
-    ).toThrow(/Image output/);
-    expect(() =>
-      assertImagesSupported(
-        { id: "ollama", label: "Ollama" },
-        [{ role: "user", content: "draw" }],
-        { images: true }
-      )
-    ).toThrow(/Image output/);
-    expect(() =>
-      assertImagesSupported(
-        { id: "ollama", label: "Ollama" },
-        [{ role: "user", content: [pngPart] }],
-        undefined
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertImagesSupported(
-        { id: "openrouter", label: "OpenRouter" },
-        [{ role: "user", content: "draw" }],
-        { images: true },
-        { imageOutput: true }
-      )
-    ).not.toThrow();
+  it("rejects required images unless the resolved capability permits them", () => {
+    const provider = { label: "Test provider" };
+    const messages = [{ role: "user", content: [pngPart] }];
+    expect(() => assertImagesSupported(provider, messages)).toThrow(/Image input/);
+    expect(() => assertImagesSupported(provider, messages, undefined, { imageInput: true })).not.toThrow();
+    expect(() => assertImagesSupported(provider, messages, undefined, { imageInput: null, imageInputPassthrough: true })).not.toThrow();
+    expect(() => assertImagesSupported(provider, [], { images: true })).toThrow(/Image output/);
+    expect(() => assertImagesSupported(provider, messages, { images: true }, { imageOutput: true })).toThrow(/Image input/);
+    expect(() => assertImagesSupported(provider, messages, { images: true }, { imageOutput: true, imageInput: true })).not.toThrow();
   });
 
   it("assembles OpenRouter data-URL images onto done content", () => {

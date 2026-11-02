@@ -4,6 +4,19 @@
  */
 
 /**
+ * null is unknown (missing model metadata or failed discovery). Only adapters
+ * whose native protocol already forwards unverified image input may opt into
+ * imageInputPassthrough; this does not claim that the model supports vision.
+ * Discovered/catalog-gated adapters must fail closed on unknown results.
+ * @typedef {{
+ *   imageInput: boolean | null,
+ *   imageOutput: boolean | null,
+ *   imageInputPassthrough?: boolean,
+ *   imageInputNote?: string,
+ * }} ModelCapabilities
+ */
+
+/**
  * @typedef {{
  *   id: string,
  *   label?: string,
@@ -120,6 +133,7 @@
  *   optionalApiKey?: boolean,
  *   defaultModel: string,
  *   supportsFunctionTools?: boolean,
+ *   getModelCapabilities?: (args: { model: string, apiKey?: string, signal?: AbortSignal }) => ModelCapabilities | Promise<ModelCapabilities>,
  *   hostedTools?: readonly string[],
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
@@ -142,7 +156,7 @@
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
- *   preflightChat?: (args: { model: string, messages: ChatMessage[], apiKey?: string, origin?: string, tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void | Promise<void>,
+ *   preflightChat?: (args: { model: string, messages: ChatMessage[], apiKey?: string, signal?: AbortSignal, origin?: string, tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void | Promise<void>,
  *   transcribe?: (args: {
  *     apiKey?: string,
  *     model: string,

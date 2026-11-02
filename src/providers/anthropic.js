@@ -3,6 +3,8 @@
  * First-class BYOK provider — not OpenAI-compatible Chat Completions.
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
+import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
   assertImagesSupported,
   mapContentForAnthropic,
@@ -296,6 +298,13 @@ export const anthropicProvider = {
   models: ANTHROPIC_MODELS,
   defaultModel: "claude-sonnet-5-5",
   supportsFunctionTools: true,
+  getModelCapabilities() {
+    return {
+      imageInput: null,
+      imageOutput: false,
+      imageInputPassthrough: true,
+    };
+  },
   hostedTools: Object.freeze(["web_search"]),
 
   /**
@@ -308,7 +317,7 @@ export const anthropicProvider = {
     mapMessagesForAnthropic(messages);
   },
 
-  async streamChat({
+  streamChat: withChatErrorBoundary(async function ({
     apiKey,
     model,
     messages,
@@ -320,7 +329,7 @@ export const anthropicProvider = {
     onDelta,
     onReasoningDelta,
   }) {
-    assertImagesSupported(this, messages, output);
+    assertImagesSupported(this, messages, output, await resolveModelCapabilities(this, { model, apiKey, signal }));
     const mapped = mapMessagesForAnthropic(messages);
     const toolsForRequest = omitHostedWebSearchIfNone(tools, toolChoice);
     const mappedTools =
@@ -637,5 +646,5 @@ export const anthropicProvider = {
       message,
       usage,
     };
-  },
+  }),
 };

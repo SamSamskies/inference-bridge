@@ -91,193 +91,55 @@ export function isImageGrantCovered(grant, request) {
 }
 
 /**
- * Providers that map IPA image parts on chat without a catalog probe.
- * OpenRouter is catalog-gated (`capabilities.imageInput`) instead.
- * @param {{ id?: string } | null | undefined} provider
- * @returns {boolean}
+ * Shared consent policy. Unknown discovery fails closed; the explicit native
+ * passthrough exception retains existing OpenAI/Anthropic/compat behavior.
+ * @param {import("./providers/types.js").ModelCapabilities} capabilities
+ * @param {{ imageInput?: boolean, imageOutput?: boolean }} request
  */
-export function providerMapsImageInput(provider) {
-  const id = provider?.id;
-  if (
-    id === "ollama" ||
-    id === "openai" ||
-    id === "anthropic" ||
-    id === "gemini" ||
-    id === "on-device"
-  ) {
-    return true;
-  }
-  return typeof id === "string" && id.startsWith("compat:");
-}
-
-/**
- * True when Allow must stay disabled because this Bridge build cannot honor
- * the image request on the selected provider/model.
- *
- * @param {{ id?: string } | null | undefined} provider
- * @param {{
- *   imageInput?: boolean,
- *   imageOutput?: boolean,
- *   modelHasVision?: boolean,
- *   modelCanGenerateImages?: boolean,
- * }} request
- * @returns {boolean}
- */
-/**
- * Mainline OpenAI chat models that can call the Responses `image_generation` tool.
- * Image-only ids (`gpt-image-1`, …) are not valid Responses mainline models.
- * @param {unknown} model
- * @returns {boolean}
- */
-export function openaiModelSupportsImageOutput(model) {
-  if (typeof model !== "string") return false;
-  const id = model.trim().toLowerCase();
-  if (!id) return false;
-  return (
-    id.startsWith("gpt-4o") ||
-    id.startsWith("gpt-4.1") ||
-    id.startsWith("gpt-5") ||
-    id.startsWith("gpt-6") ||
-    id.startsWith("o3")
-  );
-}
-
-export function blocksAllowForImages(provider, request) {
-  if (request.imageOutput) {
-    if (provider?.id === "openrouter" || provider?.id === "openai") {
-      return request.modelCanGenerateImages !== true;
-    }
-    return true;
-  }
-  if (request.imageInput) {
-    if (provider?.id === "ollama") {
-      return request.modelHasVision !== true;
-    }
-    if (provider?.id === "openrouter" || provider?.id === "gemini") {
-      return request.modelHasVision !== true;
-    }
-    if (providerMapsImageInput(provider)) return false;
-    return true;
+export function blocksAllowForImages(capabilities, request) {
+  if (request.imageOutput && capabilities?.imageOutput !== true) return true;
+  if (request.imageInput && capabilities?.imageInput !== true) {
+    return !(capabilities?.imageInput === null && capabilities.imageInputPassthrough === true);
   }
   return false;
 }
 
-/**
- * @param {{ id?: string, label?: string } | null | undefined} provider
- * @param {{
- *   imageInput?: boolean,
- *   imageOutput?: boolean,
- *   modelHasVision?: boolean,
- *   modelCanGenerateImages?: boolean,
- * }} request
- * @returns {string[]}
- */
-export function imageCapabilityWarnings(provider, request) {
-  if (!request.imageInput && !request.imageOutput) return [];
-  const label =
-    provider && typeof provider.label === "string" && provider.label
-      ? provider.label
-      : "This provider";
-  /** @type {string[]} */
+/** Warnings and the Allow gate consume the same resolved model result. */
+export function imageCapabilityWarnings(provider, request, capabilities = {}) {
+  const label = provider?.label || "This provider";
   const warnings = [];
-  if (request.imageOutput) {
-    if (provider?.id === "openrouter") {
-      if (request.modelCanGenerateImages === false) {
-        warnings.push(
-          "The selected OpenRouter model does not generate images. Choose a model whose output modalities include image (for example google/gemini-2.5-flash-image)."
-        );
-      }
-    } else if (provider?.id === "openai") {
-      if (request.modelCanGenerateImages === false) {
-        warnings.push(
-          "The selected OpenAI model does not support image generation. Choose a GPT-4o, GPT-4.1, GPT-5, or GPT-6 family model."
-        );
-      }
-    } else {
-      warnings.push(
-        "Image generation is not available for this provider yet. Choose OpenAI (GPT-4o / GPT-4.1 / GPT-5 / GPT-6) or OpenRouter with an image-output model."
-      );
-    }
-  }
-  if (request.imageInput) {
-    if (provider?.id === "ollama") {
-      if (request.modelHasVision === false) {
-        warnings.push(
-          "The selected Ollama model does not support image input. Choose a vision model (for example llava or gemma3)."
-        );
-      }
-    } else if (provider?.id === "openrouter") {
-      if (request.modelHasVision === false) {
-        warnings.push(
-          "The selected OpenRouter model does not accept image input. Choose a vision-capable model."
-        );
-      }
-    } else if (!providerMapsImageInput(provider)) {
-      warnings.push(
-        `${label} cannot read image parts. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
-      );
-    }
+  const features = [
+    ["imageInput", "image input"],
+    ["imageOutput", "image generation"],
+  ];
+  for (const [field, description] of features) {
+    if (!request[field] || !blocksAllowForImages(capabilities, { [field]: true })) continue;
+    warnings.push(
+      capabilities[field] === false
+        ? `${label}: the selected model does not support ${description}. Choose a model with verified support.`
+        : `${label}: could not verify ${description} for the selected model. Choose a verified model or retry discovery.`
+    );
   }
   return warnings;
 }
 
-/**
- * Informational (non-blocking) image notes. Shown with muted hint styling,
- * not the danger color used when Allow is disabled.
- *
- * @param {{ id?: string } | null | undefined} provider
- * @param {{ imageInput?: boolean }} request
- * @returns {string[]}
- */
-export function imageCapabilityNotes(provider, request) {
-  if (!request.imageInput) return [];
-  if (typeof provider?.id === "string" && provider.id.startsWith("compat:")) {
-    return [
-      "Image parts are forwarded as Chat Completions image_url. The selected model must support vision.",
-    ];
-  }
-  if (provider?.id === "on-device") {
-    return [
-      "On-device vision uses the browser Prompt API. Image generation is not available.",
-    ];
-  }
-  return [];
+/** Native protocol guidance is supplied by the adapter, without provider IDs. */
+export function imageCapabilityNotes(request, capabilities = {}) {
+  return request.imageInput && capabilities.imageInputNote ? [capabilities.imageInputNote] : [];
 }
 
-/**
- * Fail closed in adapters when the provider cannot honor image parts / output.
- * Ollama image input is allowed here; the adapter still checks vision.
- * Pass `capabilities.imageOutput` / `imageInput` when a provider (OpenRouter)
- * has already confirmed the selected model can honor that surface.
- *
- * @param {{ id?: string, label?: string } | null | undefined} provider
- * @param {ChatMessage[] | undefined | null} messages
- * @param {unknown} [output]
- * @param {{ imageInput?: boolean, imageOutput?: boolean }} [capabilities]
- * @returns {void}
- */
+/** Reject required image capabilities; never silently strip image parts/output. */
 export function assertImagesSupported(provider, messages, output, capabilities = {}) {
-  const imageInput = messagesHaveImageParts(messages);
-  const imageOutput = requestWantsImageOutput(output);
-  if (!imageInput && !imageOutput) return;
-  if (imageOutput && capabilities.imageOutput !== true) {
+  if (requestWantsImageOutput(output) && capabilities.imageOutput !== true) {
     throwInference(
       "unavailable",
       "Image output (output.images) is not available for this provider or model."
     );
   }
-  if (
-    imageInput &&
-    !providerMapsImageInput(provider) &&
-    capabilities.imageInput !== true
-  ) {
-    const label =
-      provider && typeof provider.label === "string" && provider.label
-        ? provider.label
-        : "This provider";
+  if (blocksAllowForImages(capabilities, { imageInput: messagesHaveImageParts(messages) })) {
     throwInference(
       "unavailable",
-      `Image input is not supported by ${label}. Choose a vision-capable OpenAI, Anthropic, OpenRouter, Ollama, or OpenAI-compatible model.`
+      `Image input is not supported or verified by ${provider?.label || "this provider"}. Choose a vision-capable model.`
     );
   }
 }
