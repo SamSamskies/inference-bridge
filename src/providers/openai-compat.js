@@ -3,6 +3,8 @@
  * (LM Studio, llama.cpp, vLLM, LocalAI, proxies, etc.).
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
+import { resolveModelCapabilities } from "./model-capabilities.js";
 import { assertImagesSupported } from "../image-parts.js";
 import { assertHostedWebSearchSupported } from "./hosted-tools.js";
 import {
@@ -64,6 +66,14 @@ export function createOpenAICompatProvider(endpoint) {
     baseUrl,
     defaultModel: "",
     supportsFunctionTools: true,
+    getModelCapabilities() {
+      return {
+        imageInput: null,
+        imageOutput: false,
+        imageInputPassthrough: true,
+        imageInputNote: "Image parts are forwarded as Chat Completions image_url. The selected model must support vision.",
+      };
+    },
     hostedTools: Object.freeze([]),
 
     async listModels({ signal, apiKey } = {}) {
@@ -107,7 +117,7 @@ export function createOpenAICompatProvider(endpoint) {
       return models;
     },
 
-    async streamChat({
+    streamChat: withChatErrorBoundary(async function ({
       apiKey,
       model,
       messages,
@@ -119,7 +129,7 @@ export function createOpenAICompatProvider(endpoint) {
       onDelta,
       onReasoningDelta,
     }) {
-      assertImagesSupported(this, messages, output);
+      assertImagesSupported(this, messages, output, await resolveModelCapabilities(this, { model, apiKey, signal }));
       if (!model) {
         throwInference(
           "unavailable",
@@ -148,6 +158,6 @@ export function createOpenAICompatProvider(endpoint) {
         onReasoningDelta,
         label,
       });
-    },
+    }),
   };
 }

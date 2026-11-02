@@ -3,6 +3,7 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
 import { requestSystemOne } from "./system-one.js";
 import {
   assertImagesSupported,
@@ -52,7 +53,7 @@ const OPENROUTER_CHAT_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
 const OPENROUTER_MODELS_URL = `${OPENROUTER_BASE_URL}/models`;
 const OPENROUTER_DECISION_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=decisions`;
 
-/** @type {Map<string, { inputImage: boolean, outputImage: boolean, outputText: boolean }>} */
+/** @type {Map<string, { inputImage: boolean | null, outputImage: boolean | null, outputText: boolean }>} */
 const modalitiesByModel = new Map();
 
 /**
@@ -76,8 +77,8 @@ function rememberModalities(id, architecture) {
   const input = stringList(arch.input_modalities);
   const output = stringList(arch.output_modalities);
   modalitiesByModel.set(id, {
-    inputImage: input.includes("image"),
-    outputImage: output.includes("image"),
+    inputImage: Array.isArray(arch.input_modalities) ? input.includes("image") : null,
+    outputImage: Array.isArray(arch.output_modalities) ? output.includes("image") : null,
     outputText: output.length === 0 || output.includes("text"),
   });
 }
@@ -86,17 +87,17 @@ function rememberModalities(id, architecture) {
  * Catalog lookup used by streamChat and Always-allow skip. Lists models if needed.
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
- * @returns {Promise<{ inputImage: boolean, outputImage: boolean, outputText: boolean }>}
+ * @returns {Promise<{ inputImage: boolean | null, outputImage: boolean | null, outputText: boolean }>}
  */
 export async function openrouterModelModalities(model, { signal } = {}) {
-  if (!model) return { inputImage: false, outputImage: false, outputText: true };
+  if (!model) return { inputImage: null, outputImage: null, outputText: true };
   const cached = modalitiesByModel.get(model);
   if (cached) return cached;
   await listOpenRouterModels({ signal });
   return (
     modalitiesByModel.get(model) || {
-      inputImage: false,
-      outputImage: false,
+      inputImage: null,
+      outputImage: null,
       outputText: true,
     }
   );
@@ -347,8 +348,12 @@ export const openrouterProvider = {
   synthesize: synthesizeOpenRouter,
 
   listModels: listOpenRouterModels,
+  async getModelCapabilities({ model, signal }) {
+    const caps = await openrouterModelModalities(model, { signal });
+    return { imageInput: caps.inputImage, imageOutput: caps.outputImage };
+  },
 
-  async streamChat({
+  streamChat: withChatErrorBoundary(async function ({
     apiKey,
     model,
     messages,
@@ -378,7 +383,7 @@ export const openrouterProvider = {
 
     const wantImages = requestWantsImageOutput(output);
     const wantImageInput = messagesHaveImageParts(messages);
-    /** @type {{ inputImage: boolean, outputImage: boolean, outputText: boolean }} */
+    /** @type {{ inputImage: boolean | null, outputImage: boolean | null, outputText: boolean }} */
     let caps = { inputImage: false, outputImage: false, outputText: true };
     if (wantImages || wantImageInput) {
       caps = await openrouterModelModalities(model, { signal });
@@ -428,5 +433,5 @@ export const openrouterProvider = {
       label: "OpenRouter",
       mapStatus: mapOpenRouterStatus,
     });
-  },
+  }),
 };

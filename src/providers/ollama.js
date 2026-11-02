@@ -3,6 +3,7 @@
  * Models are discovered via GET /api/tags — no hardcoded catalog.
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
 import { requestSystemOne } from "./system-one.js";
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
 import { hostedWebSearchActive } from "./hosted-tools.js";
@@ -299,14 +300,14 @@ export async function listOllamaSynthesisModels({ signal } = {}) {
 const visionByModel = new Map();
 
 /**
- * True when `/api/show` lists `vision` in capabilities. Fail closed on errors.
+ * True/false when `/api/show` supplies capabilities; null on missing metadata or errors.
  * Successful lookups are cached; network failures are not.
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean | null>}
  */
-export async function ollamaModelHasVision(model, { signal } = {}) {
-  if (!model) return false;
+async function probeOllamaVision(model, { signal } = {}) {
+  if (!model) return null;
   const cached = visionByModel.get(model);
   if (cached !== undefined) return cached;
   await ensureOllamaOriginBypass();
@@ -319,18 +320,23 @@ export async function ollamaModelHasVision(model, { signal } = {}) {
       signal,
     });
   } catch {
-    return false;
+    return null;
   }
-  if (!response.ok) return false;
+  if (!response.ok) return null;
   try {
     const body = await response.json();
     const caps = body?.capabilities;
-    const vision = Array.isArray(caps) && caps.includes("vision");
+    if (!Array.isArray(caps)) return null;
+    const vision = caps.includes("vision");
     visionByModel.set(model, vision);
     return vision;
   } catch {
-    return false;
+    return null;
   }
+}
+
+async function ollamaModelCapabilities({ model, signal }) {
+  return { imageInput: await probeOllamaVision(model, { signal }), imageOutput: false };
 }
 
 /**
@@ -553,10 +559,11 @@ export async function streamOllamaChatTurn({
     }
 
     await ensureOllamaOriginBypass();
-    assertImagesSupported({ id: "ollama", label: "Ollama" }, messages, output);
+    assertImagesSupported({ label: "Ollama" }, [], output, { imageOutput: false });
     if (messagesHaveImageParts(messages)) {
-      const vision = await ollamaModelHasVision(model, { signal });
-      if (!vision) {
+      const caps = await ollamaModelCapabilities({ model, signal });
+      if (signal.aborted) throwInference("aborted", "Request aborted");
+      if (caps.imageInput !== true) {
         throwInference(
           "unavailable",
           `Ollama model "${model}" does not support image input. Choose a vision model.`
@@ -757,6 +764,7 @@ export async function streamOllamaChatTurn({
 export const ollamaProvider = {
   id: "ollama",
   label: "Ollama",
+  getModelCapabilities: ollamaModelCapabilities,
   requiresApiKey: false,
   optionalApiKey: true,
   // Placeholder until /api/tags is queried; never used as a hardcoded catalog.
@@ -811,7 +819,7 @@ export const ollamaProvider = {
     });
   },
 
-  async streamChat({
+  streamChat: withChatErrorBoundary(async function ({
     apiKey,
     model,
     messages,
@@ -895,5 +903,5 @@ export const ollamaProvider = {
       onDelta,
       onReasoningDelta,
     });
-  },
+  }),
 };

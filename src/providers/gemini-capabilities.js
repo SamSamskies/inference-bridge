@@ -78,6 +78,13 @@ export function geminiCapabilities(model) {
   return PROFILES.get(model) || {};
 }
 
+export function geminiModelCapabilities(model) {
+  return {
+    imageInput: geminiCapabilities(model).image === true ? true : null,
+    imageOutput: false,
+  };
+}
+
 export function geminiModelNote(model) {
   return model === "gemini-3.1-pro-preview"
     ? "Gemini 3.1 Pro is currently a preview model."
@@ -101,7 +108,7 @@ export function geminiRequestWarning(model, request = {}) {
   const choose = "Choose a model with verified support in Inference Bridge.";
   if (request.imageOutput)
     return "Google Gemini image generation is not supported by this adapter.";
-  if (request.imageInput && !caps.image)
+  if (request.imageInput && geminiModelCapabilities(model).imageInput !== true)
     return `Image input is not verified for ${model}. ${choose}`;
   if (search && !caps.search)
     return `Google Search grounding is not verified for ${model}. ${choose}`;

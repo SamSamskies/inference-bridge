@@ -3,14 +3,17 @@
  * No API key; no model picker. User installs the UA-chosen model in Options.
  */
 
+import { withChatErrorBoundary } from "./chat-errors.js";
+import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
   ON_DEVICE_MODEL_ID,
   ON_DEVICE_PROVIDER_ID,
+  assertOnDeviceAvailable,
   mapMessagesForPromptApi,
   throwInference,
 } from "../prompt-api-core.js";
-import { streamOnDeviceChat } from "../prompt-api-client.js";
-import { assertImagesSupported } from "../image-parts.js";
+import { getOnDeviceAvailability, streamOnDeviceChat } from "../prompt-api-client.js";
+import { assertImagesSupported, messagesHaveImageParts } from "../image-parts.js";
 import { assertHostedWebSearchSupported } from "./hosted-tools.js";
 
 /** @typedef {import("./types.js").Provider} Provider */
@@ -23,6 +26,17 @@ export const onDeviceProvider = {
   requiresApiKey: false,
   defaultModel: ON_DEVICE_MODEL_ID,
   supportsFunctionTools: false,
+  async getModelCapabilities({ model }) {
+    const availability = model === ON_DEVICE_MODEL_ID
+      ? await getOnDeviceAvailability({ wantsImage: true }) : null;
+    return {
+      // A download requirement proves support, but native readiness still
+      // gates execution before accepted. Missing/failed probes stay unknown.
+      imageInput: ["available", "downloadable", "downloading"].includes(availability) ? true : null,
+      imageOutput: false,
+      imageInputNote: "On-device vision uses the browser Prompt API. Image generation is not available.",
+    };
+  },
   hostedTools: [],
   // Sentinel only — not a real catalog. UI replaces the model control with Install.
   models: [{ id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" }],
@@ -36,12 +50,23 @@ export const onDeviceProvider = {
     mapMessagesForPromptApi(messages);
   },
 
-  async streamChat({ messages, tools, toolChoice, output, signal, onDelta }) {
+  async preflightChat({ messages, signal }) {
+    const wantsImage = messagesHaveImageParts(messages);
+    const availability = await getOnDeviceAvailability({ wantsImage });
+    if (signal?.aborted) throwInference("aborted", "Request aborted");
+    // Always-allow also needs this readiness gate before accepted. A supported
+    // model can still need a download, including a separate vision install.
+    assertOnDeviceAvailable(availability, { wantsImage });
+  },
+
+  streamChat: withChatErrorBoundary(async function ({ messages, tools, toolChoice, output, signal, onDelta }) {
     if (signal.aborted) {
       throwInference("aborted", "Request aborted");
     }
-    assertImagesSupported(this, messages, output);
+    assertImagesSupported(this, messages, output, messagesHaveImageParts(messages)
+      ? await resolveModelCapabilities(this, { model: ON_DEVICE_MODEL_ID, signal })
+      : { imageInput: null, imageOutput: false });
     assertHostedWebSearchSupported(this, tools, toolChoice);
     return streamOnDeviceChat({ messages, signal, onDelta });
-  },
+  }),
 };

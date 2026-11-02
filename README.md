@@ -884,6 +884,10 @@ npm test
 
 Node tests cover validation, storage, permissions, provider adapters, tools, and binary transport. The [speech contract tests](test/speech-conformance.test.js) exercise the injector, content script, and worker together using browser and network mocks and the [shared IPA stream checker](test/helpers/speech-conformance.mjs). Fixture provenance is in [test/fixtures/README.md](test/fixtures/README.md).
 
+The [shared chat adapter contract](test/helpers/chat-adapter-contract.js) runs against every built-in adapter and a named OpenAI-compatible endpoint in [chat-adapter-contract.test.js](test/chat-adapter-contract.test.js). It checks streaming/results, cancellation, sanitized errors, immutable requests, and concurrent configuration isolation using native protocol fixtures. Provider-specific tests retain tool, reasoning, retry, and protocol coverage.
+
+Adapters own `getModelCapabilities({ model, apiKey, signal })`; consumers use `resolveModelCapabilities()` from the registry. Image input/output results are `true`, `false`, or `null` (unknown). Missing metadata and failed discovery stay unknown and cannot authorize catalog-gated features. OpenAI, Anthropic, and compatible endpoints retain native image-input forwarding through an explicit `imageInputPassthrough` flag; this does not assert model vision support. Request-specific tool combinations and native readiness checks still run in adapters/preflight. Chat capabilities do not select or grant decisions, transcription, or synthesis routes.
+
 These tests do not replace installed-browser checks or live provider verification. Use the manual checklist below for approvals, playback, provider behavior, and browser lifecycle checks.
 
 Optional local Ollama speech integration uses the checked-in 16 kHz

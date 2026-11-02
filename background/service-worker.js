@@ -27,14 +27,14 @@ import {
   listAllProviders,
   listProviders,
   resolveProviderModels,
+  resolveModelCapabilities,
   resolveProviderVoices,
   providerSupportsMethod,
   providerMethodCatalog,
   resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
-import { getOllamaThinking, ollamaModelHasVision } from "../src/providers/ollama.js";
+import { getOllamaThinking } from "../src/providers/ollama.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
-import { messagesHaveImageParts } from "../src/image-parts.js";
 import {
   BinaryChunkReceiver,
   BinaryChunkSender,
@@ -50,10 +50,7 @@ import {
   installOnDeviceModel,
   cancelOnDeviceInstall,
 } from "../src/prompt-api-client.js";
-import {
-  ON_DEVICE_MODEL_ID,
-  assertOnDeviceAvailable,
-} from "../src/prompt-api-core.js";
+import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
 import {
   canAcceptRebind,
   canAcceptStartedAck,
@@ -468,15 +465,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "ollama-vision") {
+  if (message?.type === "model-capabilities") {
+    const providerId = typeof message.providerId === "string" ? message.providerId : "";
     const model = typeof message.model === "string" ? message.model : "";
-    void ollamaModelHasVision(model)
-      .then((vision) => {
-        sendResponse({ ok: true, vision });
-      })
-      .catch(() => {
-        sendResponse({ ok: true, vision: false });
-      });
+    void (async () => {
+      const provider = await getProviderAsync(providerId);
+      const settings = await getSettings();
+      return resolveModelCapabilities(provider, { model, apiKey: settings.apiKeys[providerId] });
+    })().then((capabilities) => sendResponse({ ok: true, capabilities }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -1278,6 +1275,7 @@ async function handleStart(port, msg, onStreamId) {
     port.postMessage({ type: "started", streamId });
 
     const permission = await ensurePermission({
+      signal: controller.signal,
       requestId: streamId,
       origin,
       messages: validated.value.messages,
@@ -1382,18 +1380,8 @@ async function handleStart(port, msg, onStreamId) {
     // assistant-first threads) must fail here, before `accepted` is sent.
     provider.preflightMessages?.(validated.value.messages);
     await provider.preflightChat?.({
-      ...validated.value, options, model, origin, apiKey: settings.apiKeys[provider.id],
+      ...validated.value, options, model, origin, apiKey: settings.apiKeys[provider.id], signal: controller.signal,
     });
-
-    // Always-allow grants skip the approval UI install gate — probe Prompt API
-    // readiness here so downloadable/missing (and vision-only gaps) fail
-    // before `accepted`.
-    if (provider.id === "on-device") {
-      const wantsImage = messagesHaveImageParts(validated.value.messages);
-      assertOnDeviceAvailable(await getOnDeviceAvailability({ wantsImage }), {
-        wantsImage,
-      });
-    }
 
     // SPEC: exactly one accepted chunk after permission/preflight, before provider work.
     livePort.postMessage({

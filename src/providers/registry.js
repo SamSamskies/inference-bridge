@@ -11,6 +11,7 @@ import { onDeviceProvider } from "./on-device.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
 import { getSettings } from "../storage.js";
 import { isFirefoxBuild } from "../runtime-browser.js";
+export { resolveModelCapabilities } from "./model-capabilities.js";
 import {
   SYNTHESIS_OUTPUT_MEDIA_TYPES,
   normalizeTranscriptionMediaType,
