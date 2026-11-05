@@ -1,16 +1,16 @@
-# PPQ typed decisions — slice 2 checkpoint
+# PayPerQ typed decisions — slice 2 checkpoint
 
-This slice adds PPQ to the existing stable `method: "decide"` flow. Chat and
-decisions share one PPQ API key, with independent model selections, approval,
-and site grants. Speech has its own [checkpoint](ppq-speech-smoke-test.md). No authenticated PPQ decision call
+This slice adds PayPerQ to the existing stable `method: "decide"` flow. Chat and
+decisions share one PayPerQ API key, with independent model selections, approval,
+and site grants. Speech has its own [checkpoint](ppq-speech-smoke-test.md). No authenticated PayPerQ decision call
 has been run by the automated tests; these checks establish runtime behavior.
 
 ## Setup and catalog
 
 1. Reload the development extension and your HTTPS or localhost test page.
-2. Keep your PPQ key saved in **Options → Providers**. Leave the chat model
+2. Keep your PayPerQ key saved in **Options → Providers**. Leave the chat model
    unchanged; a decision model must not replace it.
-3. In **Options → Decisions**, select **PPQ.ai** and a live decision model.
+3. In **Options → Decisions**, select **PayPerQ** and a live decision model.
    Start with `typesafe/jev-1.13` or `~typesafe/jev-latest` if listed. Changing
    the selection saves the Decisions default automatically.
 4. Use a fresh origin or revoke only its **Decisions** grant in **Site access**.
@@ -25,7 +25,7 @@ has been run by the automated tests; these checks establish runtime behavior.
 
 ## Three typed answers
 
-Paste into the test page's DevTools console. Calls can incur PPQ charges; keep
+Paste into the test page's DevTools console. Calls can incur PayPerQ charges; keep
 your API key in Options and out of page code and test reports.
 
 ```js
@@ -82,12 +82,12 @@ try {
   **Always allow** skips later Decisions prompts for the same origin/route.
 - [ ] A Decisions grant does not authorize chat, transcription, or synthesis.
   Revoking Decisions leaves those separate grants untouched.
-- [ ] Temporarily remove the PPQ key, then restore it. Decisions gives a setup
+- [ ] Temporarily remove the PayPerQ key, then restore it. Decisions gives a setup
   hint without posting the state when the key is missing. Authentication and
   billing errors should be actionable without echoing the key.
 - [ ] Invalid requests (for example empty `questions`) fail as `invalid_request`
   before approval or networking. Unknown/retired models fail without chat fallback.
-- [ ] Firefox: revoke PPQ host access in add-on settings. Decisions must fail
+- [ ] Firefox: revoke PayPerQ host access in add-on settings. Decisions must fail
   before `accepted`; restore access and retry.
 
 For cancellation, start a request with a page-owned controller:
@@ -110,4 +110,4 @@ is pending. Expect `aborted`, no later `done`, and a successful fresh request
 afterward. If the model already finished, repeat; abort cannot undo completion.
 
 Report browser, model ID, whether all three answers passed, approval behavior,
-and any sanitized error. Reference: [PPQ API docs](https://ppq.ai/api-docs).
+and any sanitized error. Reference: [PayPerQ API docs](https://ppq.ai/api-docs).

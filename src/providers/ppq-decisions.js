@@ -33,12 +33,12 @@ export async function listPPQDecisionModels({ signal } = {}) {
   } catch (cause) {
     checkAbort(signal);
     if (cause?.name === "AbortError") fail("aborted", "Request aborted");
-    fail("unavailable", "Could not load PPQ.ai decision models. Retry discovery in Options.");
+    fail("unavailable", "Could not load PayPerQ decision models. Retry discovery in Options.");
   }
   checkAbort(signal);
   if (!response.ok) {
     fail(response.status >= 500 ? "unavailable" : "provider_error",
-      `PPQ.ai HTTP ${response.status} listing decision models. Retry discovery in Options.`);
+      `PayPerQ HTTP ${response.status} listing decision models. Retry discovery in Options.`);
   }
   let body;
   try {
@@ -46,10 +46,10 @@ export async function listPPQDecisionModels({ signal } = {}) {
   } catch (cause) {
     checkAbort(signal);
     if (cause?.name === "AbortError") fail("aborted", "Request aborted");
-    fail("provider_error", "PPQ.ai returned invalid JSON listing decision models.");
+    fail("provider_error", "PayPerQ returned invalid JSON listing decision models.");
   }
   checkAbort(signal);
-  if (!Array.isArray(body?.data)) fail("provider_error", "PPQ.ai returned an invalid decision model catalog.");
+  if (!Array.isArray(body?.data)) fail("provider_error", "PayPerQ returned an invalid decision model catalog.");
   const models = new Map();
   for (const entry of body.data) {
     const id = typeof entry?.id === "string" ? entry.id.trim() : "";
@@ -68,16 +68,16 @@ export async function listPPQDecisionModels({ signal } = {}) {
 
 function mapDecisionStatus(status, detail) {
   const hint = status === 401 || status === 403
-    ? "Check your PPQ.ai API key in Options."
+    ? "Check your PayPerQ API key in Options."
     : status === 402
-      ? "Check your PPQ.ai balance and API-key spending limit."
+      ? "Check your PayPerQ balance and API-key spending limit."
       : status === 404
-        ? "Refresh the PPQ.ai Decisions catalog and choose an available model."
+        ? "Refresh the PayPerQ Decisions catalog and choose an available model."
         : status === 429
-          ? "PPQ.ai rate limit reached. Retry later."
+          ? "PayPerQ rate limit reached. Retry later."
           : status >= 500
-            ? "PPQ.ai decisions are temporarily unavailable. Retry later."
-            : "Check the decision state and question definitions, or try another PPQ.ai decision model.";
+            ? "PayPerQ decisions are temporarily unavailable. Retry later."
+            : "Check the decision state and question definitions, or try another PayPerQ decision model.";
   return {
     code: status === 404 || status >= 500 ? "unavailable"
       : [400, 413, 422].includes(status) ? "invalid_request" : "provider_error",
@@ -89,7 +89,7 @@ function mapDecisionStatus(status, detail) {
 export async function decidePPQ(args) {
   try {
     checkAbort(args.signal);
-    if (!args.apiKey?.trim()) fail("unavailable", "PPQ.ai API key not configured. Add it in Options.");
+    if (!args.apiKey?.trim()) fail("unavailable", "PayPerQ API key not configured. Add it in Options.");
     const validated = validateDecideRequest({ method: "decide", state: args.state, questions: args.questions });
     if (!validated.ok) fail("invalid_request", validated.message);
     if (!decisionCatalog || Date.now() - listedAt >= CATALOG_MAX_AGE_MS) {
@@ -97,14 +97,14 @@ export async function decidePPQ(args) {
     }
     checkAbort(args.signal);
     if (!decisionCatalog?.some((entry) => entry.id === args.model)) {
-      fail("unavailable", "Choose a model from the current PPQ.ai Decisions catalog in Options or the approval dialog.");
+      fail("unavailable", "Choose a model from the current PayPerQ Decisions catalog in Options or the approval dialog.");
     }
     const result = await requestSystemOne({
       ...args,
       state: validated.value.state,
       questions: validated.value.questions,
       url: PPQ_DECISIONS_URL,
-      label: "PPQ.ai",
+      label: "PayPerQ",
       mapStatus: mapDecisionStatus,
     });
     checkAbort(args.signal);

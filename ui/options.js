@@ -600,7 +600,7 @@ function syncApiKeyDraftFromInput() {
 const API_KEY_SETUP_LINKS = Object.freeze({
   ppq: {
     href: "https://ppq.ai/api-keys",
-    label: "Get a PPQ.ai API key",
+    label: "Get a PayPerQ API key",
   },
   openai: {
     href: "https://platform.openai.com/api-keys",
@@ -1830,7 +1830,7 @@ async function loadDecisionModels(providerId, preferredModel) {
       : providerId === "openrouter"
         ? "Uses your saved OpenRouter API key and the Decisions alpha service."
         : providerId === "ppq"
-          ? "Uses your saved PPQ.ai API key and its separate System One Decisions API."
+          ? "Uses your saved PayPerQ API key and its separate System One Decisions API."
           : "Uses installed local decision models on Ollama 0.35+ (Clef: 0.35.1+; MLX: 0.40+)."
     : response?.error?.message ||
       (providerId === "openai"
@@ -1838,7 +1838,7 @@ async function loadDecisionModels(providerId, preferredModel) {
         : providerId === "openrouter"
           ? "No decision models are currently listed by OpenRouter."
           : providerId === "ppq"
-            ? "No decision models are currently listed by PPQ.ai. Retry discovery."
+            ? "No decision models are currently listed by PayPerQ. Retry discovery."
             : "No installed decision models. Run ollama pull nimble. GGUF requires Ollama 0.35+ (Clef: 0.35.1+); MLX requires 0.40+.");
 }
 
@@ -2121,7 +2121,7 @@ ppqTransferForm.addEventListener("submit", async (event) => {
   let transferred = false;
   try {
     if (!(await hasBuiltInHostPermission("ppq"))) {
-      throw new Error("Host access for PPQ.ai was revoked. Restore it in Firefox add-on settings before transferring.");
+      throw new Error("Host access for PayPerQ was revoked. Restore it in Firefox add-on settings before transferring.");
     }
     await transferPPQCompatEndpoint(review.source.id, {
       expected: review, replaceExisting: ppqTransferReplace.checked,
@@ -2150,8 +2150,8 @@ ppqTransferForm.addEventListener("submit", async (event) => {
     await refreshDefaultModels(nextProvider, preferredDefaultModel(nextProvider));
     renderCompatEndpoints();
     await renderAllowedSites();
-    setCompatStatus("Transferred to PPQ.ai and removed the custom server. Affected sites will ask for approval again.", "ok");
-    setStatus("PPQ.ai settings transferred.", "ok");
+    setCompatStatus("Transferred to PayPerQ and removed the custom server. Affected sites will ask for approval again.", "ok");
+    setStatus("PayPerQ settings transferred.", "ok");
   } catch (error) {
     if (transferred) {
       setCompatStatus("Transfer saved. Reload Options to refresh the display.", "ok");
@@ -2188,7 +2188,7 @@ function renderCompatEndpoints() {
     if (isPPQCompatEndpoint(endpoint)) {
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Move your saved key and model to the built-in PPQ.ai provider.";
+      hint.textContent = "Move your saved key and model to the built-in PayPerQ provider.";
       meta.append(hint);
     }
 

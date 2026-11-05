@@ -1,4 +1,4 @@
-# PPQ.ai integration checkpoints — issue #127
+# PayPerQ integration checkpoints — issue #127
 
 1. **Chat and hosted search:** built-in provider, saved key,
    public searchable chat catalog, text/streaming, verified vision input,
@@ -12,20 +12,20 @@
    Follow the [speech checkpoint](ppq-speech-smoke-test.md).
 
 The issue remains open until all slices and authenticated runtime checks pass.
-API reference: [PPQ documentation](https://ppq.ai/api-docs).
+API reference: [PayPerQ documentation](https://ppq.ai/api-docs).
 
 ## Load the chat/search checkpoint
 
 Use Chrome **Load unpacked** on the repository root, or run `npm run dev:firefox`
 for a temporary Firefox test install. Reload the extension and the HTTPS page
-after changing builds. In **Options → Providers**, select **PPQ.ai**, save your
+after changing builds. In **Options → Providers**, select **PayPerQ**, save your
 key, and verify the searchable catalog loads. Use a paid model with function
 tools for search tests; `auto` is the starter model, but an explicit model
 makes results easier to reproduce. Keep the key in Options, never in page code
-or test reports. Model and search calls can incur PPQ charges.
+or test reports. Model and search calls can incur PayPerQ charges.
 
 Use a fresh test origin or revoke its existing chat grant in **Site access**.
-An existing site route can override the global provider. Confirm **PPQ.ai** and
+An existing site route can override the global provider. Confirm **PayPerQ** and
 the expected model appear in each approval dialog.
 
 Paste this helper in DevTools on an HTTPS or localhost page:
@@ -75,9 +75,9 @@ await ppqSmoke(
 - [ ] In extension background DevTools, inspect the request to
   `https://api.ppq.ai/chat/completions`: `tools` contains only
   `{ type: "web_search" }`, with no `plugins` or `:online` model suffix.
-- [ ] Confirm PPQ consumes search server-side: final text answers the current
+- [ ] Confirm PayPerQ consumes search server-side: final text answers the current
   question, with no page-side search function in `done.message.toolCalls`.
-  Check PPQ account activity to confirm whether Auto actually searched;
+  Check PayPerQ account activity to confirm whether Auto actually searched;
   plausible text or missing tool calls alone does not prove it did.
 
 ```js
@@ -134,20 +134,20 @@ if (ppqMixed?.message.toolCalls?.length) {
 }
 ```
 
-## Transfer an existing PPQ server
+## Transfer an existing PayPerQ server
 
 - [ ] With `https://api.ppq.ai/v1` saved as a custom server, find **Transfer settings** beside it in **Options → Providers → OpenAI-compatible servers**.
   Unrelated hosts and custom paths must not offer this action.
 - [ ] Open the preview: it shows the server, saved chat model and key presence,
   never the key value. Cancel and confirm nothing changes.
-- [ ] If PPQ already has a different key or custom model, the transfer button
-  stays disabled until **Replace the existing PPQ.ai key and chat model** is
+- [ ] If PayPerQ already has a different key or custom model, the transfer button
+  stays disabled until **Replace the existing PayPerQ key and chat model** is
   checked. Save desired edits before opening the transfer; it uses saved values.
 - [ ] Confirm **Transfer and remove server**. The old server disappears; select
-  PPQ.ai to verify its masked key and copied model. If the old server was the
-  global default, PPQ.ai is now the default. Other global defaults remain intact.
+  PayPerQ to verify its masked key and copied model. If the old server was the
+  global default, PayPerQ is now the default. Other global defaults remain intact.
 - [ ] Sites previously allowed to use that server prompt again, prefilled with
-  PPQ.ai and their remembered model. Other sites and method grants are unchanged.
+  PayPerQ and their remembered model. Other sites and method grants are unchanged.
 - [ ] A model containing `:online` is previewed without that suffix; approved
   hosted search is still a separate tool request.
 - [ ] Change the source or target key/model in another Options tab while the
@@ -160,12 +160,12 @@ if (ppqMixed?.message.toolCalls?.length) {
   `aborted` and no later completion. Retry successfully afterward.
 - [ ] A missing/invalid key gives a setup/authentication hint. Insufficient
   balance or a key spending limit gives a billing hint without exposing the key.
-- [ ] A generic named PPQ server still disables hosted search; opting into the
+- [ ] A generic named PayPerQ server still disables hosted search; opting into the
   built-in provider without using the explicit transfer action does not rewrite
   existing server keys, routes, or grants.
 - [ ] Firefox: revoke `https://api.ppq.ai/*` in add-on settings and confirm
   catalog/chat fail with the host-access hint. Restore access and retry.
-- [ ] PPQ appears in Decisions and in both Speech method selectors; all operation defaults and grants remain independent.
+- [ ] PayPerQ appears in Decisions and in both Speech method selectors; all operation defaults and grants remain independent.
 
 Record browser, model ID, pass/fail per section, sanitized errors, and whether
-PPQ activity confirmed search. Do not share Authorization headers or keys.
+PayPerQ activity confirmed search. Do not share Authorization headers or keys.

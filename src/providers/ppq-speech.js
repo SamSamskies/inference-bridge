@@ -15,12 +15,12 @@ function fail(code, message) {
   throw Object.assign(new Error(message), { name: "InferenceError", code });
 }
 function checkAbort(signal) { if (signal?.aborted) fail("aborted", "Request aborted"); }
-function requireKey(apiKey) { if (!apiKey?.trim()) fail("unavailable", "PPQ.ai API key not configured. Add it in Options."); }
+function requireKey(apiKey) { if (!apiKey?.trim()) fail("unavailable", "PayPerQ API key not configured. Add it in Options."); }
 
 /** PPQ accepts ISO 639-1 or multi, rather than arbitrary BCP 47 subtags. */
 export function ppqLanguageHint(language) {
   if (typeof language !== "string" || !/^(?:[a-z]{2}|multi)$/i.test(language)) {
-    fail("unavailable", "PPQ.ai transcription needs a two-letter language code or multi; omit the hint for detection, or choose another provider.");
+    fail("unavailable", "PayPerQ transcription needs a two-letter language code or multi; omit the hint for detection, or choose another provider.");
   }
   return language.toLowerCase();
 }
@@ -32,18 +32,18 @@ async function speechFetch(path, options, signal) {
   catch (cause) {
     checkAbort(signal);
     if (cause?.name === "AbortError") fail("aborted", "Request aborted");
-    fail("unavailable", `Unable to contact PPQ.ai for ${path}: ${cause instanceof Error ? cause.message : "network error"}`);
+    fail("unavailable", `Unable to contact PayPerQ for ${path}: ${cause instanceof Error ? cause.message : "network error"}`);
   }
   checkAbort(signal);
   if (!response.ok) {
-    const detail = await readProviderErrorDetail(response, `PPQ.ai HTTP ${response.status}`);
+    const detail = await readProviderErrorDetail(response, `PayPerQ HTTP ${response.status}`);
     checkAbort(signal);
     const status = response.status;
     const code = status === 404 || status >= 500 ? "unavailable"
       : [400, 413, 415, 422].includes(status) ? "invalid_request" : "provider_error";
-    const hint = status === 401 || status === 403 ? "Check your PPQ.ai API key in Options."
-      : status === 402 ? "Check your PPQ.ai balance and API-key spending limit."
-        : status === 429 ? "PPQ.ai rate limit reached. Retry later."
+    const hint = status === 401 || status === 403 ? "Check your PayPerQ API key in Options."
+      : status === 402 ? "Check your PayPerQ balance and API-key spending limit."
+        : status === 429 ? "PayPerQ rate limit reached. Retry later."
           : status === 404 ? "Refresh the audio catalog and choose an available model."
             : path === "speech" ? "Check the selected model, voice, text length, and output format."
               : "Check the audio format, language, and whether the file contains a decodable speech track.";
@@ -62,7 +62,7 @@ export async function transcribePPQ(args) {
     checkAbort(args.signal);
     requireKey(args.apiKey);
     const mediaType = normalizeTranscriptionMediaType(args.audio?.mediaType);
-    if (!mediaType) fail("unavailable", "PPQ.ai cannot transcribe this media type without conversion.");
+    if (!mediaType) fail("unavailable", "PayPerQ cannot transcribe this media type without conversion.");
     if (!(args.audio.data instanceof Blob) || args.audio.data.size !== args.audio.byteLength ||
         !Number.isSafeInteger(args.audio.byteLength) || args.audio.byteLength <= 0 || args.audio.byteLength > TRANSCRIPTION_INPUT_MAX_BYTES) {
       fail("invalid_request", "Invalid transcription audio bytes or input exceeds the Bridge 24 MB limit.");
@@ -80,9 +80,9 @@ export async function transcribePPQ(args) {
     }, args.signal);
     let payload;
     try { payload = await response.json(); }
-    catch { checkAbort(args.signal); fail("provider_error", "PPQ.ai returned malformed transcription JSON."); }
+    catch { checkAbort(args.signal); fail("provider_error", "PayPerQ returned malformed transcription JSON."); }
     checkAbort(args.signal);
-    if (typeof payload?.text !== "string") fail("provider_error", "PPQ.ai returned a malformed transcript.");
+    if (typeof payload?.text !== "string") fail("provider_error", "PayPerQ returned a malformed transcript.");
     if (!payload.text.trim()) fail("invalid_request", "No audible speech was detected in the media file.");
     const seconds = payload.usage?.seconds ?? payload.duration;
     return {
@@ -103,13 +103,13 @@ async function streamMP3(response, args) {
   const mediaType = (response.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
   if (mediaType !== "audio/mpeg") {
     try { await response.body?.cancel(); } catch { /* preserve format error */ }
-    fail("provider_error", "PPQ.ai did not return the requested MP3 audio (audio/mpeg). Try a compatible synthesis model.");
+    fail("provider_error", "PayPerQ did not return the requested MP3 audio (audio/mpeg). Try a compatible synthesis model.");
   }
   if (Number(response.headers.get("Content-Length")) > SYNTHESIS_OUTPUT_MAX_BYTES) {
     try { await response.body?.cancel(); } catch { /* preserve byte-limit error */ }
-    fail("provider_error", "PPQ.ai synthesis exceeded the Bridge output byte limit.");
+    fail("provider_error", "PayPerQ synthesis exceeded the Bridge output byte limit.");
   }
-  if (!response.body) fail("provider_error", "PPQ.ai returned an empty synthesis response.");
+  if (!response.body) fail("provider_error", "PayPerQ returned an empty synthesis response.");
   const reader = response.body.getReader();
   const prefix = new Uint8Array(3);
   let prefixLength = 0, byteLength = 0, verified = false, finished = false;
@@ -124,21 +124,21 @@ async function streamMP3(response, args) {
       if (done) { finished = true; break; }
       if (!(value instanceof Uint8Array) || !value.byteLength) continue;
       byteLength += value.byteLength;
-      if (byteLength > SYNTHESIS_OUTPUT_MAX_BYTES) fail("provider_error", "PPQ.ai synthesis exceeded the Bridge output byte limit.");
+      if (byteLength > SYNTHESIS_OUTPUT_MAX_BYTES) fail("provider_error", "PayPerQ synthesis exceeded the Bridge output byte limit.");
       if (!verified) {
         pending.push(value);
         const count = Math.min(3 - prefixLength, value.byteLength);
         prefix.set(value.subarray(0, count), prefixLength);
         prefixLength += count;
         if (prefixLength < 3) continue;
-        if (!mp3Prefix(prefix)) fail("provider_error", "PPQ.ai returned invalid MP3 bytes for speech synthesis.");
+        if (!mp3Prefix(prefix)) fail("provider_error", "PayPerQ returned invalid MP3 bytes for speech synthesis.");
         verified = true;
         for (const chunk of pending) { checkAbort(args.signal); await args.onAudioDelta(chunk); }
         pending.length = 0;
       } else await args.onAudioDelta(value);
     }
     checkAbort(args.signal);
-    if (!verified || !byteLength) fail("provider_error", "PPQ.ai returned empty or invalid MP3 audio.");
+    if (!verified || !byteLength) fail("provider_error", "PayPerQ returned empty or invalid MP3 audio.");
     return byteLength;
   } finally {
     args.signal?.removeEventListener("abort", abort);
@@ -151,13 +151,13 @@ export async function synthesizePPQ(args) {
   try {
     checkAbort(args.signal);
     requireKey(args.apiKey);
-    if (args.mediaType !== "audio/mpeg") fail("unavailable", "PPQ.ai synthesis currently supports MP3 (audio/mpeg) only.");
+    if (args.mediaType !== "audio/mpeg") fail("unavailable", "PayPerQ synthesis currently supports MP3 (audio/mpeg) only.");
     if (!isValidSynthesisText(args.text)) fail("invalid_request", "Invalid synthesis text or text exceeds the Bridge limit.");
     const model = await requirePPQSpeechModel("synthesize", args.model, { signal: args.signal });
     const inputCharacters = countUnicodeCodePoints(args.text);
-    if (inputCharacters > model.maxText) fail("invalid_request", `This PPQ.ai synthesis model accepts at most ${model.maxText} characters per request. Shorten the text or choose another model.`);
+    if (inputCharacters > model.maxText) fail("invalid_request", `This PayPerQ synthesis model accepts at most ${model.maxText} characters per request. Shorten the text or choose another model.`);
     const voices = await listPPQVoices({ model: args.model, signal: args.signal });
-    if (!voices.some((voice) => voice.id === args.voice)) fail("unavailable", "Choose a compatible PPQ.ai synthesis voice for the selected model.");
+    if (!voices.some((voice) => voice.id === args.voice)) fail("unavailable", "Choose a compatible PayPerQ synthesis voice for the selected model.");
     const response = await speechFetch("speech", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${args.apiKey}` },

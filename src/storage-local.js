@@ -794,7 +794,7 @@ export async function transferPPQCompatEndpoint(endpointId, { expected, replaceE
     throw new Error("Save an API key for this server before transferring it.");
   }
   if (preview.hasConflict && !replaceExisting) {
-    throw new Error("Choose whether to replace the existing PPQ.ai key and model before transferring.");
+    throw new Error("Choose whether to replace the existing PayPerQ key and model before transferring.");
   }
   if (/^~?typesafe\/jev(?:-|$)/i.test(preview.model)) {
     throw new Error("Choose a chat model for this server before transferring it.");

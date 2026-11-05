@@ -26,16 +26,16 @@ async function publicJSON(path, signal) {
   catch (cause) {
     checkAbort(signal);
     if (cause?.name === "AbortError") fail("Request aborted", "aborted");
-    fail(`Could not load PPQ.ai audio ${path}. Retry discovery in Options.`, "unavailable");
+    fail(`Could not load PayPerQ audio ${path}. Retry discovery in Options.`, "unavailable");
   }
   checkAbort(signal);
-  if (!response.ok) fail(`PPQ.ai HTTP ${response.status} listing audio ${path}. Retry discovery in Options.`, response.status >= 500 ? "unavailable" : "provider_error");
+  if (!response.ok) fail(`PayPerQ HTTP ${response.status} listing audio ${path}. Retry discovery in Options.`, response.status >= 500 ? "unavailable" : "provider_error");
   let body;
   try { body = await response.json(); }
   catch (cause) {
     checkAbort(signal);
     if (cause?.name === "AbortError") fail("Request aborted", "aborted");
-    fail(`PPQ.ai returned invalid JSON listing audio ${path}.`);
+    fail(`PayPerQ returned invalid JSON listing audio ${path}.`);
   }
   checkAbort(signal);
   return body;
@@ -71,7 +71,7 @@ async function loadAudioCatalog({ signal, refresh = false } = {}) {
   audioCatalog = null;
   audioListedAt = 0;
   const body = await publicJSON("models", signal);
-  if (!Array.isArray(body?.data?.stt) || !Array.isArray(body?.data?.tts)) fail("PPQ.ai returned an invalid audio model catalog.");
+  if (!Array.isArray(body?.data?.stt) || !Array.isArray(body?.data?.tts)) fail("PayPerQ returned an invalid audio model catalog.");
   audioCatalog = { transcribe: modelEntries(body.data.stt, "stt"), synthesize: modelEntries(body.data.tts, "tts") };
   audioListedAt = Date.now();
   return audioCatalog;
@@ -89,7 +89,7 @@ export async function listPPQSynthesisModels(args = {}) {
 }
 export async function requirePPQSpeechModel(method, model, { signal } = {}) {
   const entry = (await loadAudioCatalog({ signal }))[method]?.get(model);
-  if (!entry) fail(`Choose a model from the current PPQ.ai ${method === "transcribe" ? "transcription" : "synthesis"} catalog.`, "unavailable");
+  if (!entry) fail(`Choose a model from the current PayPerQ ${method === "transcribe" ? "transcription" : "synthesis"} catalog.`, "unavailable");
   return entry;
 }
 
@@ -99,7 +99,7 @@ async function loadVoices({ signal } = {}) {
   voiceCatalog = null;
   voicesListedAt = 0;
   const body = await publicJSON("voices", signal);
-  if (!Array.isArray(body?.data)) fail("PPQ.ai returned an invalid voice catalog.");
+  if (!Array.isArray(body?.data)) fail("PayPerQ returned an invalid voice catalog.");
   voiceCatalog = body.data.flatMap((entry) => {
     if (typeof entry?.id !== "string" || !entry.id.trim() || typeof entry.model_id !== "string" || !entry.model_id.trim()) return [];
     return [{

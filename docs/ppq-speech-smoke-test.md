@@ -1,15 +1,15 @@
-# PPQ speech — slice 3 checkpoint
+# PayPerQ speech — slice 3 checkpoint
 
 This slice adds separately approved transcription and MP3 synthesis. It reuses
-your saved PPQ key; chat, Decisions, transcription, and synthesis keep independent
+your saved PayPerQ key; chat, Decisions, transcription, and synthesis keep independent
 defaults and site grants. Tests use synthetic provider responses; live speech
 and playback still need this checkpoint.
 
 ## Setup
 
 1. Reload the development extension and your HTTPS or localhost test page.
-2. Keep your PPQ key in **Options → Providers**. In **Options → Speech**, select
-   PPQ.ai for transcription and synthesis separately. Start with **Nova 3** for
+2. Keep your PayPerQ key in **Options → Providers**. In **Options → Speech**, select
+   PayPerQ for transcription and synthesis separately. Start with **Nova 3** for
    transcription and **DeepGram Aura 2 / Arcas (en)** for synthesis.
 3. Reopen Options to confirm those choices persist while chat and Decisions
    selections stay unchanged. The Speech controls save changes automatically.
@@ -22,7 +22,7 @@ and playback still need this checkpoint.
   labeled with languages. Changing models refreshes compatible voices.
 - [ ] Speech-to-speech models (`eleven_*_sts_*`) do not appear for text synthesis.
 - [ ] Keep the API key out of page code, screenshots of headers, and reports.
-  Actual speech requests can incur PPQ charges.
+  Actual speech requests can incur PayPerQ charges.
 
 ## Synthesis and playback
 
@@ -49,10 +49,10 @@ var ppqSpeak = async (text) => {
     console.log(error.code, error.message);
   }
 };
-await ppqSpeak("Hello from PPQ. The sky is blue.");
+await ppqSpeak("Hello from PayPerQ. The sky is blue.");
 ```
 
-- [ ] The popup identifies **Synthesis**, PPQ.ai, the selected model, and its
+- [ ] The popup identifies **Synthesis**, PayPerQ, the selected model, and its
   compatible voice. **Deny** must prevent the speech POST.
 - [ ] After **Allow once**, expect `accepted`, MP3 `audio_delta` chunks, then
   one `done` with the exact emitted byte count. Click the generated player’s
@@ -69,7 +69,7 @@ await ppqSpeak("Hello from PPQ. The sky is blue.");
   before a paid synthesis POST. Tinfoil is limited to 1,200 characters. Bridge's
   4,096-code-point limit applies to ElevenLabs too, with smaller catalog limits
   enforced (for example Eleven v3: 3,000).
-- [ ] Explicit `output: { mediaType: "audio/wav" }` excludes PPQ. A saved PPQ
+- [ ] Explicit `output: { mediaType: "audio/wav" }` excludes PayPerQ. A saved PayPerQ
   route must fail without silently switching provider or converting encoding.
 
 When finished with playback, run `URL.revokeObjectURL(ppqSpeechUrl)`.
@@ -102,9 +102,9 @@ document.body.prepend(ppqAudioPicker);
 ```
 
 - [ ] The popup requires separate **Transcription** approval even if chat,
-  Decisions, or synthesis was already approved. Confirm PPQ.ai and Nova 3.
+  Decisions, or synthesis was already approved. Confirm PayPerQ and Nova 3.
 - [ ] On approval, expect `accepted` then `done.transcript.text` matching the
-  recording. PPQ's JSON transcription response need not emit text deltas.
+  recording. PayPerQ's JSON transcription response need not emit text deltas.
 - [ ] Background DevTools shows POST `/v1/audio/transcriptions` as multipart
   `file`, `model`, `response_format: "json"`, and `language: "multi"`. File
   bytes are passed through unchanged; no base64-in-JSON provider upload.
@@ -112,7 +112,7 @@ document.body.prepend(ppqAudioPicker);
   A richer hint such as `en-US` must fail before upload instead of losing subtags.
 - [ ] Repeat with another supported container if available. MP4/WebM uploads
   include the complete container, potentially including visual bytes.
-- [ ] A source above 24,000,000 bytes is rejected despite PPQ's larger upstream
+- [ ] A source above 24,000,000 bytes is rejected despite PayPerQ's larger upstream
   allowance. Empty/malformed transcripts do not complete as successful speech.
 
 ## Isolation, cancellation, and failures
@@ -129,4 +129,4 @@ document.body.prepend(ppqAudioPicker);
 - [ ] Verify errors and cancellation release the request so a fresh request works.
 
 Report browser, model/voice IDs, whether the audio plays and transcript matches,
-approval behavior, and sanitized errors. See [PPQ docs](https://ppq.ai/api-docs).
+approval behavior, and sanitized errors. See [PayPerQ docs](https://ppq.ai/api-docs).

@@ -39,9 +39,9 @@ provider responses. Chrome/Firefox test labels select mocked browser APIs; they
 do not certify live browsers, provider availability, or model accuracy.
 
 `ppq-decisions-models.json` is a small subset of IDs, labels, and types from
-[PPQ’s public decision catalog](https://api.ppq.ai/v1/decisions/models), observed
+[PayPerQ’s public decision catalog](https://api.ppq.ai/v1/decisions/models), observed
 on 2026-11-05. It includes a non-Jev model and the Jev latest alias. The shared
-System One response fixture tests protocol normalization; it is not a live PPQ
+System One response fixture tests protocol normalization; it is not a live PayPerQ
 decision response.
 
 `ppq-audio-models.json` and `ppq-audio-voices.json` are small protocol fixtures
@@ -50,4 +50,4 @@ based on the public [audio model](https://api.ppq.ai/v1/audio/models) and
 Model/provider IDs, text limits, and voice associations follow those responses;
 voice and language lists are intentionally reduced for focused tests. They
 include a speech-to-speech model that must not be offered for text synthesis.
-The synthetic MP3/transcript responses are not live PPQ inference recordings.
+The synthetic MP3/transcript responses are not live PayPerQ inference recordings.

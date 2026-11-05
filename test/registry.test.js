@@ -107,7 +107,7 @@ describe("provider registry", () => {
 
   it("registers PPQ with chat/search, decisions, transcription, and MP3 synthesis", () => {
     const ppq = getProvider("ppq");
-    expect(ppq).toMatchObject({ id: "ppq", label: "PPQ.ai", requiresApiKey: true, defaultModel: "auto", supportsFunctionTools: true, hostedTools: ["web_search"] });
+    expect(ppq).toMatchObject({ id: "ppq", label: "PayPerQ", requiresApiKey: true, defaultModel: "auto", supportsFunctionTools: true, hostedTools: ["web_search"] });
     expect(typeof ppq.listModels).toBe("function");
     expect(providerSupportsMethod(ppq, "decide")).toBe(true);
     expect(ppq.decisions.defaultModel).toBe("typesafe/jev-1.13");

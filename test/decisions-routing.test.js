@@ -194,14 +194,14 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     await storage.grantOriginOperationAlways(origin, "decide", ppq);
     const missing = start();
     await outcome(missing);
-    expect(missing.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("PPQ.ai API key") });
+    expect(missing.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("PayPerQ API key") });
     expect(fetch).not.toHaveBeenCalled();
     if (!firefox) return;
     await storage.saveSettings({ apiKeys: { ppq: "ppq-key" } });
     chrome.permissions.contains.mockResolvedValue(false);
     const revoked = start();
     await outcome(revoked);
-    expect(revoked.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("Host access for PPQ.ai was revoked") });
+    expect(revoked.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("Host access for PayPerQ was revoked") });
     expect(fetch).not.toHaveBeenCalled();
   });
 

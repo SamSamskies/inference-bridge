@@ -19,7 +19,7 @@ export function ppqTransferModel(model) {
 export function ppqTransferPreview(settings, endpointId) {
   const endpoint = settings.compatEndpoints.find((entry) => entry.id === endpointId);
   if (!isPPQCompatEndpoint(endpoint)) {
-    throw new Error("This server is not the official PPQ.ai API endpoint.");
+    throw new Error("This server is not the official PayPerQ API endpoint.");
   }
   const source = {
     ...endpoint,
