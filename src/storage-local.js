@@ -525,11 +525,32 @@ export async function getSettings() {
     if (isCompatProviderId(pid) && !compatIds.has(pid)) {
       delete allowedOrigins[origin];
       scrubbed = true;
+      continue;
+    }
+    // A PPQ grant on an unusable model (e.g. :online) can only fail at
+    // request time; revoke it so the user is prompted again.
+    if (
+      pid === "ppq" &&
+      typeof grant?.model === "string" &&
+      grant.model.trim() &&
+      !isPlausibleModelForProvider(pid, grant.model)
+    ) {
+      delete allowedOrigins[origin];
+      scrubbed = true;
     }
   }
   for (const [origin, entry] of Object.entries(originLastUsed)) {
     if (isCompatProviderId(entry.providerId) && !compatIds.has(entry.providerId)) {
       delete originLastUsed[origin];
+      scrubbed = true;
+      continue;
+    }
+    if (
+      entry.providerId === "ppq" &&
+      entry.model &&
+      !isPlausibleModelForProvider(entry.providerId, entry.model)
+    ) {
+      originLastUsed[origin] = { ...entry, model: undefined };
       scrubbed = true;
     }
   }

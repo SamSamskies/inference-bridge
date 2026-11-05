@@ -36,6 +36,25 @@ describe("PPQ transfer detection", () => {
     expect(ppqTransferModel("model:thinking")).toBe("model:thinking");
     expect(ppqTransferModel(undefined)).toBe("auto");
   });
+  it("falls back to auto when nothing remains after stripping :online", () => {
+    expect(ppqTransferModel(":online")).toBe("auto");
+    expect(ppqTransferModel(" :online:nitro")).toBe("auto");
+  });
+});
+
+describe("PPQ :online scrubbing on load", () => {
+  it("revokes PPQ grants and last-used models that use :online, keeping other routes", async () => {
+    await grantOriginAlways(origin, { providerId: "ppq", model: "gpt-5:online" });
+    await grantOriginAlways(otherOrigin, { providerId: "ppq", model: "gpt-5" });
+    await setOriginLastUsed("https://last.example", { providerId: "ppq", model: "gpt-5:ONLINE" });
+    await setOriginLastUsed("https://ok.example", { providerId: "ppq", model: "gpt-5" });
+    const settings = await getSettings();
+    expect(settings.allowedOrigins[origin]).toBeUndefined();
+    expect(settings.allowedOrigins[otherOrigin]).toMatchObject({ providerId: "ppq", model: "gpt-5" });
+    expect(settings.originLastUsed["https://last.example"]).toMatchObject({ providerId: "ppq" });
+    expect(settings.originLastUsed["https://last.example"].model).toBeUndefined();
+    expect(settings.originLastUsed["https://ok.example"]).toMatchObject({ model: "gpt-5" });
+  });
 });
 
 describe("explicit PPQ settings transfer", () => {

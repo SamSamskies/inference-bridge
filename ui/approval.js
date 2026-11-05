@@ -31,6 +31,7 @@ import {
 } from "../src/prompt-api-core.js";
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
+import { isPlausibleModelForProvider } from "../src/storage-local.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
 const params = new URLSearchParams(location.search);
@@ -436,9 +437,13 @@ function updateAllowEnabled() {
         onDeviceAvailable: onDeviceStatus.available,
       })
     : false;
-  const valid = isModelValid(readModelValue(providerId), currentModels, {
-    allowUnknown: allowUnknownFor(providerId),
-  });
+  const modelValue = readModelValue(providerId);
+  const valid =
+    isModelValid(modelValue, currentModels, {
+      allowUnknown: allowUnknownFor(providerId),
+    }) &&
+    // PPQ :online would always fail at preflight; don't let it become a grant.
+    (providerId !== "ppq" || isPlausibleModelForProvider(providerId, modelValue));
   const toolsBlocked = blocksAllowForRequestTools(
     provider,
     requestTools,

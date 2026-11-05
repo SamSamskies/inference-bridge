@@ -11,7 +11,8 @@ export function isPPQCompatEndpoint(endpoint) {
 
 export function ppqTransferModel(model) {
   const parts = (typeof model === "string" && model.trim() ? model.trim() : "auto").split(":");
-  return parts.filter((part, index) => index === 0 || part.toLowerCase() !== "online").join(":") || "auto";
+  if (!parts[0].trim()) return "auto";
+  return parts.filter((part, index) => index === 0 || part.toLowerCase() !== "online").join(":");
 }
 
 /** Contains keys for optimistic comparison inside extension contexts only.
