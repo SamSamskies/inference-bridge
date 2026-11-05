@@ -105,15 +105,15 @@ describe("provider registry", () => {
     expect(openrouter.defaultModel).toBe("openrouter/auto");
   });
 
-  it("registers PPQ chat/search and decisions without advertising unfinished speech adapters", () => {
+  it("registers PPQ with chat/search, decisions, transcription, and MP3 synthesis", () => {
     const ppq = getProvider("ppq");
     expect(ppq).toMatchObject({ id: "ppq", label: "PPQ.ai", requiresApiKey: true, defaultModel: "auto", supportsFunctionTools: true, hostedTools: ["web_search"] });
     expect(typeof ppq.listModels).toBe("function");
     expect(providerSupportsMethod(ppq, "decide")).toBe(true);
     expect(ppq.decisions.defaultModel).toBe("typesafe/jev-1.13");
-    for (const method of ["transcribe", "synthesize"]) {
-      expect(providerSupportsMethod(ppq, method)).toBe(false);
-    }
+    expect(providerSupportsMethod(ppq, "transcribe")).toBe(true);
+    expect(providerSupportsMethod(ppq, "synthesize", { mediaType: "audio/mpeg" })).toBe(true);
+    expect(providerSupportsMethod(ppq, "synthesize", { mediaType: "audio/wav" })).toBe(false);
   });
 
   it("marks OpenAI, OpenRouter, Ollama, Anthropic, and compat endpoints as supporting function tools", async () => {
@@ -195,12 +195,12 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "gemini", "openrouter", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "gemini", "openrouter", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama"]);
   });
 
   it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
@@ -208,7 +208,7 @@ describe("operation-scoped provider capabilities", () => {
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
       .toEqual(["openai", "gemini", "ollama"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
-      .toEqual(["openai", "openrouter"]);
+      .toEqual(["openai", "openrouter", "ppq"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);
     expect(providerSupportsMethod({ synthesis: { outputMediaTypes: [] }, synthesize }, "synthesize"))
       .toBe(false);

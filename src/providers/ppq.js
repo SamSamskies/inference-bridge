@@ -11,6 +11,8 @@ import {
   isPPQDecisionModel,
   listPPQDecisionModels,
 } from "./ppq-decisions.js";
+import { ppqTranscription, ppqSynthesis, transcribePPQ, synthesizePPQ } from "./ppq-speech.js";
+import { isPPQSpeechModel } from "./ppq-speech-catalog.js";
 
 export const PPQ_BASE_URL = "https://api.ppq.ai";
 const CATALOG_MAX_AGE_MS = 60_000;
@@ -33,6 +35,9 @@ function assertChatModel(model) {
   }
   if (isPPQDecisionModel(model)) {
     fail("unavailable", "PPQ.ai decision models require method decide, not chat.");
+  }
+  if (isPPQSpeechModel(model)) {
+    fail("unavailable", "PPQ.ai speech models require method transcribe or synthesize, not chat.");
   }
 }
 
@@ -98,6 +103,10 @@ export const ppqProvider = {
     listModels: listPPQDecisionModels,
   },
   decide: decidePPQ,
+  transcription: ppqTranscription,
+  synthesis: ppqSynthesis,
+  transcribe: transcribePPQ,
+  synthesize: synthesizePPQ,
   listModels: listPPQModels,
   async getModelCapabilities({ model, signal }) {
     if (!listedAt || Date.now() - listedAt >= CATALOG_MAX_AGE_MS) await listPPQModels({ signal });

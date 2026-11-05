@@ -67,7 +67,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
-| PPQ.ai | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, and separately approved System One decisions are available; speech is the next slice. |
+| PPQ.ai | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, separately approved System One decisions, transcription, and MP3 synthesis. Separate live catalogs and method defaults. |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
@@ -124,7 +124,7 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 
 PPQ uses [`POST /chat/completions`](https://ppq.ai/api-docs). Approved `{ type: "web_search" }` is sent as PPQ's **Auto** server tool: the model decides whether to search and PPQ consumes the results. Search can incur additional charges. Bridge omits search with `toolChoice: "none"` and rejects `:online` model suffixes because they enable search outside the tool approval boundary. It does not enable always-search plugins, search-engine preferences, or ZDR routing.
 
-Vision input requires explicit image support in the current chat catalog; image output is unavailable. PPQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. Transcription and synthesis are not yet exposed for PPQ. Existing named PPQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PPQ.ai becomes the default. Replacing existing PPQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval. See the [PPQ smoke-test checkpoint](docs/ppq-smoke-test.md).
+Vision input requires explicit image support in the current chat catalog; image output is unavailable. PPQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. PPQ transcription and MP3 synthesis have independent controls in **Options → Speech**, with live audio models and model-specific voices. See the [speech checkpoint](docs/ppq-speech-smoke-test.md). Existing named PPQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PPQ.ai becomes the default. Replacing existing PPQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval. See the [PPQ smoke-test checkpoint](docs/ppq-smoke-test.md).
 
 ### OpenRouter
 
@@ -582,6 +582,20 @@ Current implementation limits (Bridge-specific, not IPA constants):
 - Language hints must be structurally valid BCP 47 tags. OpenRouter accepts
   two-letter language hints; richer hints fail with `unavailable` before upload
   instead of being reduced silently. Omit the hint for detection.
+- PPQ uses dedicated `/v1/audio/transcriptions` multipart uploads and
+  `/v1/audio/speech` MP3 synthesis, with the same saved key as chat/decisions.
+  Model discovery uses `/v1/audio/models`; voices use `/v1/audio/voices` and are
+  filtered by exact model ID, with language labels and declared language checks.
+  Speech-to-speech models are excluded from text synthesis. The starter routes
+  are `nova-3` for transcription and `deepgram_aura_2` / `aura-2-arcas-en` for
+  synthesis. Transcription accepts two-letter language hints or `multi`;
+  `en-US` and other richer hints fail instead of being silently reduced.
+  Deepgram synthesis is capped at 2,000 characters; Tinfoil Voxtral is capped at
+  1,200; ElevenLabs and all other models remain within Bridge's 4,096-code-point
+  bound, with smaller catalog limits enforced (for example Eleven v3: 3,000).
+  PPQ synthesis currently supports MP3 only; mismatched MIME or encoded audio
+  fails instead of being relabeled. No synthesis language parameter is added
+  to IPA; select a compatible voice in Options or approval.
 - OpenAI and OpenRouter are supported through their dedicated transcription
   and speech endpoints. OpenAI synthesis supports native MP3 and WAV output;
   OpenRouter synthesis currently supports MP3 output. Ollama transcription is

@@ -7,8 +7,9 @@
 2. **Decisions (ready for smoke testing):** independent live decision catalog
    and default, System One typed answers, method-specific approvals and grants.
    Follow the [decisions checkpoint](ppq-decisions-smoke-test.md).
-3. **Speech (next slice):** independent transcription/synthesis catalogs,
-   compatible voices, bounded uploads/output, approvals and cancellation.
+3. **Speech (ready for smoke testing):** independent transcription/synthesis
+   catalogs, compatible voices, bounded uploads/output, approvals and cancellation.
+   Follow the [speech checkpoint](ppq-speech-smoke-test.md).
 
 The issue remains open until all slices and authenticated runtime checks pass.
 API reference: [PPQ documentation](https://ppq.ai/api-docs).
@@ -164,7 +165,7 @@ if (ppqMixed?.message.toolCalls?.length) {
   existing server keys, routes, or grants.
 - [ ] Firefox: revoke `https://api.ppq.ai/*` in add-on settings and confirm
   catalog/chat fail with the host-access hint. Restore access and retry.
-- [ ] PPQ appears in Decisions but not yet in Speech method selectors.
+- [ ] PPQ appears in Decisions and in both Speech method selectors; all operation defaults and grants remain independent.
 
 Record browser, model ID, pass/fail per section, sanitized errors, and whether
 PPQ activity confirmed search. Do not share Authorization headers or keys.

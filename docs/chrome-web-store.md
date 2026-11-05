@@ -100,7 +100,7 @@ https://api.openai.com/* — Selected OpenAI chat/images and separately approved
 https://api.anthropic.com/* — Selected Anthropic Messages API.
 https://generativelanguage.googleapis.com/* — Gemini discovery, approved chat/search and separate transcription/cleanup/WAV synthesis.
 https://openrouter.ai/* — OpenRouter models, chat/images and separately approved decisions/speech.
-https://api.ppq.ai/* — PPQ catalogs, approved chat/images/search and separately approved decisions.
+https://api.ppq.ai/* — PPQ catalogs/voices, approved chat/images/search and separate decisions/transcription/synthesis.
 https://ollama.com/* — Requested Ollama cloud search/fetch with the optional account key.
 http://localhost:11434/* — Built-in local Ollama chat and approved speech/decisions.
 optional http://*/* and https://*/* — Requested only for each custom OpenAI-compatible server saved in Options; not granted at install.
@@ -147,7 +147,7 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 Run through the [README manual checklist](../README.md#manual-checks) on a clean profile:
 
 1. Load `build/chrome/` through **Load unpacked** on `chrome://extensions`, or extract the release ZIP and load that directory. Chrome does not install the store ZIP directly.
-2. Confirm OpenAI, Anthropic, Google Gemini, OpenRouter, PPQ.ai (chat/search/decisions), Ollama, and (if testing) OpenAI-compatible endpoint flows.
+2. Confirm OpenAI, Anthropic, Google Gemini, OpenRouter, PPQ.ai (chat/search/decisions/speech), Ollama, and (if testing) OpenAI-compatible endpoint flows.
 3. Confirm permission Allow / Deny / Remember behavior.
 4. Confirm built-in hosts are OpenAI / Anthropic / Google Gemini / OpenRouter / PPQ.ai / ollama.com (web search) / Ollama port only; custom endpoints use optional host access on save.
 

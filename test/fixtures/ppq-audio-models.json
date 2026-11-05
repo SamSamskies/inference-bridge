@@ -1,0 +1,16 @@
+{
+  "object": "list",
+  "data": {
+    "stt": [
+      { "id": "nova-3", "provider": "deepgram", "type": "stt", "name": "Nova 3", "languages": ["multi"] },
+      { "id": "nova-2", "provider": "deepgram", "type": "stt", "name": "Nova 2", "languages": ["multi"] }
+    ],
+    "tts": [
+      { "id": "deepgram_aura_2", "provider": "deepgram", "type": "tts", "name": "DeepGram Aura 2" },
+      { "id": "tinfoil-voxtral-tts", "provider": "tinfoil", "type": "tts", "name": "Voxtral TTS (Tinfoil)", "languages": ["en", "es"], "char_limit": 1200 },
+      { "id": "eleven_multilingual_v2", "provider": "elevenlabs", "type": "tts", "name": "Eleven Multilingual v2" },
+      { "id": "eleven_v3", "provider": "elevenlabs", "type": "tts", "name": "Eleven v3", "char_limit": 3000 },
+      { "id": "eleven_multilingual_sts_v2", "provider": "elevenlabs", "type": "tts", "description": "Multilingual speech-to-speech model" }
+    ]
+  }
+}

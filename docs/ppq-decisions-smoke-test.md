@@ -2,7 +2,7 @@
 
 This slice adds PPQ to the existing stable `method: "decide"` flow. Chat and
 decisions share one PPQ API key, with independent model selections, approval,
-and site grants. Speech is the next slice. No authenticated PPQ decision call
+and site grants. Speech has its own [checkpoint](ppq-speech-smoke-test.md). No authenticated PPQ decision call
 has been run by the automated tests; these checks establish runtime behavior.
 
 ## Setup and catalog
@@ -21,7 +21,7 @@ has been run by the automated tests; these checks establish runtime behavior.
   of chat `/v1/models`. It includes current non-Jev models and aliases.
 - [ ] Switching Decisions models leaves the saved chat model unchanged, and
   reopening Options preserves both selections.
-- [ ] PPQ remains absent from transcription and synthesis selectors.
+- [ ] Decisions selections remain independent of transcription and synthesis.
 
 ## Three typed answers
 

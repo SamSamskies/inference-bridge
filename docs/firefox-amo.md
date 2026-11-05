@@ -65,7 +65,7 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 
 - [ ] Install the exact staged artifact in the current Firefox desktop release and verify `window.inference` appears at `document_start` only on eligible top-level pages. Older versions down to the declared minimum are not part of pre-release QA; address compatibility reports as they arise.
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
-- [ ] Run the [PPQ chat/search checkpoint](ppq-smoke-test.md), including revoked access to `https://api.ppq.ai/*`. Run the [PPQ decisions checkpoint](ppq-decisions-smoke-test.md) too; PPQ speech remains unavailable.
+- [ ] Run the [PPQ chat/search checkpoint](ppq-smoke-test.md), including revoked access to `https://api.ppq.ai/*`. Run the [PPQ decisions checkpoint](ppq-decisions-smoke-test.md) and the [PPQ speech checkpoint](ppq-speech-smoke-test.md) too.
 - [ ] Run the README decisions checks in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
 - [ ] Run the README speech checks in Firefox: immediate speech discovery, transcription upload, MP3/WAV synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
 - [ ] Test OpenAI, Anthropic, Google Gemini (including revoked host access, search, file transcription, and WAV synthesis), OpenRouter, local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
