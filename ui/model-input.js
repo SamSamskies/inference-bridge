@@ -31,7 +31,7 @@ export const OPERATION_MODEL_SELECT_MAX = 50;
  * @returns {boolean}
  */
 export function usesModelAutosuggest(providerId, models) {
-  if (providerId === "openrouter") return true;
+  if (providerId === "openrouter" || providerId === "ppq") return true;
   // Named OpenAI-compatible servers: <select> for small catalogs; autosuggest
   // for large ones; free-text when listing failed/empty so users can still
   // type a model id.

@@ -577,6 +577,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
       anthropic: "claude-sonnet-5-5",
       gemini: "gemini-3.8-flash",
       openrouter: "openrouter/free",
+      ppq: "auto",
     });
   });
 
@@ -638,6 +639,14 @@ describe("isPlausibleModelForProvider", () => {
       false
     );
     expect(isPlausibleModelForProvider("anthropic", "")).toBe(false);
+  });
+
+  it("rejects PayPerQ :online models but allows other PPQ slugs", () => {
+    expect(isPlausibleModelForProvider("ppq", "auto")).toBe(true);
+    expect(isPlausibleModelForProvider("ppq", "gpt-5:thinking")).toBe(true);
+    expect(isPlausibleModelForProvider("ppq", "gpt-5:online")).toBe(false);
+    expect(isPlausibleModelForProvider("ppq", "gpt-5:ONLINE")).toBe(false);
+    expect(isPlausibleModelForProvider("compat:abc", "foo:online")).toBe(true);
   });
 
   it("accepts only the on-device sentinel model id", () => {

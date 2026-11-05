@@ -7,6 +7,7 @@ import payload from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
 import openaiFixture from "./fixtures/openai-decisions-response.json";
 import catalog from "./fixtures/openrouter-decisions-models.json";
+import ppqCatalog from "./fixtures/ppq-decisions-models.json";
 
 const origin = "https://decisions.example";
 const request = { method: "decide", ...payload };
@@ -14,6 +15,7 @@ const routes = {
   openrouter: { providerId: "openrouter", model: "typesafe/jev-1.13" },
   openai: { providerId: "openai", model: "gpt-6-luna" },
   ollama: { providerId: "ollama", model: "nimble:latest" },
+  ppq: { providerId: "ppq", model: "typesafe/jev-1.13" },
 };
 function event() {
   const listeners = new Set();
@@ -67,11 +69,13 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
     permissions = await import("../src/permissions.js");
     await import("../background/service-worker.js");
     await storage.saveSettings({
-      apiKeys: { openai: "test-key", openrouter: "test-key" },
+      apiKeys: { openai: "test-key", openrouter: "test-key", ppq: "ppq-test-key" },
       operationDefaults: { decide: routes.openrouter },
     });
     await storage.grantOriginOperationAlways(origin, "decide", routes.openrouter);
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (url === "https://api.ppq.ai/v1/decisions/models") return Response.json(ppqCatalog);
+      if (url === "https://api.ppq.ai/v1/decisions") return Response.json(fixture);
       if (url.endsWith("?output_modalities=decisions")) return Response.json(catalog);
       if (url.endsWith("/api/tags")) return Response.json({ models: [{ name: routes.ollama.model }] });
       if (url.endsWith("/api/show")) return Response.json({ capabilities: ["decision"], details: { format: "safetensors", runner: "mlx" } });

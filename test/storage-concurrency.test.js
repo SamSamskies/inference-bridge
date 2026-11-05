@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
+import { ppqTransferPreview } from "../src/ppq-transfer.js";
 
 const chromeMock = installChromeMock();
 const first = "https://first.example";
@@ -53,6 +54,39 @@ async function overlapRead(startPaused, startOther) {
 }
 
 describe("settings updates across extension contexts", () => {
+  it("transfers PPQ without losing a concurrent unrelated key or approval", async () => {
+    const endpoint = { id: "compat:ppq", name: "PPQ", baseUrl: "https://api.ppq.ai/v1" };
+    await options.saveCompatEndpoints([endpoint]);
+    await options.saveSettings({ apiKeys: { [endpoint.id]: "source-key" }, defaultModels: { [endpoint.id]: "model" } });
+    const expected = ppqTransferPreview(await options.getSettings(), endpoint.id);
+    await overlapRead(
+      () => options.transferPPQCompatEndpoint(endpoint.id, { expected }),
+      async () => {
+        await worker.saveSettings({ apiKeys: { openai: "concurrent-key" } });
+        await worker.grantOriginAlways(second, route);
+      }
+    );
+    const settings = await options.getSettings();
+    expect(settings.apiKeys).toEqual({ ppq: "source-key", openai: "concurrent-key" });
+    expect(settings.allowedOrigins[second]).toMatchObject(route);
+    expect(settings.compatEndpoints).toEqual([]);
+  });
+
+  it("does not restore a revoked PPQ compat grant while transferring", async () => {
+    const endpoint = { id: "compat:ppq", name: "PPQ", baseUrl: "https://api.ppq.ai/v1" };
+    await options.saveCompatEndpoints([endpoint]);
+    await options.saveSettings({ apiKeys: { [endpoint.id]: "source-key" } });
+    await options.grantOriginAlways(first, { providerId: endpoint.id, model: "auto" });
+    const expected = ppqTransferPreview(await options.getSettings(), endpoint.id);
+    await overlapRead(
+      () => worker.revokeOrigin(first),
+      () => options.transferPPQCompatEndpoint(endpoint.id, { expected })
+    );
+    const settings = await options.getSettings();
+    expect(settings.allowedOrigins[first]).toBeUndefined();
+    expect(settings.originLastUsed[first]).toBeUndefined();
+  });
+
   it("keeps concurrent grants for different origins", async () => {
     await overlapRead(
       () => worker.grantOriginAlways(first, route),

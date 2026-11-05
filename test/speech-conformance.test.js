@@ -3,6 +3,8 @@ import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
 import { assertSpeechStream } from "./helpers/speech-conformance.mjs";
+import ppqModels from "./fixtures/ppq-audio-models.json";
+import ppqVoices from "./fixtures/ppq-audio-voices.json";
 
 const origin = "https://speech.example";
 const mp3 = new Uint8Array(readFileSync(new URL("./fixtures/speech.mp3", import.meta.url)));
@@ -74,13 +76,15 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     permissions = await import("../src/permissions.js");
     await import("../background/service-worker.js");
     await storage.saveSettings({
-      apiKeys: { openai: "test-key", gemini: "test-gemini-key", openrouter: "test-openrouter-key" },
+      apiKeys: { openai: "test-key", gemini: "test-gemini-key", openrouter: "test-openrouter-key", ppq: "test-ppq-key" },
       operationDefaults: routes,
     });
     for (const [method, route] of Object.entries(routes)) {
       await storage.grantOriginOperationAlways(origin, method, route);
     }
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (url === "https://api.ppq.ai/v1/audio/models") return Response.json(ppqModels);
+      if (url === "https://api.ppq.ai/v1/audio/voices") return Response.json(ppqVoices);
       if (url.endsWith("/audio/transcriptions")) return Response.json({ text: "The sky is blue." });
       if (url.endsWith("/audio/speech")) return new Response(mp3, { headers: { "Content-Type": "audio/mpeg" } });
       if (url.includes("generativelanguage.googleapis.com")) {
@@ -124,6 +128,62 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     connections.forEach((port) => port.disconnect());
     channels.forEach(({ port1, port2 }) => { port1.close(); port2.close(); });
     vi.unstubAllGlobals();
+  });
+
+  it("transcribes and synthesizes through PPQ with independent defaults, exact bytes, and the shared key", async () => {
+    const ppqRoutes = {
+      transcribe: { providerId: "ppq", model: "nova-3" },
+      synthesize: { providerId: "ppq", model: "deepgram_aura_2", voice: "aura-2-arcas-en" },
+    };
+    await storage.saveSettings({ defaultProviderId: "ppq", defaultModel: "auto", operationDefaults: ppqRoutes });
+    for (const [method, route] of Object.entries(ppqRoutes)) await storage.grantOriginOperationAlways(origin, method, route);
+    const bytes = new Uint8Array(600_000).fill(42);
+    const transcript = await assertSpeechStream("transcribe", inference.request({
+      method: "transcribe", media: { data: new Blob([bytes], { type: "audio/wav" }) }, language: "multi",
+    }));
+    expect(transcript.done.transcript.text).toBe("The sky is blue.");
+    const upload = fetch.mock.calls.find(([url]) => url === "https://api.ppq.ai/v1/audio/transcriptions")[1];
+    expect(upload.headers.Authorization).toBe("Bearer test-ppq-key");
+    expect(upload.body.get("model")).toBe("nova-3");
+    expect(upload.body.get("language")).toBe("multi");
+    expect(new Uint8Array(await upload.body.get("file").arrayBuffer())).toEqual(bytes);
+    const audio = await assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "The sky is blue." }), { expectedAudio: mp3 });
+    expect(audio.done.model).toBe("deepgram_aura_2");
+    const tts = fetch.mock.calls.find(([url]) => url === "https://api.ppq.ai/v1/audio/speech")[1];
+    expect(tts.headers.Authorization).toBe("Bearer test-ppq-key");
+    expect(JSON.parse(tts.body)).toMatchObject({ model: "deepgram_aura_2", voice: "aura-2-arcas-en", response_format: "mp3" });
+    const settings = await storage.getSettings();
+    expect(settings.defaultModels.ppq).toBe("auto");
+    expect(settings.operationDefaults).toMatchObject(ppqRoutes);
+    expect(pageFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not authorize PPQ synthesis from chat, decisions, or transcription grants", async () => {
+    await storage.saveSettings({ operationDefaults: { synthesize: { providerId: "ppq", model: "deepgram_aura_2", voice: "aura-2-arcas-en" } } });
+    await storage.revokeOriginOperation(origin, "synthesize");
+    await storage.grantOriginAlways(origin, { providerId: "ppq", model: "auto" });
+    await storage.grantOriginOperationAlways(origin, "decide", { providerId: "ppq", model: "typesafe/jev-1.13" });
+    await storage.grantOriginOperationAlways(origin, "transcribe", { providerId: "ppq", model: "nova-3" });
+    const result = assertSpeechStream("synthesize", inference.request({ method: "synthesize", text: "Hello" }))
+      .then((value) => ({ value }), (error) => ({ error }));
+    let streamId;
+    await vi.waitFor(() => {
+      streamId = packets.find((packet) => packet.type === "started")?.streamId;
+      expect(permissions.getPendingApproval(streamId)).toMatchObject({ method: "synthesize", providerId: "ppq" });
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await permissions.resolveApproval(streamId, { decision: "deny" });
+    expect((await result).error.code).toBe("permission_denied");
+    expect(await storage.getOriginOperationGrant(origin, "synthesize")).toBeNull();
+    expect(await storage.getOriginOperationGrant(origin, "decide")).not.toBeNull();
+  });
+
+  it("rejects a saved PPQ synthesis route for WAV before upload or provider calls", async () => {
+    await storage.grantOriginOperationAlways(origin, "synthesize", { providerId: "ppq", model: "deepgram_aura_2", voice: "aura-2-arcas-en" });
+    await expect(assertSpeechStream({ method: "synthesize", output: { mediaType: "audio/wav" } }, inference.request({ method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } })))
+      .rejects.toMatchObject({ code: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(packets.some((packet) => packet.chunk?.type === "accepted")).toBe(false);
   });
 
   it.each([false, true])("preserves exact MP3 bytes (streamed upstream: %s)", async (streamed) => {

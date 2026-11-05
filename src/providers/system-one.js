@@ -1,4 +1,4 @@
-/** The documented System One JSON protocol shared by OpenRouter and Ollama. */
+/** The documented System One JSON protocol shared by cloud and local adapters. */
 import {
   DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,
@@ -21,6 +21,7 @@ export async function requestSystemOne({
   state,
   questions,
   signal,
+  mapStatus,
 }) {
   const validated = validateDecideRequest({
     method: "decide",
@@ -52,6 +53,10 @@ export async function requestSystemOne({
         response,
         `${label} HTTP ${response.status}`
       );
+      if (mapStatus) {
+        const mapped = mapStatus(response.status, detail);
+        fail(mapped.code, mapped.message);
+      }
       const obsoleteOllamaFormat =
         label === "Ollama" && response.status === 400 &&
         detail.includes("was downloaded in a format that is no longer supported");

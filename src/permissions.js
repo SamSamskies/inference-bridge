@@ -680,7 +680,8 @@ export async function ensurePermission(args) {
     lastUsed &&
     normalizeProviderId(lastUsed.providerId) === provider.id &&
     typeof lastUsed.model === "string" &&
-    lastUsed.model.trim()
+    lastUsed.model.trim() &&
+    isPlausibleModelForProvider(provider.id, lastUsed.model)
       ? lastUsed.model.trim()
       : "";
   const preferredModel =

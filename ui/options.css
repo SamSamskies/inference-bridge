@@ -77,6 +77,24 @@
   font-weight: 650;
 }
 
+#compatEndpoints > li {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#compatEndpoints .origin-meta code {
+  overflow-wrap: anywhere;
+}
+
+#compatEndpoints .hint {
+  margin: 0;
+}
+
+#compatEndpoints .actions button {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .allowed-sites > li {
   display: block;
   padding: 0;

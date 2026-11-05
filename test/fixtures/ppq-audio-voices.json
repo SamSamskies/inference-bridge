@@ -1,0 +1,11 @@
+{
+  "object": "list",
+  "data": [
+    { "id": "aura-2-arcas-en", "name": "Arcas", "provider": "deepgram", "model_id": "deepgram_aura_2", "language": "en" },
+    { "id": "aura-2-alvaro-es", "name": "Alvaro", "provider": "deepgram", "model_id": "deepgram_aura_2", "language": "es" },
+    { "id": "neutral_female", "name": "Neutral (female)", "provider": "tinfoil", "model_id": "tinfoil-voxtral-tts", "language": "en" },
+    { "id": "es_female", "name": "Spanish (female)", "provider": "tinfoil", "model_id": "tinfoil-voxtral-tts", "language": "es" },
+    { "id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "provider": "elevenlabs", "model_id": "eleven_multilingual_v2", "language": "multi" },
+    { "id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "provider": "elevenlabs", "model_id": "eleven_v3", "language": "multi" }
+  ]
+}

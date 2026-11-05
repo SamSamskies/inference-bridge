@@ -34,6 +34,20 @@ decision models require the `output_modalities=decisions` query.
 `../helpers/decisions-conformance.mjs` is copied unchanged from the IPA
 [decision stream assertions](https://github.com/SamSamskies/inference-provider-api/blob/29fb1dc/packages/ipa-tools/test/conformance/decisions.mjs)
 (MIT). `decisions-conformance.test.js` runs those assertions against Bridge's
-MAIN script, isolated relay, worker, and all three decision adapters with synthetic
+MAIN script, isolated relay, worker, and the decision adapters with synthetic
 provider responses. Chrome/Firefox test labels select mocked browser APIs; they
 do not certify live browsers, provider availability, or model accuracy.
+
+`ppq-decisions-models.json` is a small subset of IDs, labels, and types from
+[PayPerQ’s public decision catalog](https://api.ppq.ai/v1/decisions/models), observed
+on 2026-11-05. It includes a non-Jev model and the Jev latest alias. The shared
+System One response fixture tests protocol normalization; it is not a live PayPerQ
+decision response.
+
+`ppq-audio-models.json` and `ppq-audio-voices.json` are small protocol fixtures
+based on the public [audio model](https://api.ppq.ai/v1/audio/models) and
+[voice](https://api.ppq.ai/v1/audio/voices) catalogs observed on 2026-11-05.
+Model/provider IDs, text limits, and voice associations follow those responses;
+voice and language lists are intentionally reduced for focused tests. They
+include a speech-to-speech model that must not be offered for text synthesis.
+The synthetic MP3/transcript responses are not live PayPerQ inference recordings.

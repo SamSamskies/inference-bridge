@@ -48,6 +48,7 @@ export const getSettings = locked(local.getSettings);
 export const saveSettings = locked(local.saveSettings);
 export const setOriginChatReasoningEffort = locked(local.setOriginChatReasoningEffort);
 export const saveCompatEndpoints = locked(local.saveCompatEndpoints);
+export const transferPPQCompatEndpoint = locked(local.transferPPQCompatEndpoint);
 export const getOriginGrant = locked(local.getOriginGrant);
 export const isOriginBlocked = locked(local.isOriginBlocked);
 export const grantOriginAlways = locked(local.grantOriginAlways);

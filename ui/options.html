@@ -227,6 +227,33 @@
           </p>
           <ul class="list" id="compatEndpoints" hidden></ul>
           <p class="hint" id="compatEndpointsEmpty">No custom servers yet.</p>
+          <dialog id="ppqTransferDialog" class="confirm-dialog" aria-labelledby="ppqTransferTitle">
+            <form method="dialog" id="ppqTransferForm" class="confirm-dialog-body stack">
+              <h2 id="ppqTransferTitle">Transfer to PayPerQ?</h2>
+              <p class="hint" id="ppqTransferSummary"></p>
+              <p class="hint">
+                This transfers the saved API key and chat model, then removes
+                the custom server. Save any edits you want to transfer first.
+                If this server is your default provider, PayPerQ becomes your
+                default. Affected sites will ask for approval again; their
+                previous chat models remain prefilled. Other site permissions
+                and provider defaults stay as they are.
+              </p>
+              <p class="hint" id="ppqTransferModelNote" hidden>
+                The :online suffix will be removed. Hosted web search requires
+                a separate request and approval with the built-in provider.
+              </p>
+              <label id="ppqTransferReplaceField" hidden>
+                <input type="checkbox" id="ppqTransferReplace" />
+                Replace the existing PayPerQ key and chat model
+              </label>
+              <div id="ppqTransferStatus" class="status" role="status" aria-live="polite"></div>
+              <div class="actions actions-end">
+                <button type="submit" value="cancel" class="ghost" id="ppqTransferCancel">Cancel</button>
+                <button type="submit" value="confirm" class="primary" id="ppqTransferConfirm">Transfer and remove server</button>
+              </div>
+            </form>
+          </dialog>
           <label class="field">
             <span>Name</span>
             <input
@@ -362,7 +389,7 @@
             <label class="field"><span>Model</span><select id="decisionsModel"></select></label>
           </div>
           <p class="hint" id="decisionsModelHint">
-            OpenAI and OpenRouter use your saved API keys. Local decisions require Ollama
+            OpenAI, OpenRouter, and PayPerQ use your saved API keys. Local decisions require Ollama
             0.35+ and an installed decision model (for example, ollama pull nimble).
             GGUF Clef and Clef Flash require Ollama 0.35.1+; MLX models require 0.40+.
           </p>

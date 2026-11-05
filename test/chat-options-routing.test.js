@@ -100,6 +100,33 @@ afterEach(() => {
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
 
+  it("uses the saved PPQ chat model when approval switches providers", async () => {
+    const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers", method },
+      { url: chrome.runtime.getURL("ui/approval.html") }, resolve
+    ));
+    // PPQ is not the global provider: a switch must still use its own saved model.
+    await storage.saveSettings({
+      defaultModels: { ppq: "claude-sonnet-5.5" },
+      apiKeys: { ppq: "private-ppq-test-key" },
+    });
+    let response = await list();
+    expect(response.providers.find((provider) => provider.id === "ppq")).toMatchObject({
+      defaultModel: "claude-sonnet-5.5", hasApiKey: true,
+    });
+    expect(response.providers.find((provider) => provider.id === "openai").defaultModel).toBe(route.model);
+    expect(JSON.stringify(response)).not.toContain("private-ppq-test-key");
+    await storage.saveSettings({ defaultModels: { ppq: "gpt-6.1-terra" } });
+    response = await list();
+    expect(response.providers.find((provider) => provider.id === "ppq").defaultModel).toBe("gpt-6.1-terra");
+    // Do not mutate the adapter's factory default or expose chat models for other methods.
+    const { getProvider } = await import("../src/providers/registry.js");
+    expect(getProvider("ppq").defaultModel).toBe("auto");
+    await storage.saveSettings({ defaultModels: { ppq: "" } });
+    expect((await list()).providers.find((provider) => provider.id === "ppq").defaultModel).toBe("auto");
+    expect((await list("decide")).providers.find((provider) => provider.id === "openai").defaultModel).not.toBe(route.model);
+  });
+
   it("edits existing site effort through Options without changing grant scopes or prompting", async () => {
     await storage.grantOriginAlways(origin, {
       ...route, toolFingerprint: "hosted:web_search", imageInput: true, imageOutput: true,

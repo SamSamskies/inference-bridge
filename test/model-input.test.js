@@ -41,6 +41,11 @@ describe("isModelValid", () => {
 });
 
 describe("usesModelAutosuggest", () => {
+  it("allows searchable PPQ models and manual entry when discovery fails", () => {
+    expect(usesModelAutosuggest("ppq", [])).toBe(true);
+    expect(usesModelAutosuggest("ppq", [{ id: "auto" }])).toBe(true);
+    expect(isModelValid("custom-short-alias", [], { allowUnknown: true })).toBe(true);
+  });
   it("is always enabled for OpenRouter", () => {
     expect(usesModelAutosuggest("openrouter")).toBe(true);
     expect(usesModelAutosuggest("openrouter", [{ id: "a" }])).toBe(true);

@@ -6,6 +6,23 @@
  * real reason in `error.metadata.raw` (JSON string) and `provider_name`.
  */
 
+import { ERROR_CODES } from "../errors.js";
+
+/** Keep credentials and arbitrary exception fields out of page-facing errors. */
+export function normalizeProviderError(cause, { apiKey, signal } = {}) {
+  const code = signal?.aborted
+    ? "aborted"
+    : ERROR_CODES.includes(cause?.code) ? cause.code : "provider_error";
+  let message = code === "aborted"
+    ? "Request aborted"
+    : typeof cause?.message === "string" ? cause.message : "Provider request failed";
+  if (apiKey) message = message.replaceAll(apiKey, "[redacted]");
+  message = message
+    .replace(/\b(?:sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+)\b/g, "[redacted]")
+    .slice(0, 1200);
+  return Object.assign(new Error(message), { name: "InferenceError", code });
+}
+
 /**
  * Dig a human-readable message out of nested provider error JSON.
  * @param {unknown} value
