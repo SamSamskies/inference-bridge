@@ -70,6 +70,47 @@ beforeEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("PPQ approval boundaries", () => {
+  it("requires hosted search approval beyond a plain chat grant", async () => {
+    const origin = "https://ppq-search.example";
+    await saveSettings({ apiKeys: { ppq: "private-key" } });
+    await grantOriginAlways(origin, { providerId: "ppq", model: "auto" });
+    const pending = ensurePermission({ requestId: "ppq-search", origin, messages: [{ role: "user", content: "Search" }], tools: webSearchTools });
+    await waitForPending("ppq-search");
+    expect(getPendingApproval("ppq-search")).toMatchObject({ providerId: "ppq", model: "auto", tools: webSearchTools });
+    await resolveApproval("ppq-search", { decision: "always", providerId: "ppq", model: "auto" });
+    expect(await pending).toMatchObject({ allowed: true, providerId: "ppq" });
+    expect(await getOriginGrant(origin)).toMatchObject({ toolFingerprint: "hosted:web_search" });
+    expect(await ensurePermission({ requestId: "ppq-approved-search", origin, messages: [{ role: "user", content: "Search again" }], tools: webSearchTools })).toMatchObject({ allowed: true, providerId: "ppq", once: false });
+  });
+
+  it("does not let a none-scoped PPQ search grant authorize Auto search", async () => {
+    const origin = "https://ppq-none.example";
+    await saveSettings({ apiKeys: { ppq: "private-key" } });
+    await grantOriginAlways(origin, { providerId: "ppq", model: "auto", toolFingerprint: "hosted:web_search", toolChoiceNone: true });
+    const pending = ensurePermission({ requestId: "ppq-auto", origin, messages: [{ role: "user", content: "Search" }], tools: webSearchTools });
+    await waitForPending("ppq-auto");
+    await resolveApproval("ppq-auto", { decision: "deny" });
+    expect(await pending).toMatchObject({ allowed: false });
+  });
+
+  it("keeps existing generic PPQ routes, credentials, and grants when opting into the built-in", async () => {
+    const { saveCompatEndpoints } = await import("../src/storage.js");
+    await saveCompatEndpoints([{ id: "compat:old-ppq", name: "PPQ", baseUrl: "https://api.ppq.ai/v1" }]);
+    const origin = "https://ppq-existing.example";
+    await saveSettings({ apiKeys: { "compat:old-ppq": "old-key" } });
+    await grantOriginAlways(origin, { providerId: "compat:old-ppq", model: "auto" });
+    const before = await getSettings();
+    await saveSettings({ defaultProviderId: "ppq", defaultModel: "gpt-6-luna", apiKeys: { ppq: "new-key" } });
+    const after = await getSettings();
+    expect(after.defaultModels.ppq).toBe("gpt-6-luna");
+    expect(after.apiKeys).toEqual({ "compat:old-ppq": "old-key", ppq: "new-key" });
+    expect(after.compatEndpoints).toEqual(before.compatEndpoints);
+    expect(after.allowedOrigins).toEqual(before.allowedOrigins);
+    for (const method of ["decide", "transcribe", "synthesize"]) expect(await getOriginOperationGrant(origin, method)).toBeNull();
+  });
+});
+
 describe("full-site revocation", () => {
   it("requires fresh approval for every capability despite remembered routes and preferences", async () => {
     const origin = "https://all-access.example";

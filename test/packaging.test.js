@@ -40,6 +40,7 @@ describe("browser packages", () => {
       expect(manifest.version).toBe(packageJson.version);
       expect(manifest.name).toBe("Inference Bridge");
       expect(manifest.host_permissions).toContain("https://generativelanguage.googleapis.com/*");
+      expect(manifest.host_permissions).toContain("https://api.ppq.ai/*");
       expect(files).toContain("src/providers/gemini.js");
       for (const permission of ["tabs", "history", "webNavigation"]) {
         expect(manifest.permissions).not.toContain(permission);

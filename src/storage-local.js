@@ -66,6 +66,7 @@ const DEFAULTS = Object.freeze({
     anthropic: "claude-sonnet-5-5",
     gemini: "gemini-3.8-flash",
     openrouter: "openrouter/auto",
+    ppq: "auto",
   }),
   /** @type {readonly CompatEndpoint[]} */
   compatEndpoints: Object.freeze([]),

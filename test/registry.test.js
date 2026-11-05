@@ -30,6 +30,7 @@ describe("provider registry", () => {
       "on-device",
       "openai",
       "openrouter",
+      "ppq",
     ]);
     expect(getDefaultProvider().id).toBe("openai");
     expect(getProvider("missing")).toBeUndefined();
@@ -73,6 +74,7 @@ describe("provider registry", () => {
         "on-device",
         "openai",
         "openrouter",
+        "ppq",
       ]);
     } finally {
       globalThis.chrome.storage.local.get = originalGet;
@@ -101,6 +103,15 @@ describe("provider registry", () => {
     expect(openrouter.label).toBe("OpenRouter");
     expect(typeof openrouter.listModels).toBe("function");
     expect(openrouter.defaultModel).toBe("openrouter/auto");
+  });
+
+  it("registers PPQ chat/search without advertising unfinished method adapters", () => {
+    const ppq = getProvider("ppq");
+    expect(ppq).toMatchObject({ id: "ppq", label: "PPQ.ai", requiresApiKey: true, defaultModel: "auto", supportsFunctionTools: true, hostedTools: ["web_search"] });
+    expect(typeof ppq.listModels).toBe("function");
+    for (const method of ["decide", "transcribe", "synthesize"]) {
+      expect(providerSupportsMethod(ppq, method)).toBe(false);
+    }
   });
 
   it("marks OpenAI, OpenRouter, Ollama, Anthropic, and compat endpoints as supporting function tools", async () => {

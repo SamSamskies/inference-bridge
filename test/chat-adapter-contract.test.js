@@ -50,6 +50,7 @@ const cases = [
   ["Gemini", "gemini", "gemini", "gemini-3.8-flash", "gemini-4-argon"],
   ["Ollama", "ollama", "ollama", "contract-a", "contract-b"],
   ["OpenRouter", "openrouter", "compat", "contract/model-a", "contract/model-b"],
+  ["PPQ.ai", "ppq", "compat", "model-a", "model-b"],
   ["Named OpenAI-compatible endpoint", "compat:contract", "compat", "model-a", "model-b"],
   ["On-device Prompt API", "on-device", "on-device", "on-device", "on-device"],
 ];

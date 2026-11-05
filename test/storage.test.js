@@ -577,6 +577,7 @@ describe("saveSettings apiKeys and defaultModels", () => {
       anthropic: "claude-sonnet-5-5",
       gemini: "gemini-3.8-flash",
       openrouter: "openrouter/free",
+      ppq: "auto",
     });
   });
 

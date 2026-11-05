@@ -12,6 +12,7 @@ const FIREFOX_BUILTIN_HOSTS = Object.freeze({
   anthropic: "https://api.anthropic.com/*",
   gemini: "https://generativelanguage.googleapis.com/*",
   openrouter: "https://openrouter.ai/*",
+  ppq: "https://api.ppq.ai/*",
   ollama: "http://localhost/*",
   "ollama-web-search": "https://ollama.com/*",
 });

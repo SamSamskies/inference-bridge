@@ -53,6 +53,7 @@ This installs a temporary development build. See the [Firefox release checklist]
    - **Anthropic** — paste your Anthropic API key and choose a Claude model
    - **Google Gemini** — paste a Google AI Studio API key and choose a default model from the curated list
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
+   - **PPQ.ai** — paste your PPQ API key; searchable public chat catalog and provider-hosted Auto web search
    - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
@@ -66,6 +67,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
+| PPQ.ai | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat and hosted search are available; decisions and speech are planned separately. |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
@@ -113,6 +115,16 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey)
 2. In Options, set **Default provider** to Google Gemini, paste the key under **Google Gemini API key**, choose a model (defaults to Gemini 3.8 Flash), and click **Save**
 3. Run the snippet above on an HTTPS or localhost page
+
+### PPQ.ai
+
+1. Create a key at [ppq.ai/api-keys](https://ppq.ai/api-keys).
+2. In **Options → Providers**, select **PPQ.ai**, paste the key, choose a chat model (default `auto`), and **Save**. Type to search the live catalog, or enter a known model ID manually if discovery fails.
+3. Run the chat snippet above on an HTTPS or localhost page and approve PPQ.ai in the popup. A site's existing grant can override your global default; change or revoke it in **Site access** when testing.
+
+PPQ uses [`POST /chat/completions`](https://ppq.ai/api-docs). Approved `{ type: "web_search" }` is sent as PPQ's **Auto** server tool: the model decides whether to search and PPQ consumes the results. Search can incur additional charges. Bridge omits search with `toolChoice: "none"` and rejects `:online` model suffixes because they enable search outside the tool approval boundary. It does not enable always-search plugins, search-engine preferences, or ZDR routing.
+
+Vision input requires explicit image support in the current chat catalog; image output is unavailable. PPQ decisions, transcription, and synthesis are not exposed in this first slice. Existing named PPQ servers, keys, and grants are preserved; opt into the built-in provider and approve it separately. See the [PPQ smoke-test checkpoint](docs/ppq-smoke-test.md).
 
 ### OpenRouter
 
@@ -301,7 +313,7 @@ Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → 
 
 **Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
 
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, Google Gemini, and OpenRouter the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
+Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, Google Gemini, OpenRouter, and PPQ.ai the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
 
 **Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
 
@@ -313,13 +325,14 @@ Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, 
 | Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
 | Google Gemini | Native Interactions `{ type: "google_search" }` on verified models; source links preserved in response text. Tokens and search queries can incur charges. |
 | OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
+| PPQ.ai | Chat Completions `{ type: "web_search" }` (Auto; provider-executed) |
 | Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
 | OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
 | On-device | Unsupported — Allow disabled / `unavailable` |
 
 Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge may search and fetch via ollama.com). Unsupported providers disable Allow and tell the user to pick another provider. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
 
-Use OpenAI, Anthropic, OpenRouter, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
+Use OpenAI, Anthropic, Google Gemini, OpenRouter, PPQ.ai, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
 
 ```js
 for await (const chunk of window.inference.request({
@@ -511,6 +524,7 @@ console.log("[final]", final.message.content);
 | Anthropic | Messages API `tools` |
 | Google Gemini | Native Interactions function steps; mixed Google Search and functions only on verified models |
 | OpenRouter | Chat Completions `tools` |
+| PPQ.ai | Chat Completions `tools`; may be mixed with hosted Auto search |
 | Ollama | `/api/chat` `tools` |
 | OpenAI-compatible | Chat Completions `tools` |
 | On-device | Not supported (Allow disabled / `unavailable`) |
@@ -814,10 +828,10 @@ entry. Use stable `request()` and `getFeatures()` for new code. The
 
 Stable `window.inference.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`, when `getFeatures().imageInput` / `imageOutput` are true.
 
-Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
+Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, PPQ.ai, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
 
-- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
-- OpenRouter and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
+- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, PPQ.ai, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
+- OpenRouter, PPQ.ai, and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
 - OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
 - OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 / GPT-6 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
 - OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.

@@ -585,6 +585,10 @@ function syncApiKeyDraftFromInput() {
 }
 
 const API_KEY_SETUP_LINKS = Object.freeze({
+  ppq: {
+    href: "https://ppq.ai/api-keys",
+    label: "Get a PPQ.ai API key",
+  },
   openai: {
     href: "https://platform.openai.com/api-keys",
     label: "Get an OpenAI API key",
@@ -2077,6 +2081,13 @@ function renderCompatEndpoints() {
     const url = document.createElement("code");
     url.textContent = endpoint.baseUrl;
     meta.append(title, url);
+
+    if (new URL(endpoint.baseUrl).origin === "https://api.ppq.ai") {
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "PPQ.ai is also a built-in provider with approved hosted web search. Select PPQ.ai in Providers and save its key to opt in. Existing server settings and site grants stay as they are.";
+      meta.append(hint);
+    }
 
     const actions = document.createElement("div");
     actions.className = "actions";

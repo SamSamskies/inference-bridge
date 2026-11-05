@@ -104,6 +104,8 @@ describe("Firefox built-in host grants", () => {
     expect(contains).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
     expect(await hasBuiltInHostPermission("gemini")).toBe(false);
     expect(contains).toHaveBeenCalledWith({ origins: ["https://generativelanguage.googleapis.com/*"] });
+    expect(await hasBuiltInHostPermission("ppq")).toBe(false);
+    expect(contains).toHaveBeenCalledWith({ origins: ["https://api.ppq.ai/*"] });
   });
 
   it("does not block Chrome built-ins or custom endpoints", async () => {

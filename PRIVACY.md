@@ -1,13 +1,13 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-11-05
 
 Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
 ## Summary
 
 - API keys and provider settings are stored in the browser's local extension storage. That storage is not encrypted by Inference Bridge. Page scripts cannot read it.
-- Inference request content is sent only to the provider the user selects (for example OpenAI, Anthropic, OpenRouter, local Ollama, on-device browser AI, or a user-configured OpenAI-compatible server).
+- Inference request content is sent only to the provider the user selects (for example OpenAI, Anthropic, OpenRouter, PPQ.ai, local Ollama, on-device browser AI, or a user-configured OpenAI-compatible server).
 - In Chrome and Firefox, when speech is approved, a bounded recording or complete media container is sent to the selected transcription provider. Synthesis text is sent to the selected provider and generated audio bytes are returned directly to the requesting page.
 - Experimental decisions are available by default and require separate per-site approval. Once approved, JSON state and typed questions are sent to OpenAI Decisions, OpenRouter Decisions, or local Ollama System One. Typed answers are returned directly to the page; state, questions, and answers are held in memory for the active request and are not persisted.
 - The extension does not operate a backend that collects or sells user data.
@@ -28,7 +28,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 
 | Data | Purpose | Where |
 | --- | --- | --- |
-| Provider API keys (OpenAI, Anthropic, Google Gemini, OpenRouter, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | Local extension storage |
+| Provider API keys (OpenAI, Anthropic, Google Gemini, OpenRouter, PPQ.ai, optional Ollama account key for web search, optional keys for custom endpoints) | Authenticate requests to the selected provider | Local extension storage |
 | Default provider and model | Pre-fill Options and approval UI | Local extension storage |
 | Named OpenAI-compatible endpoint configs (name, base URL) | User-configured OpenAI-compatible servers | Local extension storage |
 | Per-origin grants and blocks | Remember Allow / Deny decisions | Local extension storage |
@@ -48,6 +48,7 @@ When the user allows a site to use inference:
 - **Anthropic:** chat messages (and, when the user allows image input, image bytes from the page) and the stored Anthropic API key are sent to `https://api.anthropic.com` (Messages API) for the selected model.
 - **OpenRouter:** chat messages and the stored OpenRouter API key are sent to `https://openrouter.ai` for the selected model. The public model catalog (`GET /api/v1/models`) is fetched without an API key to populate the Options UI. When the user allows image input or output, image bytes may be sent to or returned from OpenRouter for the selected model. When speech is separately approved, the complete bounded audio/media file or synthesis text is sent to OpenRouter’s dedicated speech endpoint; generated MP3 bytes are returned to the page. When decisions are separately approved, JSON state, typed questions, and the stored OpenRouter key are sent to `/api/alpha/decisions`; typed answers are returned directly to the page. The public decisions model catalog (`GET /api/v1/models?output_modalities=decisions`) is fetched without an API key; Inference Bridge does not contact TypeSafe directly.
 - **Ollama:** chat messages (and, when the user allows image input, image bytes from the page) are sent to the local Ollama endpoint (`http://localhost:11434`). If the user approves transcription, and the installed model explicitly reports the `audio` capability, the complete bounded WAV file—or MP3 for a specifically verified model—is sent to that same local endpoint. If the user separately approves synthesis, and the installed model reports the `speech` capability, text is sent to that same local `/v1/audio/speech` endpoint and generated WAV bytes are returned to the page. If the page passes an image `url`, the page fetches it (same CORS rules as the site) and the extension then sends those bytes to the selected provider. When the user enables hosted `{ type: "web_search" }` and has saved an Ollama account API key, Inference Bridge also sends search queries (and optional page-fetch URLs) plus that key to `https://ollama.com` (`/api/web_search`, `/api/web_fetch`). When decisions are separately approved, JSON state and typed questions are sent to local `/v1/systemone`, and typed answers are returned to the page. Installed decisions, transcription, and speech model discovery use local `/api/tags` and `/api/show` capability metadata. Local chat, transcription, synthesis, and decisions do not use that key. Generated images are not requested from Ollama in the current build.
+- **PPQ.ai (PayPerQ):** approved chat messages, function-tool definitions/results, and the saved PPQ key are sent to `https://api.ppq.ai/chat/completions`. Approved image input is sent only when the selected model is verified as vision-capable in the current catalog. The public chat catalog (`GET /v1/models`) is fetched without a key. When hosted web search is requested and approved, PPQ decides whether to search and processes results server-side, which may involve its upstream model and search providers and incur additional charges. Bridge does not set a search engine or Zero Data Retention routing preference; PPQ and upstream data-use terms apply. This slice does not send decisions or speech to PPQ and does not migrate existing custom-server keys or grants.
 - **On-device (Chrome only):** chat messages (and, when the user allows image input, image bytes from the page) are processed by the browser Prompt API (`LanguageModel`) on the device. No API key is used. The browser chooses and may download the model when the user clicks **Install** in Options. Generated images are not requested from the Prompt API. This provider is unavailable in Firefox.
 - **OpenAI-compatible:** chat messages (and, when the user allows image input, image bytes from the page, plus an optional API key, if configured) are sent only to the base URL the user saved. The extension may also call that server’s `/v1/models` to populate the model picker. Firefox requires HTTPS for non-loopback servers; HTTP is accepted only for localhost/loopback.
 
@@ -66,6 +67,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | `https://api.anthropic.com/*` | Call the Anthropic Messages API |
 | `https://generativelanguage.googleapis.com/*` | Authenticate Gemini discovery, user-approved chat/search, and separately approved file transcription and cleanup |
 | `https://openrouter.ai/*` | Call the OpenRouter models catalog, Chat Completions API, and separately approved transcription, speech-synthesis, or Decisions endpoints |
+| `https://api.ppq.ai/*` | Fetch the public PPQ chat model catalog and send user-approved chat, images, function tools, and hosted search to PPQ |
 | `https://ollama.com/*` | Call Ollama cloud web search / fetch when the user requests hosted `{ type: "web_search" }` with an Ollama account API key |
 | Chrome: `http://localhost:11434/*`; Firefox: portless `http://localhost/*` | Call built-in Ollama on port 11434. Firefox match patterns cannot include a port; request URLs still use only port 11434. Custom loopback endpoints, including `127.0.0.1`, use optional access on save. |
 | Optional hosts | When the user adds an OpenAI-compatible server, the browser prompts for that server host. Chrome declares `http://*/*` and `https://*/*`; Firefox declares only loopback HTTP hosts and `https://*/*`. Firefox permissions are host-scoped across ports; requests still use only the saved URL and port. |
