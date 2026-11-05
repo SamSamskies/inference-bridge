@@ -124,7 +124,7 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 
 PayPerQ uses [`POST /chat/completions`](https://ppq.ai/api-docs). Approved `{ type: "web_search" }` is sent as PayPerQ's **Auto** server tool: the model decides whether to search and PayPerQ consumes the results. Search can incur additional charges. Bridge omits search with `toolChoice: "none"` and rejects `:online` model suffixes because they enable search outside the tool approval boundary. It does not enable always-search plugins, search-engine preferences, or ZDR routing.
 
-Vision input requires explicit image support in the current chat catalog; image output is unavailable. PayPerQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. PayPerQ transcription and MP3 synthesis have independent controls in **Options → Speech**, with live audio models and model-specific voices. See the [speech checkpoint](docs/ppq-speech-smoke-test.md). Existing named PayPerQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PayPerQ becomes the default. Replacing existing PayPerQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval. See the [PayPerQ smoke-test checkpoint](docs/ppq-smoke-test.md).
+Vision input requires explicit image support in the current chat catalog; image output is unavailable. PayPerQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. PayPerQ transcription and MP3 synthesis have independent controls in **Options → Speech**, with live audio models and model-specific voices. Existing named PayPerQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PayPerQ becomes the default. Replacing existing PayPerQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval.
 
 ### OpenRouter
 
@@ -742,7 +742,7 @@ fails with `unavailable`; discovery does not promise provider availability.
   Requests use [`POST /v1/decisions`](https://ppq.ai/api-docs). Bridge sends
   System One JSON, validates `noul`, `choice`, and `score` answers, and emits
   `accepted` then `done` without deltas. Decisions never use the chat endpoint
-  or enable hosted search. See the [PayPerQ decisions smoke test](docs/ppq-decisions-smoke-test.md).
+  or enable hosted search.
 - **OpenAI:** save your OpenAI key in **Options → Providers**, then choose
   OpenAI and `gpt-6-luna` in Decisions. Requests use
   [`POST /v1/decisions`](https://developers.openai.com/api/reference/resources/decisions/methods/create).
