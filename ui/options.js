@@ -2598,7 +2598,9 @@ saveButton.addEventListener("click", async () => {
           ? "OpenRouter models must look like org/model (include a /)."
           : providerId === "openai"
             ? "OpenAI model ids should not include a /."
-            : "Choose a valid default model before saving.",
+            : providerId === "ppq"
+              ? "PayPerQ :online models always enable search. Remove :online and let apps request web_search."
+              : "Choose a valid default model before saving.",
         "err",
       );
       return;

@@ -138,6 +138,11 @@ export function isPlausibleModelForProvider(providerId, model) {
   if (providerId === "gemini") return /^[a-zA-Z0-9._-]+$/.test(trimmed);
   if (providerId === "ollama") return !OPENAI_MODEL_SET.has(trimmed);
   if (providerId === "on-device") return trimmed === "on-device";
+  // PayPerQ `:online` always enables provider-side search, outside the
+  // web_search approval boundary; the adapter rejects it at request time.
+  if (providerId === "ppq") {
+    return !trimmed.split(":").slice(1).some((s) => s.toLowerCase() === "online");
+  }
   return true;
 }
 
