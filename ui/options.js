@@ -2184,7 +2184,7 @@ function renderCompatEndpoints() {
     if (isPPQCompatEndpoint(endpoint)) {
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "PPQ.ai is now a built-in provider. Transfer your saved key and chat model, then remove this custom server.";
+      hint.textContent = "Move your saved key and model to the built-in PPQ.ai provider.";
       meta.append(hint);
     }
 
@@ -2194,7 +2194,7 @@ function renderCompatEndpoints() {
     if (isPPQCompatEndpoint(endpoint)) {
       const transferBtn = document.createElement("button");
       transferBtn.type = "button";
-      transferBtn.textContent = "Transfer to PPQ.ai…";
+      transferBtn.textContent = "Transfer settings";
       transferBtn.addEventListener("click", () => previewPPQTransfer(endpoint.id));
       actions.append(transferBtn);
     }

@@ -134,8 +134,7 @@ if (ppqMixed?.message.toolCalls?.length) {
 
 ## Transfer an existing PPQ server
 
-- [ ] With `https://api.ppq.ai/v1` saved as a custom server, find **Transfer to
-  PPQ.ai…** beside it in **Options → Providers → OpenAI-compatible servers**.
+- [ ] With `https://api.ppq.ai/v1` saved as a custom server, find **Transfer settings** beside it in **Options → Providers → OpenAI-compatible servers**.
   Unrelated hosts and custom paths must not offer this action.
 - [ ] Open the preview: it shows the server, saved chat model and key presence,
   never the key value. Cancel and confirm nothing changes.
