@@ -127,26 +127,6 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect((await list("decide")).providers.find((provider) => provider.id === "openai").defaultModel).not.toBe(route.model);
   });
 
-  it("opens approval with saved PPQ defaults despite older per-site popup choices", async () => {
-    await storage.setOriginLastUsed(origin, { providerId: "openai", model: "gpt-5-nano" });
-    await storage.saveSettings({
-      defaultProviderId: "ppq", defaultModel: "claude-sonnet-5.5",
-      apiKeys: { ppq: "private-ppq-test-key" },
-    });
-    const first = start();
-    await pending(first);
-    expect(permissions.getPendingApproval(first.streamId)).toMatchObject({ providerId: "ppq", model: "claude-sonnet-5.5" });
-    await permissions.resolveApproval(first.streamId, { decision: "deny" });
-    // A prior selection of auto on PPQ must not hide the newly saved default.
-    await storage.setOriginLastUsed(origin, { providerId: "ppq", model: "auto" });
-    await storage.saveSettings({ defaultModel: "gpt-6.1-terra" });
-    const second = start();
-    await pending(second);
-    expect(permissions.getPendingApproval(second.streamId)).toMatchObject({ providerId: "ppq", model: "gpt-6.1-terra" });
-    await permissions.resolveApproval(second.streamId, { decision: "deny" });
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
   it("edits existing site effort through Options without changing grant scopes or prompting", async () => {
     await storage.grantOriginAlways(origin, {
       ...route, toolFingerprint: "hosted:web_search", imageInput: true, imageOutput: true,
