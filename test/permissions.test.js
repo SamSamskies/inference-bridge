@@ -71,6 +71,22 @@ beforeEach(() => {
 });
 
 describe("PPQ approval boundaries", () => {
+  it("requires fresh approval after an explicit compat transfer and prefills the site model", async () => {
+    const { saveCompatEndpoints, transferPPQCompatEndpoint } = await import("../src/storage.js");
+    const { ppqTransferPreview } = await import("../src/ppq-transfer.js");
+    const id = "compat:ppq-transfer", origin = "https://ppq-transferred.example";
+    await saveCompatEndpoints([{ id, name: "PPQ", baseUrl: "https://api.ppq.ai/v1" }]);
+    await saveSettings({ apiKeys: { [id]: "key" }, defaultProviderId: id, defaultModel: "auto" });
+    await grantOriginAlways(origin, { providerId: id, model: "site-model", toolFingerprint: "hosted:web_search" });
+    await transferPPQCompatEndpoint(id, { expected: ppqTransferPreview(await getSettings(), id) });
+    const pending = ensurePermission({ requestId: "ppq-transferred", origin, messages: [{ role: "user", content: "Hello" }] });
+    await waitForPending("ppq-transferred");
+    expect(getPendingApproval("ppq-transferred")).toMatchObject({ providerId: "ppq", model: "site-model" });
+    await resolveApproval("ppq-transferred", { decision: "deny" });
+    expect(await pending).toMatchObject({ allowed: false });
+    expect(await getOriginGrant(origin)).toBeNull();
+  });
+
   it("requires hosted search approval beyond a plain chat grant", async () => {
     const origin = "https://ppq-search.example";
     await saveSettings({ apiKeys: { ppq: "private-key" } });

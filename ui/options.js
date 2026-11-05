@@ -2,6 +2,7 @@ import {
   getSettings,
   saveSettings,
   saveCompatEndpoints,
+  transferPPQCompatEndpoint,
   listBlockedOrigins,
   revokeOrigin,
   revokeAllOriginAccess,
@@ -36,6 +37,7 @@ import {
 import { isFirefoxBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 import { groupAllowedSites } from "./allowed-sites.js";
+import { isPPQCompatEndpoint, ppqTransferPreview } from "../src/ppq-transfer.js";
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");
@@ -90,6 +92,17 @@ const compatApiKeyInput = document.getElementById("compatApiKey");
 const compatSaveButton = document.getElementById("compatSave");
 const compatCancelButton = document.getElementById("compatCancel");
 const compatStatusEl = document.getElementById("compatStatus");
+const ppqTransferDialog = document.getElementById("ppqTransferDialog");
+const ppqTransferForm = document.getElementById("ppqTransferForm");
+const ppqTransferSummary = document.getElementById("ppqTransferSummary");
+const ppqTransferModelNote = document.getElementById("ppqTransferModelNote");
+const ppqTransferReplaceField = document.getElementById("ppqTransferReplaceField");
+const ppqTransferReplace = document.getElementById("ppqTransferReplace");
+const ppqTransferStatus = document.getElementById("ppqTransferStatus");
+const ppqTransferConfirm = document.getElementById("ppqTransferConfirm");
+const ppqTransferCancel = document.getElementById("ppqTransferCancel");
+let ppqTransferReview = null;
+let ppqTransferBusy = false;
 const settingsTabs = Array.from(
   document.querySelectorAll('[role="tab"][aria-controls]'),
 );
@@ -2065,6 +2078,92 @@ function resetCompatForm() {
   compatCancelButton.hidden = true;
 }
 
+async function previewPPQTransfer(endpointId) {
+  try {
+    const settings = await getSettings();
+    ppqTransferReview = ppqTransferPreview(settings, endpointId);
+    const { source, model, hasConflict, removedOnlineSuffix } = ppqTransferReview;
+    ppqTransferSummary.textContent = `From ${source.name} (${source.baseUrl}). Chat model: ${model}. API key: ${source.apiKey ? "saved" : "missing"}.`;
+    ppqTransferModelNote.hidden = !removedOnlineSuffix;
+    ppqTransferReplaceField.hidden = !hasConflict;
+    ppqTransferReplace.checked = false;
+    ppqTransferStatus.textContent = source.apiKey ? "" : "Save an API key for this server before transferring it.";
+    ppqTransferStatus.className = "status";
+    ppqTransferConfirm.disabled = !source.apiKey || hasConflict;
+    ppqTransferDialog.showModal();
+  } catch (error) {
+    setCompatStatus(error instanceof Error ? error.message : "Could not preview the transfer.", "err");
+  }
+}
+
+ppqTransferReplace.addEventListener("change", () => {
+  ppqTransferConfirm.disabled = ppqTransferBusy || !ppqTransferReview?.source.apiKey ||
+    (ppqTransferReview.hasConflict && !ppqTransferReplace.checked);
+});
+ppqTransferDialog.addEventListener("cancel", (event) => {
+  if (ppqTransferBusy) event.preventDefault();
+});
+ppqTransferDialog.addEventListener("close", () => { ppqTransferReview = null; });
+ppqTransferForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value !== "confirm") return;
+  event.preventDefault();
+  if (!ppqTransferReview || ppqTransferBusy) return;
+  const review = ppqTransferReview;
+  ppqTransferBusy = true;
+  ppqTransferConfirm.disabled = true;
+  ppqTransferCancel.disabled = true;
+  ppqTransferReplace.disabled = true;
+  ppqTransferStatus.textContent = "Transferring saved settings…";
+  let transferred = false;
+  try {
+    if (!(await hasBuiltInHostPermission("ppq"))) {
+      throw new Error("Host access for PPQ.ai was revoked. Restore it in Firefox add-on settings before transferring.");
+    }
+    await transferPPQCompatEndpoint(review.source.id, {
+      expected: review, replaceExisting: ppqTransferReplace.checked,
+    });
+    transferred = true;
+    ppqTransferDialog.close();
+    syncApiKeyDraftFromInput();
+    syncModelDraftFromControl();
+    const settings = await getSettings();
+    apiKeyDrafts.ppq = settings.apiKeys.ppq;
+    modelDrafts.ppq = settings.defaultModels.ppq;
+    delete apiKeyDrafts[review.source.id];
+    delete modelDrafts[review.source.id];
+    apiKeyBoundProviderId = "";
+    modelCache.delete(review.source.id);
+    modelCache.delete("ppq");
+    if (compatEditingId === review.source.id) resetCompatForm();
+    compatEndpoints = settings.compatEndpoints;
+    savedDefaultProviderId = settings.defaultProviderId;
+    const selected = providerSelect.value === review.source.id ? "ppq" : providerSelect.value;
+    await loadProviders();
+    await refreshProviderHostAccess();
+    const nextProvider = populateProviderSelect(providerSelect, selected || settings.defaultProviderId);
+    modelBoundProviderId = nextProvider;
+    updateProviderChrome(nextProvider);
+    await refreshDefaultModels(nextProvider, preferredDefaultModel(nextProvider));
+    renderCompatEndpoints();
+    await renderAllowedSites();
+    setCompatStatus("Transferred to PPQ.ai and removed the custom server. Affected sites will ask for approval again.", "ok");
+    setStatus("PPQ.ai settings transferred.", "ok");
+  } catch (error) {
+    if (transferred) {
+      setCompatStatus("Transfer saved. Reload Options to refresh the display.", "ok");
+    } else {
+      ppqTransferStatus.textContent = error instanceof Error ? error.message : "Could not transfer settings. The custom server was kept.";
+      ppqTransferStatus.className = "status err";
+    }
+  } finally {
+    ppqTransferBusy = false;
+    ppqTransferCancel.disabled = false;
+    ppqTransferReplace.disabled = false;
+    ppqTransferConfirm.disabled = !ppqTransferReview?.source.apiKey ||
+      (ppqTransferReview.hasConflict && !ppqTransferReplace.checked);
+  }
+});
+
 function renderCompatEndpoints() {
   compatEndpointsEl.replaceChildren();
   const hasEndpoints = compatEndpoints.length > 0;
@@ -2082,15 +2181,23 @@ function renderCompatEndpoints() {
     url.textContent = endpoint.baseUrl;
     meta.append(title, url);
 
-    if (new URL(endpoint.baseUrl).origin === "https://api.ppq.ai") {
+    if (isPPQCompatEndpoint(endpoint)) {
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "PPQ.ai is also a built-in provider with approved hosted web search. Select PPQ.ai in Providers and save its key to opt in. Existing server settings and site grants stay as they are.";
+      hint.textContent = "PPQ.ai is now a built-in provider. Transfer your saved key and chat model, then remove this custom server.";
       meta.append(hint);
     }
 
     const actions = document.createElement("div");
     actions.className = "actions";
+
+    if (isPPQCompatEndpoint(endpoint)) {
+      const transferBtn = document.createElement("button");
+      transferBtn.type = "button";
+      transferBtn.textContent = "Transfer to PPQ.ai…";
+      transferBtn.addEventListener("click", () => previewPPQTransfer(endpoint.id));
+      actions.append(transferBtn);
+    }
 
     const editBtn = document.createElement("button");
     editBtn.type = "button";

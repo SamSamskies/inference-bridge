@@ -132,6 +132,27 @@ if (ppqMixed?.message.toolCalls?.length) {
 }
 ```
 
+## Transfer an existing PPQ server
+
+- [ ] With `https://api.ppq.ai/v1` saved as a custom server, find **Transfer to
+  PPQ.ai…** beside it in **Options → Providers → OpenAI-compatible servers**.
+  Unrelated hosts and custom paths must not offer this action.
+- [ ] Open the preview: it shows the server, saved chat model and key presence,
+  never the key value. Cancel and confirm nothing changes.
+- [ ] If PPQ already has a different key or custom model, the transfer button
+  stays disabled until **Replace the existing PPQ.ai key and chat model** is
+  checked. Save desired edits before opening the transfer; it uses saved values.
+- [ ] Confirm **Transfer and remove server**. The old server disappears; select
+  PPQ.ai to verify its masked key and copied model. If the old server was the
+  global default, PPQ.ai is now the default. Other global defaults remain intact.
+- [ ] Sites previously allowed to use that server prompt again, prefilled with
+  PPQ.ai and their remembered model. Other sites and method grants are unchanged.
+- [ ] A model containing `:online` is previewed without that suffix; approved
+  hosted search is still a separate tool request.
+- [ ] Change the source or target key/model in another Options tab while the
+  preview is open. Confirm transfer refuses the stale preview and keeps the
+  newer settings and the custom server. Reopen the preview to retry.
+
 ## Cancellation, errors, and existing installations
 
 - [ ] Abort a response with an `AbortController` passed as `signal`; confirm
@@ -139,7 +160,8 @@ if (ppqMixed?.message.toolCalls?.length) {
 - [ ] A missing/invalid key gives a setup/authentication hint. Insufficient
   balance or a key spending limit gives a billing hint without exposing the key.
 - [ ] A generic named PPQ server still disables hosted search; opting into the
-  built-in provider does not rewrite existing server keys, routes, or grants.
+  built-in provider without using the explicit transfer action does not rewrite
+  existing server keys, routes, or grants.
 - [ ] Firefox: revoke `https://api.ppq.ai/*` in add-on settings and confirm
   catalog/chat fail with the host-access hint. Restore access and retry.
 - [ ] PPQ does not yet appear in Decisions or Speech method selectors.

@@ -10,6 +10,7 @@ import { SettingsStorageError } from "./storage-errors.js";
 import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "./chat-options.js";
+import { ppqTransferModel, ppqTransferPreview } from "./ppq-transfer.js";
 
 /** Storage promises reject on quota and browser persistence failures. */
 async function writeSettings(patch) {
@@ -778,6 +779,64 @@ export async function saveCompatEndpoints(endpoints) {
   // Re-read so orphan scrubbing (keys, models, grants, defaultProviderId) runs.
   const settings = await getSettings();
   return settings.compatEndpoints;
+}
+
+/** One locked write copies saved settings and removes the old endpoint.
+ * Existing approvals are revoked rather than widened to a new provider.
+ * The reviewed source/destination must still match when the user confirms. */
+export async function transferPPQCompatEndpoint(endpointId, { expected, replaceExisting = false } = {}) {
+  const current = await getSettings();
+  const preview = ppqTransferPreview(current, endpointId);
+  if (!expected || JSON.stringify(preview) !== JSON.stringify(expected)) {
+    throw new Error("Settings changed. Close and reopen the transfer preview, then try again.");
+  }
+  if (!preview.source.apiKey) {
+    throw new Error("Save an API key for this server before transferring it.");
+  }
+  if (preview.hasConflict && !replaceExisting) {
+    throw new Error("Choose whether to replace the existing PPQ.ai key and model before transferring.");
+  }
+  if (/^~?typesafe\/jev(?:-|$)/i.test(preview.model)) {
+    throw new Error("Choose a chat model for this server before transferring it.");
+  }
+
+  const apiKeys = { ...current.apiKeys, ppq: preview.source.apiKey };
+  const defaultModels = { ...current.defaultModels, ppq: preview.model };
+  delete apiKeys[endpointId];
+  delete defaultModels[endpointId];
+  const allowedOrigins = { ...current.allowedOrigins };
+  const originLastUsed = { ...current.originLastUsed };
+  const now = Date.now();
+  for (const [origin, grant] of Object.entries(allowedOrigins)) {
+    if (grant.providerId !== endpointId) continue;
+    delete allowedOrigins[origin];
+    // Keep a useful prefill, without granting the new provider any access.
+    if (!originLastUsed[origin] || originLastUsed[origin].providerId === endpointId) {
+      originLastUsed[origin] = { providerId: "ppq", model: ppqTransferModel(grant.model || preview.model), usedAt: now };
+    }
+  }
+  for (const [origin, route] of Object.entries(originLastUsed)) {
+    if (route.providerId === endpointId) {
+      originLastUsed[origin] = { ...route, providerId: "ppq", model: ppqTransferModel(route.model || preview.model) };
+    }
+  }
+  // Compat methods are unsupported, but clean any legacy operation references
+  // to the removed ID without granting PPQ decisions or speech permissions.
+  const operationDefaults = { ...current.operationDefaults };
+  for (const [operation, route] of Object.entries(operationDefaults)) {
+    if (route.providerId === endpointId) delete operationDefaults[operation];
+  }
+  const cleanOperationMap = (map) => Object.fromEntries(Object.entries(map).flatMap(([origin, routes]) => {
+    const remaining = Object.fromEntries(Object.entries(routes).filter(([, route]) => route.providerId !== endpointId));
+    return Object.keys(remaining).length ? [[origin, remaining]] : [];
+  }));
+  await writeSettings({
+    apiKeys, defaultModels, allowedOrigins, originLastUsed, operationDefaults,
+    operationGrants: cleanOperationMap(current.operationGrants),
+    operationLastUsed: cleanOperationMap(current.operationLastUsed),
+    defaultProviderId: current.defaultProviderId === endpointId ? "ppq" : current.defaultProviderId,
+    compatEndpoints: current.compatEndpoints.filter((endpoint) => endpoint.id !== endpointId),
+  });
 }
 
 /**
