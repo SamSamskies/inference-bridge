@@ -1,0 +1,8 @@
+{
+  "object": "list",
+  "data": [
+    { "id": "morph/reflex", "type": "decision", "name": "Reflex" },
+    { "id": "typesafe/jev-1.13", "type": "decision", "name": "Jev 1.13" },
+    { "id": "~typesafe/jev-latest", "type": "decision", "name": "Jev Latest" }
+  ]
+}

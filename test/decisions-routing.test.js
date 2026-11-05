@@ -4,11 +4,13 @@ import request from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
 import catalog from "./fixtures/openrouter-decisions-models.json";
 import openaiFixture from "./fixtures/openai-decisions-response.json";
+import ppqCatalog from "./fixtures/ppq-decisions-models.json";
 
 const origin = "https://app.example";
 const cloud = { providerId: "openrouter", model: "typesafe/jev-1.13" };
 const openai = { providerId: "openai", model: "gpt-6-luna" };
 const local = { providerId: "ollama", model: "nimble:latest" };
+const ppq = { providerId: "ppq", model: "morph/reflex" };
 const decide = { method: "decide", ...request };
 function event() {
   const listeners = [];
@@ -36,12 +38,14 @@ async function setup(firefox) {
   permissions = await import("../src/permissions.js");
   await import("../background/service-worker.js");
   await storage.saveSettings({
-    apiKeys: { openrouter: "test-key", openai: "openai-key" },
+    apiKeys: { openrouter: "test-key", openai: "openai-key", ppq: "ppq-key" },
     operationDefaults: { decide: cloud },
   });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, options) => {
+      if (url === "https://api.ppq.ai/v1/decisions/models") return Response.json(ppqCatalog);
+      if (url === "https://api.ppq.ai/v1/decisions") return Response.json(fixture);
       if (url.endsWith("?output_modalities=decisions"))
         return Response.json(catalog);
       if (url.endsWith("/api/tags"))
@@ -133,6 +137,92 @@ async function message(payload) {
 
 describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
+
+  it("uses separate PPQ decision defaults, the shared PPQ key, and accepted/done without streaming deltas", async () => {
+    await storage.saveSettings({
+      defaultProviderId: "ppq", defaultModel: "auto",
+      operationDefaults: { decide: ppq },
+    });
+    const chatRoute = { providerId: "ppq", model: "auto" };
+    await storage.grantOriginAlways(origin, chatRoute);
+    await storage.grantOriginOperationAlways(origin, "transcribe", { providerId: "openai", model: "whisper-1" });
+    const port = start();
+    await vi.waitFor(() => expect(permissions.getPendingApproval(port.streamId)).toMatchObject({ method: "decide", ...ppq }));
+    expect(fetch).not.toHaveBeenCalled();
+    await approve(port, ppq, "always");
+    await outcome(port);
+    expect(port.messages.filter((item) => item.chunk).map((item) => item.chunk.type)).toEqual(["accepted", "done"]);
+    expect(port.messages.at(-1).chunk).toMatchObject({ model: fixture.model, answers: fixture.answers });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.ppq.ai/v1/decisions/models", "https://api.ppq.ai/v1/decisions",
+    ]);
+    const options = fetch.mock.calls.at(-1)[1];
+    expect(options.headers.Authorization).toBe("Bearer ppq-key");
+    expect(JSON.parse(options.body)).toEqual({ model: ppq.model, ...request });
+    const settings = await storage.getSettings();
+    expect(settings.defaultModels.ppq).toBe("auto");
+    expect(settings.operationDefaults.decide).toEqual(ppq);
+    expect(await storage.getOriginGrant(origin)).toMatchObject(chatRoute);
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(ppq);
+    await storage.revokeOriginOperation(origin, "decide");
+    expect(await storage.getOriginGrant(origin)).toMatchObject(chatRoute);
+    expect(await storage.getOriginOperationGrant(origin, "transcribe")).not.toBeNull();
+  });
+
+  it("does not let PPQ decision approval authorize chat or speech", async () => {
+    await storage.saveSettings({ defaultProviderId: "ppq", defaultModel: "auto" });
+    await storage.grantOriginOperationAlways(origin, "decide", ppq);
+    const pendingChat = permissions.ensurePermission({ requestId: "ppq-chat-boundary", origin, messages: [{ role: "user", content: "Hello" }] });
+    await vi.waitFor(() => expect(permissions.getPendingApproval("ppq-chat-boundary")).not.toBeNull());
+    await permissions.resolveApproval("ppq-chat-boundary", { decision: "deny" });
+    expect(await pendingChat).toMatchObject({ allowed: false });
+    for (const method of ["transcribe", "synthesize"]) {
+      const requestId = `ppq-${method}-boundary`;
+      const pending = permissions.ensureOperationPermission({
+        requestId, origin, method, preferredProviderId: "openai", preferredModel: "speech-model",
+        ...(method === "synthesize" ? { preferredVoice: "alloy" } : {}),
+      });
+      await vi.waitFor(() => expect(permissions.getPendingApproval(requestId)?.method).toBe(method));
+      await permissions.resolveApproval(requestId, { decision: "deny" });
+      expect(await pending).toMatchObject({ allowed: false });
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks PPQ decisions when the key is absent or Firefox host access is revoked", async () => {
+    await storage.saveSettings({ apiKeys: { ppq: "" }, operationDefaults: { decide: ppq } });
+    await storage.grantOriginOperationAlways(origin, "decide", ppq);
+    const missing = start();
+    await outcome(missing);
+    expect(missing.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("PPQ.ai API key") });
+    expect(fetch).not.toHaveBeenCalled();
+    if (!firefox) return;
+    await storage.saveSettings({ apiKeys: { ppq: "ppq-key" } });
+    chrome.permissions.contains.mockResolvedValue(false);
+    const revoked = start();
+    await outcome(revoked);
+    expect(revoked.messages.at(-1).error).toMatchObject({ code: "unavailable", message: expect.stringContaining("Host access for PPQ.ai was revoked") });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("cancels PPQ decisions without a late done chunk", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: ppq } });
+    await storage.grantOriginOperationAlways(origin, "decide", ppq);
+    const prior = fetch.getMockImplementation();
+    let decisionSignal;
+    fetch.mockImplementation(async (url, options) => {
+      if (url !== "https://api.ppq.ai/v1/decisions") return prior(url, options);
+      decisionSignal = options.signal;
+      return new Promise((_resolve, reject) => decisionSignal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+    });
+    const port = start();
+    await vi.waitFor(() => expect(decisionSignal).toBeDefined());
+    port.onMessage.emit({ type: "abort", streamId: port.streamId });
+    await outcome(port);
+    expect(decisionSignal.aborted).toBe(true);
+    expect(port.messages.at(-1).error.code).toBe("aborted");
+    expect(port.messages.some((item) => item.chunk?.type === "done")).toBe(false);
+  });
   it("offers decisions with separate approval", async () => {
     const port = start();
     await approve(port);
@@ -398,6 +488,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     ).toEqual([
       ["openai", "gpt-6-luna"],
       ["openrouter", cloud.model],
+      ["ppq", "typesafe/jev-1.13"],
       ["ollama", "nimble"],
     ]);
     const models = await message({

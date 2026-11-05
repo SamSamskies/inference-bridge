@@ -1,4 +1,4 @@
-import { ERROR_CODES } from "../errors.js";
+import { normalizeProviderError } from "./provider-error.js";
 
 function checkAbort(signal) {
   if (signal?.aborted) {
@@ -20,17 +20,7 @@ export function withChatErrorBoundary(streamChat) {
       checkAbort(args.signal);
       return result;
     } catch (cause) {
-      const code = args.signal?.aborted
-        ? "aborted"
-        : ERROR_CODES.includes(cause?.code) ? cause.code : "provider_error";
-      let message = code === "aborted"
-        ? "Request aborted"
-        : typeof cause?.message === "string" ? cause.message : "Provider request failed";
-      if (args.apiKey) message = message.replaceAll(args.apiKey, "[redacted]");
-      message = message
-        .replace(/\b(?:sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+)\b/g, "[redacted]")
-        .slice(0, 1200);
-      throw Object.assign(new Error(message), { name: "InferenceError", code });
+      throw normalizeProviderError(cause, args);
     }
   };
 }

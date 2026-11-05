@@ -5,6 +5,12 @@ import { withChatErrorBoundary } from "./chat-errors.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 import { omitHostedWebSearchIfNone } from "./hosted-tools.js";
 import { assertImagesSupported, messagesHaveImageParts } from "../image-parts.js";
+import {
+  PPQ_DEFAULT_DECISION_MODEL,
+  decidePPQ,
+  isPPQDecisionModel,
+  listPPQDecisionModels,
+} from "./ppq-decisions.js";
 
 export const PPQ_BASE_URL = "https://api.ppq.ai";
 const CATALOG_MAX_AGE_MS = 60_000;
@@ -25,7 +31,7 @@ function assertChatModel(model) {
   if (model.split(":").slice(1).some((suffix) => suffix.toLowerCase() === "online")) {
     fail("invalid_request", "PPQ.ai :online models always enable search. Remove :online and request the approved web_search tool instead.");
   }
-  if (/^~?typesafe\/jev(?:-|$)/i.test(model)) {
+  if (isPPQDecisionModel(model)) {
     fail("unavailable", "PPQ.ai decision models require method decide, not chat.");
   }
 }
@@ -87,6 +93,11 @@ export const ppqProvider = {
   defaultModel: "auto",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  decisions: {
+    defaultModel: PPQ_DEFAULT_DECISION_MODEL,
+    listModels: listPPQDecisionModels,
+  },
+  decide: decidePPQ,
   listModels: listPPQModels,
   async getModelCapabilities({ model, signal }) {
     if (!listedAt || Date.now() - listedAt >= CATALOG_MAX_AGE_MS) await listPPQModels({ signal });

@@ -1,12 +1,13 @@
 # PPQ.ai integration checkpoints — issue #127
 
-1. **Chat and hosted search (this branch):** built-in provider, saved key,
+1. **Chat and hosted search:** built-in provider, saved key,
    public searchable chat catalog, text/streaming, verified vision input,
    function tools and approved Auto search. Automated transport and permission
    tests pass; live authenticated chat/search still requires smoke testing.
-2. **Decisions (next slice):** independent live decision catalog and default,
-   System One typed answers, method-specific approvals and grants.
-3. **Speech (following slice):** independent transcription/synthesis catalogs,
+2. **Decisions (ready for smoke testing):** independent live decision catalog
+   and default, System One typed answers, method-specific approvals and grants.
+   Follow the [decisions checkpoint](ppq-decisions-smoke-test.md).
+3. **Speech (next slice):** independent transcription/synthesis catalogs,
    compatible voices, bounded uploads/output, approvals and cancellation.
 
 The issue remains open until all slices and authenticated runtime checks pass.
@@ -163,7 +164,7 @@ if (ppqMixed?.message.toolCalls?.length) {
   existing server keys, routes, or grants.
 - [ ] Firefox: revoke `https://api.ppq.ai/*` in add-on settings and confirm
   catalog/chat fail with the host-access hint. Restore access and retry.
-- [ ] PPQ does not yet appear in Decisions or Speech method selectors.
+- [ ] PPQ appears in Decisions but not yet in Speech method selectors.
 
 Record browser, model ID, pass/fail per section, sanitized errors, and whether
 PPQ activity confirmed search. Do not share Authorization headers or keys.

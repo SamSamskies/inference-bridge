@@ -105,11 +105,13 @@ describe("provider registry", () => {
     expect(openrouter.defaultModel).toBe("openrouter/auto");
   });
 
-  it("registers PPQ chat/search without advertising unfinished method adapters", () => {
+  it("registers PPQ chat/search and decisions without advertising unfinished speech adapters", () => {
     const ppq = getProvider("ppq");
     expect(ppq).toMatchObject({ id: "ppq", label: "PPQ.ai", requiresApiKey: true, defaultModel: "auto", supportsFunctionTools: true, hostedTools: ["web_search"] });
     expect(typeof ppq.listModels).toBe("function");
-    for (const method of ["decide", "transcribe", "synthesize"]) {
+    expect(providerSupportsMethod(ppq, "decide")).toBe(true);
+    expect(ppq.decisions.defaultModel).toBe("typesafe/jev-1.13");
+    for (const method of ["transcribe", "synthesize"]) {
       expect(providerSupportsMethod(ppq, method)).toBe(false);
     }
   });

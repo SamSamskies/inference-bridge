@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
 - Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
-- Typed decisions through stable `request()`, using OpenAI, OpenRouter, or local Ollama
+- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PPQ.ai, or local Ollama
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
 - Synchronous capability discovery through `window.inference.getFeatures()`
@@ -67,7 +67,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
 | Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
-| PPQ.ai | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat and hosted search are available; decisions and speech are planned separately. |
+| PPQ.ai | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, and separately approved System One decisions are available; speech is the next slice. |
 | Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
@@ -124,7 +124,7 @@ Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`
 
 PPQ uses [`POST /chat/completions`](https://ppq.ai/api-docs). Approved `{ type: "web_search" }` is sent as PPQ's **Auto** server tool: the model decides whether to search and PPQ consumes the results. Search can incur additional charges. Bridge omits search with `toolChoice: "none"` and rejects `:online` model suffixes because they enable search outside the tool approval boundary. It does not enable always-search plugins, search-engine preferences, or ZDR routing.
 
-Vision input requires explicit image support in the current chat catalog; image output is unavailable. PPQ decisions, transcription, and synthesis are not exposed in this first slice. Existing named PPQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PPQ.ai becomes the default. Replacing existing PPQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval. See the [PPQ smoke-test checkpoint](docs/ppq-smoke-test.md).
+Vision input requires explicit image support in the current chat catalog; image output is unavailable. PPQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. Transcription and synthesis are not yet exposed for PPQ. Existing named PPQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PPQ.ai becomes the default. Replacing existing PPQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval. See the [PPQ smoke-test checkpoint](docs/ppq-smoke-test.md).
 
 ### OpenRouter
 
@@ -721,6 +721,14 @@ fails with `unavailable`; discovery does not promise provider availability.
   [`POST /api/alpha/decisions`](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request),
   an alpha API that may change. The picker loads the live decisions catalog
   from `GET /api/v1/models?output_modalities=decisions`.
+- **PPQ.ai:** reuse your PPQ key from **Options → Providers**, then choose PPQ.ai
+  in **Options → Decisions**. The independent catalog loads from
+  `GET /v1/decisions/models`; the starter model is `typesafe/jev-1.13`, and
+  current aliases and other decision models are selectable from the live list.
+  Requests use [`POST /v1/decisions`](https://ppq.ai/api-docs). Bridge sends
+  System One JSON, validates `noul`, `choice`, and `score` answers, and emits
+  `accepted` then `done` without deltas. Decisions never use the chat endpoint
+  or enable hosted search. See the [PPQ decisions smoke test](docs/ppq-decisions-smoke-test.md).
 - **OpenAI:** save your OpenAI key in **Options → Providers**, then choose
   OpenAI and `gpt-6-luna` in Decisions. Requests use
   [`POST /v1/decisions`](https://developers.openai.com/api/reference/resources/decisions/methods/create).
@@ -743,7 +751,7 @@ fails with `unavailable`; discovery does not promise provider availability.
   server reports an obsolete format. A saved site grant keeps its approved
   model: revoke that Decisions grant in Site access to choose another route.
 - Anthropic, On-device, and OpenAI-compatible providers do not support
-  this operation. There is no chat emulation or fallback. OpenRouter and Ollama
+  this operation. There is no chat emulation or fallback. OpenRouter, PPQ.ai, and Ollama
   decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
   also remains available for chat.
 
