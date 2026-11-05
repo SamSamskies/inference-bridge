@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("PPQ approval boundaries", () => {
-  it("requires fresh approval after an explicit compat transfer and prefills the site model", async () => {
+  it("requires fresh approval after an explicit compat transfer using the saved defaults", async () => {
     const { saveCompatEndpoints, transferPPQCompatEndpoint } = await import("../src/storage.js");
     const { ppqTransferPreview } = await import("../src/ppq-transfer.js");
     const id = "compat:ppq-transfer", origin = "https://ppq-transferred.example";
@@ -81,7 +81,7 @@ describe("PPQ approval boundaries", () => {
     await transferPPQCompatEndpoint(id, { expected: ppqTransferPreview(await getSettings(), id) });
     const pending = ensurePermission({ requestId: "ppq-transferred", origin, messages: [{ role: "user", content: "Hello" }] });
     await waitForPending("ppq-transferred");
-    expect(getPendingApproval("ppq-transferred")).toMatchObject({ providerId: "ppq", model: "site-model" });
+    expect(getPendingApproval("ppq-transferred")).toMatchObject({ providerId: "ppq", model: "auto" });
     await resolveApproval("ppq-transferred", { decision: "deny" });
     expect(await pending).toMatchObject({ allowed: false });
     expect(await getOriginGrant(origin)).toBeNull();
@@ -779,7 +779,7 @@ describe("ensurePermission", () => {
     });
   });
 
-  it("prefills the next prompt from the last allow_once choice", async () => {
+  it("starts with the saved global route instead of an older Allow-once choice", async () => {
     await saveSettings({
       defaultProviderId: "openai",
       defaultModel: "gpt-5.6-luna",
@@ -797,8 +797,8 @@ describe("ensurePermission", () => {
     await waitForPending("r5b");
 
     expect(getPendingApproval("r5b")).toMatchObject({
-      providerId: "openrouter",
-      model: "openrouter/free",
+      providerId: "openai",
+      model: "gpt-5.6-luna",
     });
 
     resolveApproval("r5b", {
@@ -809,7 +809,7 @@ describe("ensurePermission", () => {
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
-  it("prefills last-used OpenAI-compatible endpoints", async () => {
+  it("uses a saved default compat endpoint even when another provider was last used", async () => {
     const { saveCompatEndpoints } = await import("../src/storage.js");
     await saveCompatEndpoints([
       {
@@ -819,13 +819,13 @@ describe("ensurePermission", () => {
       },
     ]);
     await saveSettings({
-      defaultProviderId: "openai",
-      defaultModel: "gpt-5.6-luna",
+      defaultProviderId: "compat:lm",
+      defaultModel: "local-model",
       defaultModels: { "compat:lm": "local-model" },
     });
     await setOriginLastUsed("https://compat-cache.example", {
-      providerId: "compat:lm",
-      model: "local-model",
+      providerId: "openai",
+      model: "gpt-5.6-luna",
     });
 
     const pending = ensurePermission({

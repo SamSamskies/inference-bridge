@@ -55,6 +55,10 @@ await ppqSmoke("Say hello in one sentence.");
 - [ ] In Options, type/filter by model name or ID; save and reopen Options to
   confirm the model and masked key persist. Switching providers preserves each
   provider's own model/key.
+- [ ] Set PPQ.ai and a specific model as the global defaults, then request on a
+  site without an Always-allow grant. The popup starts with PPQ.ai and that
+  model even if an earlier Allow-once choice used another provider or `auto`.
+  Switch away from PPQ.ai and back; the saved PPQ model is restored.
 - [ ] Block `/v1/models` temporarily in extension DevTools (or go offline),
   refresh models, and confirm the saved ID remains editable with an error hint.
   Restore connectivity, enter a known ID manually, and retry chat.
@@ -144,8 +148,8 @@ if (ppqMixed?.message.toolCalls?.length) {
 - [ ] Confirm **Transfer and remove server**. The old server disappears; select
   PPQ.ai to verify its masked key and copied model. If the old server was the
   global default, PPQ.ai is now the default. Other global defaults remain intact.
-- [ ] Sites previously allowed to use that server prompt again, prefilled with
-  PPQ.ai and their remembered model. Other sites and method grants are unchanged.
+- [ ] Sites previously allowed to use that server prompt again using the current
+  global chat defaults. Other sites and method grants are unchanged.
 - [ ] A model containing `:online` is previewed without that suffix; approved
   hosted search is still a separate tool request.
 - [ ] Change the source or target key/model in another Options tab while the

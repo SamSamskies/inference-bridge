@@ -100,6 +100,53 @@ afterEach(() => {
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
 
+  it("uses the saved PPQ chat model when approval switches providers", async () => {
+    const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers", method },
+      { url: chrome.runtime.getURL("ui/approval.html") }, resolve
+    ));
+    // PPQ is not the global provider: a switch must still use its own saved model.
+    await storage.saveSettings({
+      defaultModels: { ppq: "claude-sonnet-5.5" },
+      apiKeys: { ppq: "private-ppq-test-key" },
+    });
+    let response = await list();
+    expect(response.providers.find((provider) => provider.id === "ppq")).toMatchObject({
+      defaultModel: "claude-sonnet-5.5", hasApiKey: true,
+    });
+    expect(response.providers.find((provider) => provider.id === "openai").defaultModel).toBe(route.model);
+    expect(JSON.stringify(response)).not.toContain("private-ppq-test-key");
+    await storage.saveSettings({ defaultModels: { ppq: "gpt-6.1-terra" } });
+    response = await list();
+    expect(response.providers.find((provider) => provider.id === "ppq").defaultModel).toBe("gpt-6.1-terra");
+    // Do not mutate the adapter's factory default or expose chat models for other methods.
+    const { getProvider } = await import("../src/providers/registry.js");
+    expect(getProvider("ppq").defaultModel).toBe("auto");
+    await storage.saveSettings({ defaultModels: { ppq: "" } });
+    expect((await list()).providers.find((provider) => provider.id === "ppq").defaultModel).toBe("auto");
+    expect((await list("decide")).providers.find((provider) => provider.id === "openai").defaultModel).not.toBe(route.model);
+  });
+
+  it("opens approval with saved PPQ defaults despite older per-site popup choices", async () => {
+    await storage.setOriginLastUsed(origin, { providerId: "openai", model: "gpt-5-nano" });
+    await storage.saveSettings({
+      defaultProviderId: "ppq", defaultModel: "claude-sonnet-5.5",
+      apiKeys: { ppq: "private-ppq-test-key" },
+    });
+    const first = start();
+    await pending(first);
+    expect(permissions.getPendingApproval(first.streamId)).toMatchObject({ providerId: "ppq", model: "claude-sonnet-5.5" });
+    await permissions.resolveApproval(first.streamId, { decision: "deny" });
+    // A prior selection of auto on PPQ must not hide the newly saved default.
+    await storage.setOriginLastUsed(origin, { providerId: "ppq", model: "auto" });
+    await storage.saveSettings({ defaultModel: "gpt-6.1-terra" });
+    const second = start();
+    await pending(second);
+    expect(permissions.getPendingApproval(second.streamId)).toMatchObject({ providerId: "ppq", model: "gpt-6.1-terra" });
+    await permissions.resolveApproval(second.streamId, { decision: "deny" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("edits existing site effort through Options without changing grant scopes or prompting", async () => {
     await storage.grantOriginAlways(origin, {
       ...route, toolFingerprint: "hosted:web_search", imageInput: true, imageOutput: true,

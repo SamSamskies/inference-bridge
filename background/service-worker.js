@@ -317,10 +317,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         : {};
     /**
      * @param {import("../src/providers/types.js").Provider[]} all
-     * @param {Record<string, string> | null | undefined} [apiKeys]
-     *   Map when settings loaded; omit/`null` means unknown (do not claim hasApiKey: false).
+     * @param {Awaited<ReturnType<typeof getSettings>> | null} [settings]
+     *   Omit/null when settings could not load; do not claim hasApiKey: false.
      */
-    const serializeProviders = (all, apiKeys) =>
+    const serializeProviders = (all, settings = null) =>
       all.map((p) => {
         const catalog = providerMethodCatalog(p, method);
         return {
@@ -331,8 +331,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           optionalApiKey: Boolean(
             /** @type {{ optionalApiKey?: boolean }} */ (p).optionalApiKey
           ),
-          ...(apiKeys ? { hasApiKey: hasStoredApiKey(apiKeys[p.id]) } : {}),
-          defaultModel: catalog?.defaultModel,
+          ...(settings ? { hasApiKey: hasStoredApiKey(settings.apiKeys[p.id]) } : {}),
+          // Options and approval provider switches need the user's remembered
+          // chat model, even when this is not the active global provider.
+          // Other methods keep their own catalogs; never reuse a chat model.
+          defaultModel: (method === "chat" && settings?.defaultModels[p.id]) || catalog?.defaultModel,
           ...(method === "synthesize" && p.synthesis?.defaultVoice
             ? { defaultVoice: p.synthesis.defaultVoice }
             : {}),
@@ -348,17 +351,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     void listAllProviders()
       .then(async (all) => {
-        /** @type {Record<string, string> | null} */
-        let apiKeys = null;
+        let settings = null;
         try {
-          ({ apiKeys } = await getSettings());
+          settings = await getSettings();
         } catch {
           // Keep listing; omit hasApiKey so Allow is not falsely disabled.
         }
         sendResponse({
           providers: serializeProviders(
             filterProvidersForMethod(all, method, request),
-            apiKeys
+            settings
           ),
         });
       })

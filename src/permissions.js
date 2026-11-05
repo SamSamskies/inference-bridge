@@ -643,11 +643,11 @@ export async function ensurePermission(args) {
   const lastUsed = await getOriginLastUsed(args.origin);
   const defaultProvider =
     (await getProviderAsync(settings.defaultProviderId)) || getDefaultProvider();
-  // Prefill order: explicit preferred → last approval choice for this origin →
-  // global defaults → registry default. Last-used never skips the prompt.
+  // Fresh prompts start with the saved global provider. A remembered Allow-once
+  // choice is not a site route and must not override a later global selection.
+  // Explicit Always-allow routes are handled separately below.
   const providerId = normalizeProviderId(
     args.preferredProviderId ||
-      lastUsed?.providerId ||
       settings.defaultProviderId ||
       defaultProvider.id
   );
@@ -690,8 +690,8 @@ export async function ensurePermission(args) {
       : "";
   const globalDefaultModel =
     preferredModel ||
-    lastUsedModel ||
     settingsModelForProvider ||
+    lastUsedModel ||
     provider.defaultModel ||
     "";
 
