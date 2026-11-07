@@ -2610,7 +2610,13 @@ decisionOnDeviceInstall.addEventListener("click", async () => {
     } else {
       await runInstall();
     }
-    await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+    // The offscreen host can briefly still report "downloading" after the
+    // in-page create() resolves, so re-probe for a few seconds before failing.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+      if (!decisionsModelSelect.disabled || controller.signal.aborted) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     if (decisionsModelSelect.disabled) throw new Error("Decision model installed, but the on-device host is not ready. Reload the extension and reopen Options.");
     await persistDecisionDefault();
   } catch (cause) {
