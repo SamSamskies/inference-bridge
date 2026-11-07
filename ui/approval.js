@@ -1021,7 +1021,8 @@ async function decide(action) {
       }) ||
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
       Boolean(geminiApprovalWarning()) ||
-      imagesBlockAllow()
+      imagesBlockAllow() ||
+      onDeviceDecisionsOverLimit()
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
