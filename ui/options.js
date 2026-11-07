@@ -1818,7 +1818,17 @@ async function loadSpeechModels(operation, providerId, preferredModel) {
   return fillSimpleSelect(modelSelect, models, preferredModel);
 }
 
+let decisionDownloadPollTimer = 0;
+
+function stopDecisionDownloadPoll() {
+  if (decisionDownloadPollTimer) {
+    clearTimeout(decisionDownloadPollTimer);
+    decisionDownloadPollTimer = 0;
+  }
+}
+
 async function loadDecisionModels(providerId, preferredModel) {
+  stopDecisionDownloadPoll();
   const loadId = ++decisionsModelsLoadId;
   decisionsModelSelect.replaceChildren();
   decisionsModelSelect.disabled = true;
@@ -1838,10 +1848,27 @@ async function loadDecisionModels(providerId, preferredModel) {
     const available = status?.ok && status.availability === "available";
     const installable = status?.ok && ["available", "downloadable", "downloading"].includes(status.availability);
     decisionsModelSelect.disabled = !available || models.length === 0;
-    decisionOnDeviceInstall.disabled = !installable || available || Boolean(decisionInstallController);
+    const downloading = status?.ok && status.availability === "downloading";
+    // A browser-reported download (started elsewhere) must not be doubled up by
+    // a second install session from this page.
+    decisionOnDeviceInstall.disabled =
+      !installable || available || downloading || Boolean(decisionInstallController);
+    if (downloading && !decisionInstallController) {
+      // Re-probe so the panel updates when a download started elsewhere finishes.
+      decisionDownloadPollTimer = window.setTimeout(() => {
+        decisionDownloadPollTimer = 0;
+        if (decisionsProviderSelect.value !== ON_DEVICE_PROVIDER_ID) return;
+        void loadDecisionModels(
+          ON_DEVICE_PROVIDER_ID,
+          decisionsModelSelect.value || preferredModel
+        ).catch(() => {});
+      }, 2000);
+    }
     decisionsModelHint.textContent = available
       ? "Chrome's browser-chosen decision model is ready. No API key needed; decisions stay on this device. Supports up to 16 questions per request."
-      : installable
+      : downloading
+        ? "Chrome is downloading the decision model. This can take a while; this panel updates when it finishes."
+        : installable
         ? "Install Chrome's decision model here before using On-device decisions. This is separate from the chat model."
         : "Chrome Decisions API (DecisionModel) is unavailable. Enable the Decisions API in Chrome and relaunch, then reopen Options.";
     return;
@@ -2540,6 +2567,7 @@ decisionOnDeviceInstall.addEventListener("click", async () => {
   if (decisionInstallController) return;
   const controller = new AbortController();
   decisionInstallController = controller;
+  stopDecisionDownloadPoll();
   decisionOnDeviceInstall.disabled = true;
   decisionOnDeviceCancel.hidden = false;
   decisionsProviderSelect.disabled = true;
