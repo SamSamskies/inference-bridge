@@ -1855,6 +1855,9 @@ async function loadDecisionModels(providerId, preferredModel) {
     // a second install session from this page.
     decisionOnDeviceInstall.disabled =
       !installable || available || downloading || Boolean(decisionInstallController);
+    // Nothing to install once the model is ready; keep the panel clean.
+    decisionOnDeviceInstall.hidden = Boolean(available);
+    decisionOnDeviceControls.hidden = Boolean(available) && !decisionInstallController;
     if (downloading && !decisionInstallController) {
       // Re-probe so the panel updates when a download started elsewhere finishes.
       decisionDownloadPollTimer = window.setTimeout(() => {
