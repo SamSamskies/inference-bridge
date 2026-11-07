@@ -255,6 +255,19 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("refuses to approve or persist an on-device grant for more than 16 questions", async () => {
+    const questionSummaries = Array.from({ length: 17 }, (_, index) => ({ id: `q${index}`, type: "noul" }));
+    const requestId = "on-device-over-limit";
+    const pending = permissions.ensureOperationPermission({
+      requestId, origin, method: "decide", preferredProviderId: "on-device", preferredModel: "on-device",
+      stateSummary: "state", questionSummaries,
+    });
+    await vi.waitFor(() => expect(permissions.getPendingApproval(requestId)?.method).toBe("decide"));
+    await permissions.resolveApproval(requestId, { decision: "always", providerId: "on-device", model: "on-device" });
+    expect(await pending).toMatchObject({ allowed: false, code: "invalid_request" });
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toBeNull();
+  });
+
   it("blocks PPQ decisions when the key is absent or Firefox host access is revoked", async () => {
     await storage.saveSettings({ apiKeys: { ppq: "" }, operationDefaults: { decide: ppq } });
     await storage.grantOriginOperationAlways(origin, "decide", ppq);

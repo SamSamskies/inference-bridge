@@ -13,11 +13,13 @@ export const DECISION_API_INSTALL_QUESTIONS = Object.freeze({
   ready: Object.freeze({ type: "noul", instructions: "Is the input ready?" }),
 });
 
+// Chromium currently accepts at most 16 questions per native schema.
+export const ON_DEVICE_DECISION_MAX_QUESTIONS = 16;
+
 export function decisionApiSchema(questions) {
-  // Chromium currently accepts at most 16 questions per native schema.
   // Reject explicitly rather than dropping questions or changing batch semantics.
-  if (Object.keys(questions).length > 16) {
-    throwInference("invalid_request", "On-device decisions support at most 16 questions per request.");
+  if (Object.keys(questions).length > ON_DEVICE_DECISION_MAX_QUESTIONS) {
+    throwInference("invalid_request", `On-device decisions support at most ${ON_DEVICE_DECISION_MAX_QUESTIONS} questions per request.`);
   }
   return {
     ...DECISION_API_OPTIONS,

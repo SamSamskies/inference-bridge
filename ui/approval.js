@@ -32,6 +32,7 @@ import {
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import { isPlausibleModelForProvider } from "../src/storage-local.js";
+import { ON_DEVICE_DECISION_MAX_QUESTIONS } from "../src/decision-api-core.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
 const params = new URLSearchParams(location.search);
@@ -115,6 +116,8 @@ let providers = [];
 /** @type {"chat" | "decide" | "transcribe" | "synthesize"} */
 let requestMethod = "chat";
 let requestMediaType = "";
+/** Number of typed questions in a pending decide request. */
+let requestQuestionCount = 0;
 let voicesReady = true;
 let requestPreferredProviderId = "";
 let requestPreferredVoice = "";
@@ -424,6 +427,16 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   updateClearModelButton();
 }
 
+const ON_DEVICE_DECISION_LIMIT_MESSAGE = `On-device decisions support at most ${ON_DEVICE_DECISION_MAX_QUESTIONS} questions per request. Choose another provider.`;
+
+function onDeviceDecisionsOverLimit() {
+  return (
+    requestMethod === "decide" &&
+    providerSelect.value === ON_DEVICE_PROVIDER_ID &&
+    requestQuestionCount > ON_DEVICE_DECISION_MAX_QUESTIONS
+  );
+}
+
 function updateAllowEnabled() {
   if (errorEl.hidden === false && errorEl.textContent) {
     // Hard page error already disables controls.
@@ -451,6 +464,7 @@ function updateAllowEnabled() {
   );
   allowBtn.disabled =
     !providerReady ||
+    onDeviceDecisionsOverLimit() ||
     !modelsReady ||
     !voicesReady ||
     (requestMethod === "synthesize" && !voiceSelect.value) ||
@@ -682,7 +696,10 @@ async function loadModelsForProvider(providerId, preferredModel) {
       return;
     }
 
-    if (requestMethod === "chat" && providerId === ON_DEVICE_PROVIDER_ID) {
+    if (
+      (requestMethod === "chat" || requestMethod === "decide") &&
+      providerId === ON_DEVICE_PROVIDER_ID
+    ) {
       if (!isCurrentLoad()) return;
       modelField.hidden = true;
       currentModels = [
@@ -692,7 +709,11 @@ async function loadModelsForProvider(providerId, preferredModel) {
         allowUnknown: false,
         disabled: true,
       });
-      setModelHint("");
+      setModelHint(
+        onDeviceDecisionsOverLimit()
+          ? ON_DEVICE_DECISION_LIMIT_MESSAGE
+          : ""
+      );
       modelsReady = onDeviceStatus.available;
       updateAllowEnabled();
       return;
@@ -999,7 +1020,8 @@ async function decide(action) {
       }) ||
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
       Boolean(geminiApprovalWarning()) ||
-      imagesBlockAllow()
+      imagesBlockAllow() ||
+      onDeviceDecisionsOverLimit()
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -1105,6 +1127,10 @@ async function load() {
       : "chat";
   requestMediaType =
     typeof request.mediaType === "string" ? request.mediaType : "";
+  requestQuestionCount =
+    requestMethod === "decide" && Array.isArray(request.questionSummaries)
+      ? request.questionSummaries.length
+      : 0;
   requestPreferredProviderId =
     typeof request.providerId === "string" ? request.providerId : "";
   requestPreferredVoice =

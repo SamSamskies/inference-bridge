@@ -78,6 +78,8 @@ const decisionOnDeviceControls = document.getElementById("decisionOnDeviceContro
 const decisionOnDeviceInstall = document.getElementById("decisionOnDeviceInstall");
 const decisionOnDeviceCancel = document.getElementById("decisionOnDeviceCancel");
 let decisionInstallController = null;
+/** Web Lock name shared by all Options tabs for decision-model installs. */
+const DECISION_INSTALL_LOCK = "inference-bridge-decision-model-install";
 const transcriptionProviderSelect = document.getElementById(
   "transcriptionProvider",
 );
@@ -1818,7 +1820,17 @@ async function loadSpeechModels(operation, providerId, preferredModel) {
   return fillSimpleSelect(modelSelect, models, preferredModel);
 }
 
+let decisionDownloadPollTimer = 0;
+
+function stopDecisionDownloadPoll() {
+  if (decisionDownloadPollTimer) {
+    clearTimeout(decisionDownloadPollTimer);
+    decisionDownloadPollTimer = 0;
+  }
+}
+
 async function loadDecisionModels(providerId, preferredModel) {
+  stopDecisionDownloadPoll();
   const loadId = ++decisionsModelsLoadId;
   decisionsModelSelect.replaceChildren();
   decisionsModelSelect.disabled = true;
@@ -1838,10 +1850,37 @@ async function loadDecisionModels(providerId, preferredModel) {
     const available = status?.ok && status.availability === "available";
     const installable = status?.ok && ["available", "downloadable", "downloading"].includes(status.availability);
     decisionsModelSelect.disabled = !available || models.length === 0;
-    decisionOnDeviceInstall.disabled = !installable || available || Boolean(decisionInstallController);
+    const downloading = status?.ok && status.availability === "downloading";
+    // A browser-reported download (started elsewhere) must not be doubled up by
+    // a second install session from this page.
+    // Install must call DecisionModel.create in this page so the click keeps
+    // user activation; the SW/offscreen path cannot provide it.
+    const canInstallInPage =
+      typeof globalThis.DecisionModel?.create === "function";
+    decisionOnDeviceInstall.disabled =
+      !installable || !canInstallInPage || available || downloading || Boolean(decisionInstallController);
+    // Nothing to install once the model is ready; keep the panel clean.
+    decisionOnDeviceInstall.hidden = Boolean(available) || !canInstallInPage;
+    decisionOnDeviceControls.hidden =
+      (Boolean(available) || !canInstallInPage) && !decisionInstallController;
+    if (downloading && !decisionInstallController) {
+      // Re-probe so the panel updates when a download started elsewhere finishes.
+      decisionDownloadPollTimer = window.setTimeout(() => {
+        decisionDownloadPollTimer = 0;
+        if (decisionsProviderSelect.value !== ON_DEVICE_PROVIDER_ID) return;
+        void loadDecisionModels(
+          ON_DEVICE_PROVIDER_ID,
+          decisionsModelSelect.value || preferredModel
+        ).catch(() => {});
+      }, 2000);
+    }
     decisionsModelHint.textContent = available
       ? "Chrome's browser-chosen decision model is ready. No API key needed; decisions stay on this device. Supports up to 16 questions per request."
-      : installable
+      : downloading
+        ? "Chrome is downloading the decision model. This can take a while; this panel updates when it finishes."
+        : installable && !canInstallInPage
+          ? "The decision model is downloadable, but Install needs the Decisions API in this Options page (for the required user gesture). It is not available here."
+          : installable
         ? "Install Chrome's decision model here before using On-device decisions. This is separate from the chat model."
         : "Chrome Decisions API (DecisionModel) is unavailable. Enable the Decisions API in Chrome and relaunch, then reopen Options.";
     return;
@@ -1888,7 +1927,15 @@ async function loadDecisionDefaultControls(settings) {
 async function persistDecisionDefault() {
   const providerId = decisionsProviderSelect.value;
   const model = decisionsModelSelect.value;
-  if (!providerId || !model || decisionsModelSelect.disabled) return;
+  if (!providerId) return;
+  if (!model || decisionsModelSelect.disabled) {
+    decisionsStatus.textContent =
+      providerId === ON_DEVICE_PROVIDER_ID
+        ? "Install the on-device decision model before saving it as the default. The previous decisions default is still active."
+        : "No models available for this provider. The previous decisions default is still active.";
+    decisionsStatus.className = "status err";
+    return;
+  }
   decisionsStatus.textContent = "Saving decisions default…";
   decisionsStatus.className = "status";
   await saveSettings({ operationDefaults: { decide: { providerId, model } } });
@@ -2532,19 +2579,49 @@ decisionOnDeviceInstall.addEventListener("click", async () => {
   if (decisionInstallController) return;
   const controller = new AbortController();
   decisionInstallController = controller;
+  stopDecisionDownloadPoll();
   decisionOnDeviceInstall.disabled = true;
   decisionOnDeviceCancel.hidden = false;
   decisionsProviderSelect.disabled = true;
   decisionsStatus.className = "status";
   decisionsStatus.textContent = "Installing on-device decision model…";
   try {
-    // No await before create(): preserve transient user activation for downloads.
-    await installDecisionModel({ DecisionModel: globalThis.DecisionModel, signal: controller.signal,
-      onProgress: (loaded) => {
-        if (typeof loaded === "number" && Number.isFinite(loaded))
-          decisionsStatus.textContent = `Downloading decision model… ${Math.round(Math.max(0, Math.min(1, loaded)) * 100)}%`;
-      } });
-    await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+    const runInstall = () =>
+      installDecisionModel({ DecisionModel: globalThis.DecisionModel, signal: controller.signal,
+        onProgress: (loaded) => {
+          if (typeof loaded === "number" && Number.isFinite(loaded))
+            decisionsStatus.textContent = `Downloading decision model… ${Math.round(Math.max(0, Math.min(1, loaded)) * 100)}%`;
+        } });
+    // No slow await before create(): the lock request resolves within the
+    // transient user-activation window. The lock is shared across Options tabs
+    // so only one page can run a decision-model install at a time.
+    if (navigator.locks?.request) {
+      const started = await navigator.locks.request(
+        DECISION_INSTALL_LOCK,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) return false;
+          await runInstall();
+          return true;
+        }
+      );
+      if (!started)
+        throw new Error("Another Options tab is already installing the decision model. Wait for it to finish, then reload this page.");
+    } else {
+      await runInstall();
+    }
+    // The offscreen host can briefly still report "downloading" after the
+    // in-page create() resolves, so re-probe for a few seconds before failing.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+      if (!decisionsModelSelect.disabled || controller.signal.aborted) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    if (controller.signal.aborted) {
+      const cancelled = new Error("Decision model download cancelled.");
+      /** @type {any} */ (cancelled).code = "aborted";
+      throw cancelled;
+    }
     if (decisionsModelSelect.disabled) throw new Error("Decision model installed, but the on-device host is not ready. Reload the extension and reopen Options.");
     await persistDecisionDefault();
   } catch (cause) {

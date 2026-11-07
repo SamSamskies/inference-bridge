@@ -1,7 +1,6 @@
 /** Service-worker RPC client for the native DecisionModel document host. */
 import { sendPromptApiOffscreenMessage } from "./prompt-api-offscreen.js";
 import { ON_DEVICE_MODEL_ID, throwInference } from "./prompt-api-core.js";
-import { normalizeDecisionResponse } from "./decisions.js";
 import { assertDecisionModelAvailable, decisionApiSchema } from "./decision-api-core.js";
 
 export async function getOnDeviceDecisionAvailability({ questions } = {}) {
@@ -44,7 +43,8 @@ export async function decideOnDevice({ model, state, questions, signal }) {
     const response = await sendPromptApiOffscreenMessage({ type: "decision-api-decide", requestId, state, questions });
     if (signal?.aborted) throwInference("aborted", "Request aborted");
     if (!response?.ok) throwInference(response?.code || "provider_error", response?.error || "On-device decisions failed.");
-    return normalizeDecisionResponse(response.result, questions);
+    // The offscreen host already normalized this via normalizeNativeDecisions.
+    return response.result;
   } finally {
     signal?.removeEventListener("abort", abort);
   }
