@@ -1853,11 +1853,16 @@ async function loadDecisionModels(providerId, preferredModel) {
     const downloading = status?.ok && status.availability === "downloading";
     // A browser-reported download (started elsewhere) must not be doubled up by
     // a second install session from this page.
+    // Install must call DecisionModel.create in this page so the click keeps
+    // user activation; the SW/offscreen path cannot provide it.
+    const canInstallInPage =
+      typeof globalThis.DecisionModel?.create === "function";
     decisionOnDeviceInstall.disabled =
-      !installable || available || downloading || Boolean(decisionInstallController);
+      !installable || !canInstallInPage || available || downloading || Boolean(decisionInstallController);
     // Nothing to install once the model is ready; keep the panel clean.
-    decisionOnDeviceInstall.hidden = Boolean(available);
-    decisionOnDeviceControls.hidden = Boolean(available) && !decisionInstallController;
+    decisionOnDeviceInstall.hidden = Boolean(available) || !canInstallInPage;
+    decisionOnDeviceControls.hidden =
+      (Boolean(available) || !canInstallInPage) && !decisionInstallController;
     if (downloading && !decisionInstallController) {
       // Re-probe so the panel updates when a download started elsewhere finishes.
       decisionDownloadPollTimer = window.setTimeout(() => {
@@ -1873,7 +1878,9 @@ async function loadDecisionModels(providerId, preferredModel) {
       ? "Chrome's browser-chosen decision model is ready. No API key needed; decisions stay on this device. Supports up to 16 questions per request."
       : downloading
         ? "Chrome is downloading the decision model. This can take a while; this panel updates when it finishes."
-        : installable
+        : installable && !canInstallInPage
+          ? "The decision model is downloadable, but Install needs the Decisions API in this Options page (for the required user gesture). It is not available here."
+          : installable
         ? "Install Chrome's decision model here before using On-device decisions. This is separate from the chat model."
         : "Chrome Decisions API (DecisionModel) is unavailable. Enable the Decisions API in Chrome and relaunch, then reopen Options.";
     return;
