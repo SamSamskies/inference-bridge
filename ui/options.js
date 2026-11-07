@@ -78,6 +78,8 @@ const decisionOnDeviceControls = document.getElementById("decisionOnDeviceContro
 const decisionOnDeviceInstall = document.getElementById("decisionOnDeviceInstall");
 const decisionOnDeviceCancel = document.getElementById("decisionOnDeviceCancel");
 let decisionInstallController = null;
+/** Web Lock name shared by all Options tabs for decision-model installs. */
+const DECISION_INSTALL_LOCK = "inference-bridge-decision-model-install";
 const transcriptionProviderSelect = document.getElementById(
   "transcriptionProvider",
 );
@@ -2574,12 +2576,30 @@ decisionOnDeviceInstall.addEventListener("click", async () => {
   decisionsStatus.className = "status";
   decisionsStatus.textContent = "Installing on-device decision model…";
   try {
-    // No await before create(): preserve transient user activation for downloads.
-    await installDecisionModel({ DecisionModel: globalThis.DecisionModel, signal: controller.signal,
-      onProgress: (loaded) => {
-        if (typeof loaded === "number" && Number.isFinite(loaded))
-          decisionsStatus.textContent = `Downloading decision model… ${Math.round(Math.max(0, Math.min(1, loaded)) * 100)}%`;
-      } });
+    const runInstall = () =>
+      installDecisionModel({ DecisionModel: globalThis.DecisionModel, signal: controller.signal,
+        onProgress: (loaded) => {
+          if (typeof loaded === "number" && Number.isFinite(loaded))
+            decisionsStatus.textContent = `Downloading decision model… ${Math.round(Math.max(0, Math.min(1, loaded)) * 100)}%`;
+        } });
+    // No slow await before create(): the lock request resolves within the
+    // transient user-activation window. The lock is shared across Options tabs
+    // so only one page can run a decision-model install at a time.
+    if (navigator.locks?.request) {
+      const started = await navigator.locks.request(
+        DECISION_INSTALL_LOCK,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) return false;
+          await runInstall();
+          return true;
+        }
+      );
+      if (!started)
+        throw new Error("Another Options tab is already installing the decision model. Wait for it to finish, then reload this page.");
+    } else {
+      await runInstall();
+    }
     await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
     if (decisionsModelSelect.disabled) throw new Error("Decision model installed, but the on-device host is not ready. Reload the extension and reopen Options.");
     await persistDecisionDefault();
