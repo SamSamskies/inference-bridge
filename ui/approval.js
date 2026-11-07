@@ -32,6 +32,7 @@ import {
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import { isPlausibleModelForProvider } from "../src/storage-local.js";
+import { ON_DEVICE_DECISION_MAX_QUESTIONS } from "../src/decision-api-core.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
 const params = new URLSearchParams(location.search);
@@ -426,8 +427,6 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   updateClearModelButton();
 }
 
-/** Chromium's native DecisionModel schema accepts at most 16 questions. */
-const ON_DEVICE_DECISION_MAX_QUESTIONS = 16;
 const ON_DEVICE_DECISION_LIMIT_MESSAGE = `On-device decisions support at most ${ON_DEVICE_DECISION_MAX_QUESTIONS} questions per request. Choose another provider.`;
 
 function onDeviceDecisionsOverLimit() {
