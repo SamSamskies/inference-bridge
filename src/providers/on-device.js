@@ -17,6 +17,7 @@ import {
 import { getOnDeviceAvailability, streamOnDeviceChat } from "../prompt-api-client.js";
 import { assertImagesSupported, messagesHaveImageParts } from "../image-parts.js";
 import { assertHostedWebSearchSupported } from "./hosted-tools.js";
+import { decideOnDevice, listOnDeviceDecisionModels, preflightOnDeviceDecide } from "../decision-api-client.js";
 
 /** @typedef {import("./types.js").Provider} Provider */
 /** @typedef {import("./types.js").ChatMessage} ChatMessage */
@@ -42,6 +43,12 @@ export const onDeviceProvider = {
   hostedTools: [],
   // Sentinel only — not a real catalog. UI replaces the model control with Install.
   models: [{ id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" }],
+  decisions: {
+    defaultModel: ON_DEVICE_MODEL_ID,
+    listModels: listOnDeviceDecisionModels,
+  },
+  preflightDecide: preflightOnDeviceDecide,
+  decide: decideOnDevice,
 
   /**
    * Validate message history and tool-result correlation. Surface failures as

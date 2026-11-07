@@ -9,6 +9,7 @@ import {
   probeLanguageModelAvailability,
   streamLanguageModelChat,
 } from "../src/prompt-api-core.js";
+import { decideWithDecisionModel, probeDecisionModelAvailability } from "../src/decision-api-core.js";
 
 /** @type {AbortController | null} */
 let installController = null;
@@ -49,6 +50,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           error: err instanceof Error ? err.message : "availability failed",
         });
       });
+    return true;
+  }
+
+  if (message.type === "decision-api-availability") {
+    void probeDecisionModelAvailability(globalThis, message.questions)
+      .then((availability) => sendResponse({ ok: true, availability }))
+      .catch((cause) => sendResponse({ ok: false, availability: "unavailable",
+        code: cause?.code || "provider_error", error: cause.message }));
+    return true;
+  }
+
+  if (message.type === "decision-api-decide") {
+    const requestId = typeof message.requestId === "string" ? message.requestId : "";
+    if (!requestId) {
+      sendResponse({ ok: false, code: "invalid_request", error: "Missing requestId" });
+      return false;
+    }
+    if (pendingAbortRequestIds.delete(requestId)) {
+      sendResponse({ ok: false, code: "aborted", error: "Request aborted" });
+      return false;
+    }
+    const controller = new AbortController();
+    streamControllers.set(requestId, controller);
+    void decideWithDecisionModel({ DecisionModel: globalThis.DecisionModel,
+      state: message.state, questions: message.questions, signal: controller.signal })
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((cause) => sendResponse({ ok: false, code: cause?.code || "provider_error", error: cause.message }))
+      .finally(() => streamControllers.delete(requestId));
     return true;
   }
 

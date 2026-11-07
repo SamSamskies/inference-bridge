@@ -59,7 +59,7 @@ describe("decisions catalogs", () => {
       filterProvidersForMethod(listProviders(), "decide").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "openrouter", "ppq", "ollama"]);
+    ).toEqual(["openai", "openrouter", "ppq", "ollama", "on-device"]);
     expect(providerSupportsMethod({ decisions: {} }, "decide")).toBe(false);
     expect(providerSupportsMethod({ decide() {} }, "decide")).toBe(false);
     expect(

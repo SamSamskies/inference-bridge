@@ -135,8 +135,74 @@ async function message(payload) {
   );
 }
 
+async function setupNativeDecisions(status = "available") {
+  chrome.runtime.getContexts = async () => [{}];
+  const native = {
+    availability: vi.fn(async () => status),
+    create: vi.fn(async () => ({
+      destroy: vi.fn(),
+      decide: vi.fn(async () => ({
+        is_bug: { id: "is_bug", label: "true", confidence: 0.96, probabilities: { true: 0.96, false: 0.04 } },
+        team: { id: "team", label: "payments", confidence: 0.75, probabilities: fixture.answers.team.probabilities },
+        urgency: { id: "urgency", label: "2", confidence: 0.99, probabilities: fixture.answers.urgency.probabilities, expectedScore: 1.99 },
+      })),
+    })),
+  };
+  vi.stubGlobal("DecisionModel", native);
+  vi.stubGlobal("LanguageModel", undefined);
+  await import("../offscreen/prompt-api.js");
+  chrome.runtime.sendMessage = (payload) => message(JSON.parse(JSON.stringify(payload)));
+  return native;
+}
+
 describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
+
+  if (!firefox) {
+    it("routes native on-device decisions with independent site approval and no cloud calls", async () => {
+      const native = await setupNativeDecisions();
+      const route = { providerId: "on-device", model: "on-device" };
+      await storage.saveSettings({ operationDefaults: { decide: route } });
+      await storage.grantOriginAlways(origin, route);
+      const port = start();
+      await approve(port, route, "always");
+      await outcome(port);
+      expect(port.messages.filter((item) => item.chunk).map((item) => item.chunk)).toEqual([
+        { type: "accepted" }, { type: "done", model: "on-device", answers: fixture.answers },
+      ]);
+      expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(route);
+      expect(fetch).not.toHaveBeenCalled();
+      expect((await native.create.mock.results[0].value).destroy).toHaveBeenCalledOnce();
+      expect(await message({ type: "on-device-status", method: "decide" })).toMatchObject({ availability: "available" });
+      expect(await message({ type: "on-device-status" })).toMatchObject({ availability: "missing" });
+    });
+
+    it.each(["missing", "unavailable", "downloadable", "downloading"])("blocks native %s before accepted with no fallback", async (status) => {
+      const native = await setupNativeDecisions(status);
+      if (status === "missing") vi.stubGlobal("DecisionModel", undefined);
+      const route = { providerId: "on-device", model: "on-device" };
+      await storage.grantOriginOperationAlways(origin, "decide", route);
+      const port = start();
+      await outcome(port);
+      expect(port.messages.at(-1).error.code).toBe("unavailable");
+      expect(port.messages.some((item) => item.chunk)).toBe(false);
+      expect(native.create).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("rejects more than 16 native questions before accepted", async () => {
+      const native = await setupNativeDecisions();
+      await storage.grantOriginOperationAlways(origin, "decide", { providerId: "on-device", model: "on-device" });
+      const port = start({ payload: { ...decide,
+        questions: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`q${i}`, request.questions.is_bug])),
+      } });
+      await outcome(port);
+      expect(port.messages.at(-1).error).toMatchObject({ code: "invalid_request", message: expect.stringContaining("16") });
+      expect(port.messages.some((item) => item.chunk)).toBe(false);
+      expect(native.create).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  }
 
   it("uses separate PPQ decision defaults, the shared PPQ key, and accepted/done without streaming deltas", async () => {
     await storage.saveSettings({
@@ -362,7 +428,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     expect(port.messages.some((item) => item.chunk)).toBe(false);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it.each(["anthropic", "on-device", "compat:unsupported"])(
+  it.each(["anthropic", ...(firefox ? ["on-device"] : []), "compat:unsupported"])(
     "rejects a saved unsupported provider %s",
     async (providerId) => {
       if (providerId.startsWith("compat:"))
@@ -490,6 +556,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       ["openrouter", cloud.model],
       ["ppq", "typesafe/jev-1.13"],
       ["ollama", "nimble"],
+      ...(firefox ? [] : [["on-device", "on-device"]]),
     ]);
     const models = await message({
       type: "list-models",

@@ -393,6 +393,10 @@
             0.35+ and an installed decision model (for example, ollama pull nimble).
             GGUF Clef and Clef Flash require Ollama 0.35.1+; MLX models require 0.40+.
           </p>
+          <div class="actions" id="decisionOnDeviceControls" hidden>
+            <button type="button" id="decisionOnDeviceInstall">Install decision model</button>
+            <button type="button" id="decisionOnDeviceCancel" hidden>Cancel download</button>
+          </div>
           <div class="status" id="decisionsStatus" role="status" aria-live="polite"></div>
         </section>
       </section>
