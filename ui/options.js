@@ -2617,6 +2617,11 @@ decisionOnDeviceInstall.addEventListener("click", async () => {
       if (!decisionsModelSelect.disabled || controller.signal.aborted) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+    if (controller.signal.aborted) {
+      const cancelled = new Error("Decision model download cancelled.");
+      /** @type {any} */ (cancelled).code = "aborted";
+      throw cancelled;
+    }
     if (decisionsModelSelect.disabled) throw new Error("Decision model installed, but the on-device host is not ready. Reload the extension and reopen Options.");
     await persistDecisionDefault();
   } catch (cause) {
