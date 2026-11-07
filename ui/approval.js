@@ -698,7 +698,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
       return;
     }
 
-    modelField.hidden = false;
+    modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
 
     const response = await chrome.runtime.sendMessage({
       type: "list-models",
