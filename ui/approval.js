@@ -541,6 +541,7 @@ async function refreshOnDeviceStatus() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "on-device-status",
+      method: requestMethod,
     });
     const availability =
       typeof response?.availability === "string"
@@ -553,8 +554,12 @@ async function refreshOnDeviceStatus() {
         availability === "available"
           ? ""
           : availability === "missing" || availability === "unavailable"
-            ? "On-device AI is not available in this browser."
-            : "Install the on-device model in Options before allowing this site.",
+            ? requestMethod === "decide"
+              ? "Chrome Decisions API (DecisionModel) is not available. Enable it in Chrome and relaunch."
+              : "On-device AI is not available in this browser."
+            : requestMethod === "decide"
+              ? "Install the on-device decision model in Options → Decisions before allowing this site."
+              : "Install the on-device model in Options before allowing this site.",
     };
   } catch {
     onDeviceStatus = {
@@ -693,7 +698,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
       return;
     }
 
-    modelField.hidden = false;
+    modelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
 
     const response = await chrome.runtime.sendMessage({
       type: "list-models",
@@ -1123,6 +1128,7 @@ async function load() {
   if (requestMethod === "chat") {
     await Promise.all([refreshOllamaStatus(), refreshOnDeviceStatus()]);
   } else if (requestMethod === "decide") {
+    await refreshOnDeviceStatus();
     // Cloud decisions remain usable while a local Ollama probe is pending.
     void refreshOllamaStatus()
       .then(() => {

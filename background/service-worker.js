@@ -51,6 +51,7 @@ import {
   cancelOnDeviceInstall,
 } from "../src/prompt-api-client.js";
 import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
+import { getOnDeviceDecisionAvailability } from "../src/decision-api-client.js";
 import {
   canAcceptRebind,
   canAcceptStartedAck,
@@ -262,7 +263,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, availability: "missing", error: "On-device AI is unavailable in Firefox." });
       return false;
     }
-    void getOnDeviceAvailability()
+    void (message.method === "decide" ? getOnDeviceDecisionAvailability() : getOnDeviceAvailability())
       .then((availability) => {
         sendResponse({ ok: true, availability });
       })
@@ -868,6 +869,10 @@ async function handleDecideStart({
       "unavailable",
       `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
     );
+  await provider.preflightDecide?.({
+    model: permission.model, state: request.state, questions: request.questions,
+    signal: controller.signal,
+  });
   const models = await resolveProviderModels(provider, {
     method: "decide",
     apiKey: settings.apiKeys[provider.id],

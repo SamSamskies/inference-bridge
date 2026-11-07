@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
 - Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
-- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PayPerQ, or local Ollama
+- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PayPerQ, local Ollama, or Chrome On-device
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
 - Synchronous capability discovery through `window.inference.getFeatures()`
@@ -149,7 +149,7 @@ Vision input requires explicit image support in the current chat catalog; image 
 
 Inference Bridge removes extension `Origin` and `Referer` headers from local Ollama requests, so extra `OLLAMA_ORIGINS` configuration is usually unnecessary. For an unpacked Chrome build, click **Reload** on `chrome://extensions` after updating so the header rules are refreshed.
 
-### On-device (Prompt API, no API key)
+### On-device (Chrome built-in AI, no API key)
 
 Uses Chrome's [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`) when available. Inference stays on-device, and Chrome manages hardware eligibility and model downloads. The browser chooses the model; check `chrome://on-device-internals` for its status.
 
@@ -164,6 +164,8 @@ Function tool calling uses Chrome's native [Prompt API tool use](https://chrome.
 On-device supports `toolChoice: "auto"` (the default) and `"none"`; `"required"` and a forced function name return `unavailable`. Function parameter schemas must have `type: "object"` (omitted parameters default to an empty object schema). Hosted `web_search` remains unsupported.
 
 Chrome manages model storage; see its [on-device AI settings help](https://support.google.com/chrome/answer/16961953) for storage controls.
+
+On-device typed decisions use Chrome's separate `DecisionModel` API. Select **On-device** in **Options → Decisions** and install the decision model there if prompted; chat installation and chat availability are independent. See [Typed decisions](#typed-decisions-system-one) for details.
 
 ### OpenAI-compatible servers
 
@@ -768,7 +770,20 @@ fails with `unavailable`; discovery does not promise provider availability.
   After upgrading Ollama, an older model may need to be pulled again if the
   server reports an obsolete format. A saved site grant keeps its approved
   model: revoke that Decisions grant in Site access to choose another route.
-- Anthropic, On-device, and OpenAI-compatible providers do not support
+- **Chrome On-device:** choose On-device in **Options → Decisions**. This uses
+  Chrome's experimental [Decisions API (`DecisionModel`)](https://github.com/explainers-by-googlers/decisions-api)
+  and the browser-chosen decision model, with no API key or model selection.
+  Enable the Decisions API in Chrome and relaunch if `DecisionModel` is missing.
+  Click **Install decision model** there if a download is needed; installing chat
+  does not install decisions, and decisions work without chat being available.
+  Bridge checks native readiness and the question schema before `accepted`.
+  Chromium currently limits each request to **16 questions**; larger requests
+  return `invalid_request`. String state stays text; objects and arrays become
+  JSON text. Boolean probabilities map to `noul`, choices preserve labels, and
+  scores use zero-based labels and the native expected score. Native sessions
+  are destroyed after success, failure, or cancellation. Firefox does not offer
+  this provider. Decisions use separate defaults and site grants from chat.
+- Anthropic and OpenAI-compatible providers do not support
   this operation. There is no chat emulation or fallback. OpenRouter, PayPerQ, and Ollama
   decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
   also remains available for chat.
@@ -1059,6 +1074,9 @@ try {
 - [ ] Stable `output.images: true` on OpenAI / OpenRouter; approval lists image input/output separately
 
 #### Decisions
+
+- [ ] In Chrome with Decisions API enabled, choose On-device in Options → Decisions; install if needed, then run the typed-decisions console example with chat unavailable and confirm separate approval plus `accepted`/`done` and all three typed answers
+- [ ] Cancel an on-device decision request; no late `done` appears. Disable Decisions API and reload: saved grants fail closed, while cloud decisions remain usable. Firefox does not list On-device decisions
 
 For opt-in checks against installed local models (separate from browser checks):
 

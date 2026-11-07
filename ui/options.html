@@ -386,13 +386,17 @@
           <div class="speech-defaults">
             <h4>Decisions default</h4>
             <label class="field"><span>Provider</span><select id="decisionsProvider"></select></label>
-            <label class="field"><span>Model</span><select id="decisionsModel"></select></label>
+            <label class="field" id="decisionsModelField"><span>Model</span><select id="decisionsModel"></select></label>
           </div>
           <p class="hint" id="decisionsModelHint">
             OpenAI, OpenRouter, and PayPerQ use your saved API keys. Local decisions require Ollama
             0.35+ and an installed decision model (for example, ollama pull nimble).
             GGUF Clef and Clef Flash require Ollama 0.35.1+; MLX models require 0.40+.
           </p>
+          <div class="actions" id="decisionOnDeviceControls" hidden>
+            <button type="button" id="decisionOnDeviceInstall">Install decision model</button>
+            <button type="button" id="decisionOnDeviceCancel" hidden>Cancel download</button>
+          </div>
           <div class="status" id="decisionsStatus" role="status" aria-live="polite"></div>
         </section>
       </section>

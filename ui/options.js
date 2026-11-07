@@ -34,6 +34,7 @@ import {
   installLanguageModel,
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
+import { installDecisionModel } from "../src/decision-api-core.js";
 import { isFirefoxBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 import { groupAllowedSites } from "./allowed-sites.js";
@@ -71,7 +72,12 @@ const speechStatus = document.getElementById(
 const decisionsStatus = document.getElementById("decisionsStatus");
 const decisionsProviderSelect = document.getElementById("decisionsProvider");
 const decisionsModelSelect = document.getElementById("decisionsModel");
+const decisionsModelField = document.getElementById("decisionsModelField");
 const decisionsModelHint = document.getElementById("decisionsModelHint");
+const decisionOnDeviceControls = document.getElementById("decisionOnDeviceControls");
+const decisionOnDeviceInstall = document.getElementById("decisionOnDeviceInstall");
+const decisionOnDeviceCancel = document.getElementById("decisionOnDeviceCancel");
+let decisionInstallController = null;
 const transcriptionProviderSelect = document.getElementById(
   "transcriptionProvider",
 );
@@ -1816,6 +1822,8 @@ async function loadDecisionModels(providerId, preferredModel) {
   const loadId = ++decisionsModelsLoadId;
   decisionsModelSelect.replaceChildren();
   decisionsModelSelect.disabled = true;
+  decisionsModelField.hidden = providerId === ON_DEVICE_PROVIDER_ID;
+  decisionOnDeviceControls.hidden = providerId !== ON_DEVICE_PROVIDER_ID;
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
     method: "decide",
@@ -1824,6 +1832,20 @@ async function loadDecisionModels(providerId, preferredModel) {
   if (loadId !== decisionsModelsLoadId) return;
   const models = response?.ok ? normalizeModels(response.models) : [];
   fillSimpleSelect(decisionsModelSelect, models, preferredModel);
+  if (providerId === ON_DEVICE_PROVIDER_ID) {
+    const status = await chrome.runtime.sendMessage({ type: "on-device-status", method: "decide" });
+    if (loadId !== decisionsModelsLoadId) return;
+    const available = status?.ok && status.availability === "available";
+    const installable = status?.ok && ["available", "downloadable", "downloading"].includes(status.availability);
+    decisionsModelSelect.disabled = !available || models.length === 0;
+    decisionOnDeviceInstall.disabled = !installable || available || Boolean(decisionInstallController);
+    decisionsModelHint.textContent = available
+      ? "Chrome's browser-chosen decision model is ready. No API key needed; decisions stay on this device. Supports up to 16 questions per request."
+      : installable
+        ? "Install Chrome's decision model here before using On-device decisions. This is separate from the chat model."
+        : "Chrome Decisions API (DecisionModel) is unavailable. Enable the Decisions API in Chrome and relaunch, then reopen Options.";
+    return;
+  }
   decisionsModelHint.textContent = models.length
     ? providerId === "openai"
       ? "Uses your saved OpenAI API key and the Decisions beta service with gpt-6-luna."
@@ -2505,6 +2527,38 @@ synthesisModelSelect.addEventListener("change", () => {
 synthesisVoiceSelect.addEventListener("change", () => {
   void updateSpeechControl("synthesize", async () => {});
 });
+
+decisionOnDeviceInstall.addEventListener("click", async () => {
+  if (decisionInstallController) return;
+  const controller = new AbortController();
+  decisionInstallController = controller;
+  decisionOnDeviceInstall.disabled = true;
+  decisionOnDeviceCancel.hidden = false;
+  decisionsProviderSelect.disabled = true;
+  decisionsStatus.className = "status";
+  decisionsStatus.textContent = "Installing on-device decision model…";
+  try {
+    // No await before create(): preserve transient user activation for downloads.
+    await installDecisionModel({ DecisionModel: globalThis.DecisionModel, signal: controller.signal,
+      onProgress: (loaded) => {
+        if (typeof loaded === "number" && Number.isFinite(loaded))
+          decisionsStatus.textContent = `Downloading decision model… ${Math.round(Math.max(0, Math.min(1, loaded)) * 100)}%`;
+      } });
+    await loadDecisionModels(ON_DEVICE_PROVIDER_ID, ON_DEVICE_MODEL_ID);
+    if (decisionsModelSelect.disabled) throw new Error("Decision model installed, but the on-device host is not ready. Reload the extension and reopen Options.");
+    await persistDecisionDefault();
+  } catch (cause) {
+    decisionsStatus.textContent = cause?.code === "aborted" ? "Decision model download cancelled."
+      : cause instanceof Error ? cause.message : "Could not install decision model.";
+    decisionsStatus.className = "status err";
+  } finally {
+    decisionInstallController = null;
+    decisionOnDeviceCancel.hidden = true;
+    decisionsProviderSelect.disabled = false;
+    await loadDecisionModels(decisionsProviderSelect.value, decisionsModelSelect.value);
+  }
+});
+decisionOnDeviceCancel.addEventListener("click", () => decisionInstallController?.abort());
 
 decisionsProviderSelect.addEventListener("change", async () => {
   const providerId = decisionsProviderSelect.value;

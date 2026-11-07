@@ -68,7 +68,7 @@ export async function ensurePromptApiOffscreen() {
           // LanguageModel needs a document context; no dedicated AI reason exists yet.
           reasons: ["DOM_SCRAPING"],
           justification:
-            "Host the browser Prompt API (LanguageModel) for on-device inference; not available in the service worker.",
+            "Host browser built-in AI (LanguageModel and DecisionModel) in a document for on-device inference.",
         });
       } catch (err) {
         // Another path may have created it between check and create.

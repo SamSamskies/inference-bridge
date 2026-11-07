@@ -156,6 +156,7 @@
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
+ *   preflightDecide?: (args: { model: string, state: string | Record<string, unknown> | unknown[], questions: Record<string, DecideQuestion>, signal: AbortSignal }) => void | Promise<void>,
  *   preflightChat?: (args: { model: string, messages: ChatMessage[], apiKey?: string, signal?: AbortSignal, origin?: string, tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void | Promise<void>,
  *   transcribe?: (args: {
  *     apiKey?: string,
