@@ -1888,7 +1888,15 @@ async function loadDecisionDefaultControls(settings) {
 async function persistDecisionDefault() {
   const providerId = decisionsProviderSelect.value;
   const model = decisionsModelSelect.value;
-  if (!providerId || !model || decisionsModelSelect.disabled) return;
+  if (!providerId) return;
+  if (!model || decisionsModelSelect.disabled) {
+    decisionsStatus.textContent =
+      providerId === ON_DEVICE_PROVIDER_ID
+        ? "Install the on-device decision model before saving it as the default. The previous decisions default is still active."
+        : "No models available for this provider. The previous decisions default is still active.";
+    decisionsStatus.className = "status err";
+    return;
+  }
   decisionsStatus.textContent = "Saving decisions default…";
   decisionsStatus.className = "status";
   await saveSettings({ operationDefaults: { decide: { providerId, model } } });
