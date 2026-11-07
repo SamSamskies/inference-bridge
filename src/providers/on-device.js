@@ -10,6 +10,8 @@ import {
   ON_DEVICE_PROVIDER_ID,
   assertOnDeviceAvailable,
   mapMessagesForPromptApi,
+  messagesHaveToolHistory,
+  promptApiChatOptions,
   throwInference,
 } from "../prompt-api-core.js";
 import { getOnDeviceAvailability, streamOnDeviceChat } from "../prompt-api-client.js";
@@ -25,7 +27,7 @@ export const onDeviceProvider = {
   label: "On-device",
   requiresApiKey: false,
   defaultModel: ON_DEVICE_MODEL_ID,
-  supportsFunctionTools: false,
+  supportsFunctionTools: true,
   async getModelCapabilities({ model }) {
     const availability = model === ON_DEVICE_MODEL_ID
       ? await getOnDeviceAvailability({ wantsImage: true }) : null;
@@ -42,7 +44,7 @@ export const onDeviceProvider = {
   models: [{ id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" }],
 
   /**
-   * Prompt API rejects tool turns and non-user finals. Surface that as
+   * Validate message history and tool-result correlation. Surface failures as
    * invalid_request before the `accepted` chunk instead of mid-stream.
    * @param {ChatMessage[]} messages
    */
@@ -50,9 +52,12 @@ export const onDeviceProvider = {
     mapMessagesForPromptApi(messages);
   },
 
-  async preflightChat({ messages, signal }) {
+  async preflightChat({ messages, tools, toolChoice, signal }) {
     const wantsImage = messagesHaveImageParts(messages);
-    const availability = await getOnDeviceAvailability({ wantsImage });
+    const wantsToolHistory = messagesHaveToolHistory(messages);
+    promptApiChatOptions({ wantsImage, tools, toolChoice, wantsToolHistory });
+    assertHostedWebSearchSupported(this, tools, toolChoice);
+    const availability = await getOnDeviceAvailability({ wantsImage, tools, toolChoice, wantsToolHistory });
     if (signal?.aborted) throwInference("aborted", "Request aborted");
     // Always-allow also needs this readiness gate before accepted. A supported
     // model can still need a download, including a separate vision install.
@@ -67,6 +72,7 @@ export const onDeviceProvider = {
       ? await resolveModelCapabilities(this, { model: ON_DEVICE_MODEL_ID, signal })
       : { imageInput: null, imageOutput: false });
     assertHostedWebSearchSupported(this, tools, toolChoice);
-    return streamOnDeviceChat({ messages, signal, onDelta });
+    promptApiChatOptions({ tools, toolChoice });
+    return streamOnDeviceChat({ messages, tools, toolChoice, signal, onDelta });
   }),
 };

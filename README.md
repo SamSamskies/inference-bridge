@@ -159,6 +159,10 @@ Uses Chrome's [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`La
 
 If Prompt API is missing or `unavailable`, the provider is hidden. Persistent grants that still point at On-device fail closed with `unavailable` / `provider_error` rather than silently switching providers.
 
+Function tool calling uses Chrome's native [Prompt API tool use](https://chrome.dev/web-ai-demos/prompt-api-tool-use/). Enable `chrome://flags/#prompt-api-tool-use` and relaunch Chrome. The existing `tools` / `done.message.toolCalls` / `role: "tool"` loop works with On-device, including multiple calls per turn and `experimental.runTools`. Tools still execute in the page. Bridge checks native tool support before `accepted`; missing support returns `unavailable` with flag guidance. Ordinary chat does not require this flag.
+
+On-device supports `toolChoice: "auto"` (the default) and `"none"`; `"required"` and a forced function name return `unavailable`. Function parameter schemas must have `type: "object"` (omitted parameters default to an empty object schema). Hosted `web_search` remains unsupported.
+
 Chrome manages model storage; see its [on-device AI settings help](https://support.google.com/chrome/answer/16961953) for storage controls.
 
 ### OpenAI-compatible servers
@@ -1038,6 +1042,9 @@ try {
 - [ ] `window.inference.request` accepts `tools` / `toolChoice` / tool messages (feature-detect via `getFeatures`)
 - [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
 - [ ] Function tool round-trip via `request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
+- [ ] On-device with `#prompt-api-tool-use` enabled: function tool round-trip and `experimental.runTools` complete, including parallel calls; text deltas contain no tool objects
+- [ ] On-device with the tool flag disabled: a function-tool request fails before `accepted` with flag guidance, while ordinary chat succeeds
+- [ ] On-device `toolChoice: "none"` omits tools and accepts prior tool results; `"required"` / a forced function name return `unavailable` before `accepted`
 - [ ] `experimental.runTools` completes a page-executed loop with the same shape
 - [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI; OpenAI also uses `/v1/responses` for image output and GPT-6 function tools
 - [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, chat searches; without key, Allow is disabled (no silent strip)
