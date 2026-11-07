@@ -121,7 +121,7 @@ describe("provider registry", () => {
     expect(getProvider("openrouter")?.supportsFunctionTools).toBe(true);
     expect(getProvider("ollama")?.supportsFunctionTools).toBe(true);
     expect(getProvider("anthropic")?.supportsFunctionTools).toBe(true);
-    expect(getProvider("on-device")?.supportsFunctionTools).toBe(false);
+    expect(getProvider("on-device")?.supportsFunctionTools).toBe(true);
     expect(getProvider("openai")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("openrouter")?.hostedTools).toEqual(["web_search"]);
     expect(getProvider("ollama")?.hostedTools).toEqual(["web_search"]);

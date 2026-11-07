@@ -33,7 +33,7 @@ describe("mapMessagesForPromptApi", () => {
     });
   });
 
-  it("rejects tool messages and non-user finals", () => {
+  it("rejects orphan tool results and non-user finals", () => {
     expect(() =>
       mapMessagesForPromptApi([{ role: "assistant", content: "x" }])
     ).toThrow(/last message/);
@@ -392,12 +392,12 @@ describe("installLanguageModel / streamLanguageModelChat", () => {
 });
 
 describe("onDeviceProvider", () => {
-  it("is a no-key provider with sentinel model and no tools", () => {
+  it("is a no-key provider with sentinel model and function tools", () => {
     expect(onDeviceProvider.id).toBe("on-device");
     expect(onDeviceProvider.label).toBe("On-device");
     expect(onDeviceProvider.requiresApiKey).toBe(false);
     expect(onDeviceProvider.defaultModel).toBe(ON_DEVICE_MODEL_ID);
-    expect(onDeviceProvider.supportsFunctionTools).toBe(false);
+    expect(onDeviceProvider.supportsFunctionTools).toBe(true);
     expect(onDeviceProvider.hostedTools).toEqual([]);
   });
 
@@ -425,12 +425,12 @@ describe("onDeviceProvider", () => {
       expect(/** @type {any} */ (err).code).toBe("invalid_request");
       expect(err).toMatchObject({
         name: "InferenceError",
-        message: "On-device provider expects the last message to be from the user.",
+        message: "On-device provider expects the last message to be from the user or a tool result.",
       });
     }
   });
 
-  it("rejects tool messages in preflight", () => {
+  it("rejects orphan tool results in preflight", () => {
     try {
       onDeviceProvider.preflightMessages?.([
         { role: "tool", content: "{}", toolCallId: "1" },
@@ -441,7 +441,7 @@ describe("onDeviceProvider", () => {
       expect(/** @type {any} */ (err).code).toBe("invalid_request");
       expect(err).toMatchObject({
         name: "InferenceError",
-        message: "On-device provider does not support tool result messages.",
+        message: "On-device tool result must match a preceding assistant tool call.",
       });
     }
   });

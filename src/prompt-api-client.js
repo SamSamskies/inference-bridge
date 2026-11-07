@@ -9,7 +9,7 @@ import {
 import { sendPromptApiOffscreenMessage } from "./prompt-api-offscreen.js";
 
 /**
- * @param {{ wantsImage?: boolean }} [options]
+ * @param {{ wantsImage?: boolean, tools?: import("./providers/types.js").Tool[], toolChoice?: import("./providers/types.js").ToolChoice, wantsToolHistory?: boolean }} [options]
  * @returns {Promise<import("./prompt-api-core.js").OnDeviceAvailability>}
  */
 export async function getOnDeviceAvailability(options = {}) {
@@ -17,13 +17,20 @@ export async function getOnDeviceAvailability(options = {}) {
     const response = await sendPromptApiOffscreenMessage({
       type: "prompt-api-availability",
       wantsImage: options.wantsImage === true,
+      tools: options.tools,
+      toolChoice: options.toolChoice,
+      wantsToolHistory: options.wantsToolHistory === true,
     });
+    if (response?.code === "unavailable" && response?.error) {
+      throwInference("unavailable", response.error);
+    }
     if (response?.ok && typeof response.availability === "string") {
       return response.availability;
     }
     if (response?.availability === "missing") return "missing";
     return "unavailable";
-  } catch {
+  } catch (err) {
+    if (err?.name === "InferenceError") throw err;
     // Offscreen create/ready failure or messaging error — not the same as
     // LanguageModel absent (`missing` only comes from a successful probe).
     return "unavailable";
@@ -34,12 +41,14 @@ export async function getOnDeviceAvailability(options = {}) {
  * Stream a chat completion through the offscreen LanguageModel host.
  * @param {{
  *   messages: import("./providers/types.js").ChatMessage[],
+ *   tools?: import("./providers/types.js").Tool[],
+ *   toolChoice?: import("./providers/types.js").ToolChoice,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  * }} args
  */
 export async function streamOnDeviceChat(args) {
-  const { messages, signal, onDelta } = args;
+  const { messages, tools, toolChoice, signal, onDelta } = args;
   const requestId = `on_device_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
   /** @param {any} message */
@@ -71,6 +80,8 @@ export async function streamOnDeviceChat(args) {
       type: "prompt-api-stream",
       requestId,
       messages,
+      tools,
+      toolChoice,
     });
 
     if (!response?.ok) {

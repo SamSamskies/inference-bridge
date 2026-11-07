@@ -53,6 +53,48 @@ export const PROMPT_API_VISION_SESSION_OPTIONS = Object.freeze({
 });
 
 /**
+ * Build native tool declarations without silently weakening toolChoice.
+ * @param {{ wantsImage?: boolean, tools?: import("./providers/types.js").Tool[], toolChoice?: import("./providers/types.js").ToolChoice, wantsToolHistory?: boolean }} [options]
+ * @see https://github.com/webmachinelearning/prompt-api#tool-use
+ */
+export function promptApiChatOptions({ wantsImage = false, tools = [], toolChoice, wantsToolHistory = false } = {}) {
+  const functions = tools.filter((tool) => tool.type === "function");
+  if (toolChoice !== undefined && toolChoice !== "auto" && toolChoice !== "none") {
+    throwInference("unavailable", 'On-device supports toolChoice "auto" and "none" only.');
+  }
+  const active = toolChoice === "none" ? [] : functions;
+  const base = wantsImage ? PROMPT_API_VISION_SESSION_OPTIONS : PROMPT_API_SESSION_OPTIONS;
+  const declarations = active.map(({ function: fn }) => {
+    const inputSchema = fn.parameters ?? { type: "object", properties: {} };
+    if (inputSchema.type !== "object") {
+      throwInference("invalid_request", "On-device function parameters must have type object.");
+    }
+    return { name: fn.name, ...(fn.description ? { description: fn.description } : {}), inputSchema };
+  });
+  return {
+    ...base,
+    expectedInputs: [...base.expectedInputs,
+      ...(active.length || wantsToolHistory ? [{ type: "tool-response" }] : []),
+      ...(wantsToolHistory ? [{ type: "tool-call" }] : [])],
+    expectedOutputs: [...base.expectedOutputs, ...(active.length ? [{ type: "tool-call" }] : [])],
+    ...(declarations.length ? { tools: declarations } : {}),
+  };
+}
+
+/** @param {import("./providers/types.js").ChatMessage[]} messages */
+export function messagesHaveToolHistory(messages) {
+  return messages.some((message) => message.role === "tool" || message.toolCalls?.length);
+}
+
+/** The native interfaces are gated by the same flag as tool use. */
+export function assertPromptApiToolsAvailable(scope = globalThis) {
+  if (!["LanguageModelToolCall", "LanguageModelToolSuccess", "LanguageModelToolError"]
+    .every((name) => typeof scope[name] === "function")) {
+    throwInference("unavailable", "On-device tool calling requires chrome://flags/#prompt-api-tool-use. Enable it and relaunch Chrome.");
+  }
+}
+
+/**
  * @param {string} code
  * @param {string} message
  * @returns {never}
@@ -191,74 +233,75 @@ export function mapContentForPromptApi(content) {
 /**
  * Map IPA chat messages into Prompt API session + final user prompt.
  * @param {import("./providers/types.js").ChatMessage[]} messages
+ * @param {{ scope?: any }} [options] Native constructors, supplied only by the document host.
  * @returns {{
  *   initialPrompts: Array<{ role: string, content: string | Array<{ type: string, value: unknown }> }>,
  *   prompt: string | Array<{ type: string, value: unknown }>,
  * }}
  */
-export function mapMessagesForPromptApi(messages) {
+export function mapMessagesForPromptApi(messages, { scope } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throwInference("invalid_request", "On-device provider requires at least one message.");
   }
-
-  /** @type {Array<{ role: string, content: string | Array<{ type: string, value: unknown }> }>} */
-  const initialPrompts = [];
-  /** @type {string | Array<{ type: string, value: unknown }>} */
-  let prompt = "";
-
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    const role = typeof message?.role === "string" ? message.role : "";
+  const mappedMessages = [];
+  const pendingCalls = new Map();
+  const callIds = new Set();
+  for (const message of messages) {
+    const role = message.role;
+    if (role === "system" && mappedMessages.length) {
+      throwInference("invalid_request", "On-device provider allows a system message only as the first message.");
+    }
     if (role === "tool") {
-      throwInference(
-        "invalid_request",
-        "On-device provider does not support tool result messages."
-      );
-    }
-    if (message?.toolCalls?.length) {
-      throwInference(
-        "invalid_request",
-        "On-device provider does not support assistant tool calls."
-      );
-    }
-    const mapped = mapContentForPromptApi(message?.content);
-    const content =
-      role === "system" && Array.isArray(mapped)
-        ? mapped
-            .filter((p) => p.type === "text")
-            .map((p) => String(p.value))
-            .join("")
-        : mapped;
-
-    const isLast = i === messages.length - 1;
-    if (isLast) {
-      if (role !== "user") {
-        throwInference(
-          "invalid_request",
-          "On-device provider expects the last message to be from the user."
-        );
-      }
-      prompt = content;
+      const call = pendingCalls.get(message.toolCallId);
+      if (!call) throwInference("invalid_request", "On-device tool result must match a preceding assistant tool call.");
+      pendingCalls.delete(message.toolCallId);
+      // Preserve the IPA result verbatim as text, including JSON nulls. Native
+      // object results currently reject nested nulls in some Chrome builds.
+      const init = { callId: call.id, callID: call.id, name: call.function.name,
+        result: [{ type: "text", value: message.content }] };
+      const part = { type: "tool-response", value: scope ? new scope.LanguageModelToolSuccess(init) : init };
+      const previous = mappedMessages.at(-1);
+      if (previous?.toolResults) previous.content.push(part);
+      else mappedMessages.push({ role: "user", content: [part], toolResults: true });
       continue;
     }
-
-    if (role === "system") {
-      // Prompt API allows system only at index 0 of initialPrompts.
-      if (initialPrompts.length > 0) {
-        throwInference(
-          "invalid_request",
-          "On-device provider allows a system message only as the first message."
-        );
+    if (pendingCalls.size) {
+      throwInference("invalid_request", "On-device requires a result for every assistant tool call before the next turn.");
+    }
+    let content = mapContentForPromptApi(message.content);
+    if (role === "system" && Array.isArray(content)) {
+      content = content.filter((p) => p.type === "text").map((p) => p.value).join("");
+    }
+    if (message.toolCalls?.length) {
+      content = typeof content === "string" ? (content ? [{ type: "text", value: content }] : []) : content;
+      for (const call of message.toolCalls) {
+        let args;
+        try { args = JSON.parse(call.function.arguments); } catch {
+          throwInference("invalid_request", "On-device tool call arguments must be valid JSON objects.");
+        }
+        if (!args || typeof args !== "object" || Array.isArray(args)) {
+          throwInference("invalid_request", "On-device tool call arguments must be valid JSON objects.");
+        }
+        if (callIds.has(call.id)) throwInference("invalid_request", "On-device tool call IDs must be unique.");
+        callIds.add(call.id);
+        pendingCalls.set(call.id, call);
+        const init = { callId: call.id, callID: call.id, name: call.function.name, arguments: args };
+        content.push({ type: "tool-call", value: scope ? new scope.LanguageModelToolCall(init) : init });
       }
-      initialPrompts.push({ role, content });
-      continue;
     }
-    if (role === "user" || role === "assistant") {
-      initialPrompts.push({ role, content });
-    }
+    mappedMessages.push({ role, content });
   }
-
-  return { initialPrompts, prompt };
+  const last = mappedMessages.pop();
+  if (last.role !== "user") {
+    throwInference("invalid_request", "On-device provider expects the last message to be from the user or a tool result.");
+  }
+  if (pendingCalls.size) {
+    throwInference("invalid_request", "On-device requires a result for every assistant tool call before the next turn.");
+  }
+  return {
+    initialPrompts: mappedMessages.map(({ role, content }) => ({ role, content })),
+    prompt: last.content,
+  };
 }
 
 /**
@@ -361,17 +404,20 @@ export async function installLanguageModel(args) {
 }
 
 /**
- * One-shot chat via promptStreaming.
+ * One-shot chat via promptStreaming, including native function calls.
  * @param {{
  *   LanguageModel: any,
  *   messages: import("./providers/types.js").ChatMessage[],
+ *   tools?: import("./providers/types.js").Tool[],
+ *   toolChoice?: import("./providers/types.js").ToolChoice,
+ *   toolScope?: any,
  *   signal: AbortSignal,
  *   onDelta: (content: string) => void,
  * }} args
- * @returns {Promise<{ model: string, message: { role: "assistant", content: string } }>}
+ * @returns {Promise<{ model: string, message: { role: "assistant", content: string, toolCalls?: import("./providers/types.js").ToolCall[] } }>}
  */
 export async function streamLanguageModelChat(args) {
-  const { LanguageModel: LM, messages, signal, onDelta } = args;
+  const { LanguageModel: LM, messages, tools, toolChoice, signal, onDelta } = args;
   if (!LM || typeof LM.create !== "function") {
     throwInference("unavailable", "Prompt API (LanguageModel) is not available in this browser.");
   }
@@ -380,16 +426,18 @@ export async function streamLanguageModelChat(args) {
   }
 
   const wantsImage = messagesHaveImageParts(messages);
-  const sessionOptions = wantsImage
-    ? PROMPT_API_VISION_SESSION_OPTIONS
-    : PROMPT_API_SESSION_OPTIONS;
+  const wantsToolHistory = messagesHaveToolHistory(messages);
+  const sessionOptions = promptApiChatOptions({ wantsImage, tools, toolChoice, wantsToolHistory });
+  const scope = args.toolScope ?? globalThis;
+  if (sessionOptions.tools?.length || wantsToolHistory) assertPromptApiToolsAvailable(scope);
   const availability = await probeLanguageModelAvailability(
     /** @type {any} */ ({ LanguageModel: LM }),
     sessionOptions
   );
+  if (signal.aborted) throwInference("aborted", "Request aborted");
   assertOnDeviceAvailable(availability, { wantsImage });
 
-  const { initialPrompts, prompt } = mapMessagesForPromptApi(messages);
+  const { initialPrompts, prompt } = mapMessagesForPromptApi(messages, { scope });
 
   /** @type {any} */
   let session;
@@ -410,7 +458,10 @@ export async function streamLanguageModelChat(args) {
   }
 
   let full = "";
+  const toolCalls = [];
+  const usedCallIds = new Set(messages.flatMap((message) => (message.toolCalls ?? []).map((call) => call.id)));
   try {
+    if (signal.aborted) throwInference("aborted", "Request aborted");
     const stream = session.promptStreaming(wrapPromptForPromptApi(prompt), {
       signal,
     });
@@ -418,10 +469,42 @@ export async function streamLanguageModelChat(args) {
       if (signal.aborted) {
         throwInference("aborted", "Request aborted");
       }
+      if (typeof chunk !== "string") {
+        if (chunk?.type !== "tool-call" || !sessionOptions.tools?.length) {
+          throwInference("provider_error", "Unexpected on-device response chunk.");
+        }
+        const call = chunk.value;
+        const nativeId = call?.callId ?? call?.callID;
+        if (typeof call?.name !== "string" || !call.name) {
+          throwInference("provider_error", "Invalid on-device tool call: missing function name.");
+        }
+        // Native arguments are optional and the interface can expose null.
+        // Some implementations also expose the JSON dictionary as a string.
+        let args = call.arguments === "" ? {} : call.arguments;
+        if (typeof args === "string") {
+          try { args = JSON.parse(args); } catch {
+            throwInference("provider_error", "Invalid on-device tool call: arguments are not valid JSON.");
+          }
+        }
+        args ??= {};
+        if (typeof args !== "object" || Array.isArray(args)) {
+          throwInference("provider_error", "Invalid on-device tool call: arguments must be a JSON object.");
+        }
+        // Every Bridge round creates a new native session. Native call IDs
+        // may be empty or repeated; keep the page transcript unambiguous.
+        // Replaying history accepts caller-assigned IDs, so no reverse map is needed.
+        const baseId = typeof nativeId === "string" && nativeId ? nativeId : "on_device_tool";
+        let id = baseId;
+        for (let suffix = 1; usedCallIds.has(id); suffix++) id = `${baseId}_${suffix}`;
+        usedCallIds.add(id);
+        toolCalls.push({ id, type: "function", function: { name: call.name, arguments: JSON.stringify(args) } });
+        continue;
+      }
       const next = applyStreamChunk(full, chunk);
       full = next.full;
       if (next.delta) onDelta(next.delta);
     }
+    if (signal.aborted) throwInference("aborted", "Request aborted");
   } catch (err) {
     if (signal.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
       throwInference("aborted", "Request aborted");
@@ -441,6 +524,6 @@ export async function streamLanguageModelChat(args) {
 
   return {
     model: ON_DEVICE_MODEL_ID,
-    message: { role: "assistant", content: full },
+    message: { role: "assistant", content: full, ...(toolCalls.length ? { toolCalls } : {}) },
   };
 }

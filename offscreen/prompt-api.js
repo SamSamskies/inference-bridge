@@ -3,8 +3,8 @@
  */
 
 import {
-  PROMPT_API_SESSION_OPTIONS,
-  PROMPT_API_VISION_SESSION_OPTIONS,
+  promptApiChatOptions,
+  assertPromptApiToolsAvailable,
   installLanguageModel,
   probeLanguageModelAvailability,
   streamLanguageModelChat,
@@ -31,10 +31,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "prompt-api-availability") {
-    const sessionOptions = message.wantsImage
-      ? PROMPT_API_VISION_SESSION_OPTIONS
-      : PROMPT_API_SESSION_OPTIONS;
-    void probeLanguageModelAvailability(globalThis, sessionOptions)
+    void Promise.resolve().then(() => {
+      const sessionOptions = promptApiChatOptions(message);
+      if (sessionOptions.tools?.length || message.wantsToolHistory) {
+        assertPromptApiToolsAvailable();
+      }
+      return probeLanguageModelAvailability(globalThis, sessionOptions);
+    })
       .then((availability) => {
         sendResponse({ ok: true, availability });
       })
@@ -42,6 +45,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({
           ok: false,
           availability: "unavailable",
+          code: err?.code,
           error: err instanceof Error ? err.message : "availability failed",
         });
       });
@@ -112,6 +116,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void streamLanguageModelChat({
       LanguageModel: globalThis.LanguageModel,
       messages: Array.isArray(message.messages) ? message.messages : [],
+      tools: message.tools,
+      toolChoice: message.toolChoice,
       signal: controller.signal,
       onDelta: (content) => {
         // Track delivery so we do not complete the RPC (and drop the SW
