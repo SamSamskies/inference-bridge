@@ -150,6 +150,7 @@ describe("provider registry", () => {
     expect(typeof anthropic.listModels).toBe("undefined");
     const models = await resolveProviderModels(anthropic);
     expect(models).toEqual([
+      { id: "claude-fable-5-2" },
       { id: "claude-fable-5-1" },
       { id: "claude-fable-5" },
       { id: "claude-opus-5-5" },

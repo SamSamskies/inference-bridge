@@ -85,6 +85,9 @@ describe("mapReasoningEffortForAnthropic", () => {
       mapReasoningEffortForAnthropic("none", "claude-fable-5")
     ).toBeUndefined();
     expect(
+      mapReasoningEffortForAnthropic("none", "claude-fable-5-2")
+    ).toBeUndefined();
+    expect(
       mapReasoningEffortForAnthropic("none", "claude-opus-5-5")
     ).toBeUndefined();
     expect(
@@ -130,6 +133,20 @@ describe("mapReasoningEffortForAnthropic", () => {
     expect(mapReasoningEffortForAnthropic("none", "claude-haiku-4-5")).toEqual({
       thinking: { type: "disabled" },
     });
+  });
+
+  it("does not read a snapshot date as the minor version", () => {
+    expect(
+      mapReasoningEffortForAnthropic("low", "claude-opus-4-20250514")
+    ).toEqual({
+      thinking: { type: "enabled", budget_tokens: 1024 },
+    });
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-sonnet-5-5-20251001")
+    ).toEqual(mapReasoningEffortForAnthropic("none", "claude-sonnet-5-5"));
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-opus-5-5-20251001")
+    ).toEqual(mapReasoningEffortForAnthropic("none", "claude-opus-5-5"));
   });
 
   it("disables thinking for none on Haiku 5.5", () => {

@@ -18,6 +18,7 @@ import {
   readProviderErrorDetail,
 } from "./provider-error.js";
 import {
+  MAX_PARAM_RETRIES,
   mapReasoningEffortForOpenAICompat,
   nextOpenAICompatReasoningEffortAfterError,
 } from "./reasoning-effort.js";
@@ -291,28 +292,39 @@ export async function streamOpenAIResponsesChat({
       signal,
     });
 
-    if (!response.ok) {
-      let detail = await readProviderErrorDetail(
+    // One 400 may reject temperature and effort together, and effort may need
+    // more than one fallback step.
+    let currentTemperature = temperature;
+    let currentEffort = reasoningEffort;
+    for (let attempt = 0; !response.ok; attempt += 1) {
+      const detail = await readProviderErrorDetail(
         response,
         `OpenAI HTTP ${response.status}`
       );
       const nextTemperature = nextOpenAICompatTemperatureAfterError(
         response.status,
         detail,
-        temperature
+        currentTemperature
       );
       const nextEffort = nextOpenAICompatReasoningEffortAfterError(
         response.status,
         detail,
-        reasoningEffort
+        currentEffort
       );
-      if (nextTemperature.retry) {
-        delete body.temperature;
-      } else if (nextEffort.retry) {
-        setResponsesReasoningEffort(body, nextEffort.effort);
-      } else {
+      if (
+        attempt >= MAX_PARAM_RETRIES ||
+        (!nextTemperature.retry && !nextEffort.retry)
+      ) {
         const mapped = mapOpenAIStatus(response.status, detail);
         throwInference(mapped.code, mapped.message);
+      }
+      if (nextTemperature.retry) {
+        delete body.temperature;
+        currentTemperature = undefined;
+      }
+      if (nextEffort.retry) {
+        setResponsesReasoningEffort(body, nextEffort.effort);
+        currentEffort = nextEffort.effort;
       }
       response = await fetch(OPENAI_RESPONSES_URL, {
         method: "POST",
@@ -320,14 +332,6 @@ export async function streamOpenAIResponsesChat({
         body: JSON.stringify(body),
         signal,
       });
-      if (!response.ok) {
-        detail = await readProviderErrorDetail(
-          response,
-          `OpenAI HTTP ${response.status}`
-        );
-        const mappedRetry = mapOpenAIStatus(response.status, detail);
-        throwInference(mappedRetry.code, mappedRetry.message);
-      }
     }
   } catch (err) {
     if (/** @type {any} */ (err)?.code) throw err;

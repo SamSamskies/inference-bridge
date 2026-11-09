@@ -3,9 +3,13 @@
  * Best-effort: omit when auto/absent; adapters must not fail solely because a
  * model cannot honor the preference. OpenAI-compatible APIs are model-dependent
  * (`none` vs `minimal`); known OpenAI model ids are mapped on the first
- * request. A 400 listing supported values is retried once with the next
- * lowest effort, or with the field omitted if the list cannot be parsed.
+ * request. A 400 listing supported values is retried with the next lowest
+ * effort, or with the field omitted if the list cannot be parsed (bounded by
+ * `MAX_PARAM_RETRIES`).
  */
+
+/** Max retries after a 400 that rejects temperature and/or reasoning effort. */
+export const MAX_PARAM_RETRIES = 3;
 
 /** @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort */
 
@@ -178,7 +182,7 @@ function anthropicModelLeaf(model) {
  */
 function parseAnthropicModel(model) {
   const id = anthropicModelLeaf(model);
-  const match = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(id);
+  const match = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id);
   if (!match) return null;
   return {
     family: match[1].toLowerCase(),
@@ -203,7 +207,7 @@ export function anthropicThinkingMode(model) {
 }
 
 /**
- * Fable 5, Mythos 5, and Opus 5.5 reject `thinking.type: "disabled"`.
+ * Fable 5+, Mythos 5, and Opus 5.5 reject `thinking.type: "disabled"`.
  * @param {string | undefined} model
  * @returns {boolean}
  */
@@ -233,7 +237,7 @@ function anthropicUsesBetweenToolsForNone(model) {
  * Anthropic Messages API: adaptive thinking + `output_config.effort` on
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
  * Claude 4.5 and earlier. Sonnet 5.5 uses `between_tools` for IPA `"none"`;
- * Fable 5 and Opus 5.5 cannot disable thinking, so omit the field.
+ * Fable 5+ and Opus 5.5 cannot disable thinking, so omit the field.
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]

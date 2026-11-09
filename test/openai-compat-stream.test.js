@@ -464,6 +464,92 @@ describe("streamOpenAICompatChat", () => {
     });
   });
 
+  it("fixes temperature and reasoning_effort in one retry when both are rejected", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (
+        Object.prototype.hasOwnProperty.call(body, "temperature") ||
+        Object.prototype.hasOwnProperty.call(body, "reasoning_effort")
+      ) {
+        return jsonResponse(
+          {
+            error: {
+              message:
+                "Unsupported: temperature is not supported and reasoning_effort is not supported with this model.",
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAICompatChat(
+      baseArgs({
+        options: { reasoningEffort: "none", temperature: 0 },
+      })
+    );
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(retryBody).not.toHaveProperty("temperature");
+    expect(retryBody).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("steps reasoning_effort down more than once", async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      if (body.reasoning_effort === "none") {
+        return jsonResponse(
+          {
+            error: {
+              message:
+                "Unsupported value: 'none' is not supported. Supported values are: 'minimal', 'low', and 'high'.",
+            },
+          },
+          400
+        );
+      }
+      if (body.reasoning_effort === "minimal") {
+        return jsonResponse(
+          {
+            error: {
+              message:
+                "Unsupported value: 'minimal' is not supported. Supported values are: 'low' and 'high'.",
+            },
+          },
+          400
+        );
+      }
+      return sseResponse(
+        [
+          'data: {"choices":[{"delta":{"content":"ok"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await streamOpenAICompatChat(
+      baseArgs({ options: { reasoningEffort: "none" } })
+    );
+
+    expect(result.message.content).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).reasoning_effort).toBe(
+      "low"
+    );
+  });
+
   it("retries without reasoning_effort when the 400 cannot be parsed", async () => {
     const fetchMock = vi.fn(async (_url, init) => {
       const body = JSON.parse(init.body);
