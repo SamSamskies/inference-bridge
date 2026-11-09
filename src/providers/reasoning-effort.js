@@ -3,9 +3,13 @@
  * Best-effort: omit when auto/absent; adapters must not fail solely because a
  * model cannot honor the preference. OpenAI-compatible APIs are model-dependent
  * (`none` vs `minimal`); known OpenAI model ids are mapped on the first
- * request. A 400 listing supported values is retried once with the next
- * lowest effort, or with the field omitted if the list cannot be parsed.
+ * request. A 400 listing supported values is retried with the next lowest
+ * effort, or with the field omitted if the list cannot be parsed (bounded by
+ * `MAX_PARAM_RETRIES`).
  */
+
+/** Max retries after a 400 that rejects temperature and/or reasoning effort. */
+export const MAX_PARAM_RETRIES = 3;
 
 /** @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort */
 
@@ -178,7 +182,7 @@ function anthropicModelLeaf(model) {
  */
 function parseAnthropicModel(model) {
   const id = anthropicModelLeaf(model);
-  const match = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(id);
+  const match = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id);
   if (!match) return null;
   return {
     family: match[1].toLowerCase(),

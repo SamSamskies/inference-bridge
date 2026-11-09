@@ -135,6 +135,20 @@ describe("mapReasoningEffortForAnthropic", () => {
     });
   });
 
+  it("does not read a snapshot date as the minor version", () => {
+    expect(
+      mapReasoningEffortForAnthropic("low", "claude-opus-4-20250514")
+    ).toEqual({
+      thinking: { type: "enabled", budget_tokens: 1024 },
+    });
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-sonnet-5-5-20251001")
+    ).toEqual(mapReasoningEffortForAnthropic("none", "claude-sonnet-5-5"));
+    expect(
+      mapReasoningEffortForAnthropic("none", "claude-opus-5-5-20251001")
+    ).toEqual(mapReasoningEffortForAnthropic("none", "claude-opus-5-5"));
+  });
+
   it("disables thinking for none on Haiku 5.5", () => {
     expect(mapReasoningEffortForAnthropic("none", "claude-haiku-5-5")).toEqual({
       thinking: { type: "disabled" },
