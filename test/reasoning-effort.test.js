@@ -85,6 +85,9 @@ describe("mapReasoningEffortForAnthropic", () => {
       mapReasoningEffortForAnthropic("none", "claude-fable-5")
     ).toBeUndefined();
     expect(
+      mapReasoningEffortForAnthropic("none", "claude-fable-5-2")
+    ).toBeUndefined();
+    expect(
       mapReasoningEffortForAnthropic("none", "claude-opus-5-5")
     ).toBeUndefined();
     expect(

@@ -203,7 +203,7 @@ export function anthropicThinkingMode(model) {
 }
 
 /**
- * Fable 5, Mythos 5, and Opus 5.5 reject `thinking.type: "disabled"`.
+ * Fable 5+, Mythos 5, and Opus 5.5 reject `thinking.type: "disabled"`.
  * @param {string | undefined} model
  * @returns {boolean}
  */
@@ -233,7 +233,7 @@ function anthropicUsesBetweenToolsForNone(model) {
  * Anthropic Messages API: adaptive thinking + `output_config.effort` on
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
  * Claude 4.5 and earlier. Sonnet 5.5 uses `between_tools` for IPA `"none"`;
- * Fable 5 and Opus 5.5 cannot disable thinking, so omit the field.
+ * Fable 5+ and Opus 5.5 cannot disable thinking, so omit the field.
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]

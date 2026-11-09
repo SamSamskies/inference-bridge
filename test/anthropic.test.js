@@ -348,6 +348,7 @@ describe("anthropicProvider", () => {
     expect(anthropicProvider.label).toBe("Anthropic");
     expect(anthropicProvider.defaultModel).toBe("claude-sonnet-5-5");
     expect(anthropicProvider.models).toEqual([
+      "claude-fable-5-2",
       "claude-fable-5-1",
       "claude-fable-5",
       "claude-opus-5-5",
