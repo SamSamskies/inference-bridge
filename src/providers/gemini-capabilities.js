@@ -19,6 +19,16 @@ const PROFILES = new Map([
     { image: true, search: true },
   ],
   [
+    "gemini-4-carbon",
+    {
+      image: true,
+      functions: true,
+      search: true,
+      mixed: true,
+      thinking: ["low", "medium", "high"],
+    },
+  ],
+  [
     "gemini-4-argon",
     {
       image: true,

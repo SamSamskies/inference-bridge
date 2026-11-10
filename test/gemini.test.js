@@ -93,6 +93,7 @@ describe("Gemini curated models and capability boundaries", () => {
       "gemini-3.1-flash-lite",
       "gemini-3.5-flash-lite",
       model,
+      "gemini-4-carbon",
       "gemini-4-argon",
     ]);
     expect(models.map((entry) => entry.label)).toEqual([
@@ -100,6 +101,7 @@ describe("Gemini curated models and capability boundaries", () => {
       "Gemini 3.1 Flash Lite",
       "Gemini 3.5 Flash Lite",
       "Gemini 3.8 Flash",
+      "Gemini 4 Carbon",
       "Gemini 4 Argon",
     ]);
     expect(models.every((entry) => entry.inputModalities.includes("image"))).toBe(true);
@@ -131,6 +133,9 @@ describe("Gemini curated models and capability boundaries", () => {
       geminiRequestWarning("gemini-4-unknown", { tools: [search] })
     ).toContain("not verified");
     expect(
+      geminiRequestWarning("gemini-4-carbon", { tools: [search, fn] })
+    ).toBe("");
+    expect(
       geminiRequestWarning("gemini-4-argon", { tools: [search, fn] })
     ).toBe("");
     expect(
@@ -145,6 +150,7 @@ describe("Gemini curated models and capability boundaries", () => {
   });
   it("maps none to the lowest documented thinking level, leaving unknown controls unset", async () => {
     expect(mapGeminiReasoningEffort(model, "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-4-carbon", "none")).toBe("low");
     expect(mapGeminiReasoningEffort("gemini-4-argon", "none")).toBe("low");
     expect(mapGeminiReasoningEffort("gemini-3.6-flash", "none")).toBe(
       "minimal"
@@ -676,12 +682,17 @@ describe("Gemini native chat", () => {
       JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config.tool_choice
     ).toEqual({ allowed_tools: { mode: "any", tools: ["weather"] } });
   });
-  it("supports mixed native search and functions on Argon", async () => {
-    await chat({ model: "gemini-4-argon", tools: [search, fn] });
-    expect(
-      JSON.parse(fetch.mock.calls.at(-1)[1].body).tools.map((tool) => tool.type)
-    ).toEqual(["google_search", "function"]);
-  });
+  it.each(["gemini-4-carbon", "gemini-4-argon"])(
+    "supports mixed native search and functions on %s",
+    async (mixedModel) => {
+      await chat({ model: mixedModel, tools: [search, fn] });
+      expect(
+        JSON.parse(fetch.mock.calls.at(-1)[1].body).tools.map(
+          (tool) => tool.type
+        )
+      ).toEqual(["google_search", "function"]);
+    }
+  );
   it("does not duplicate completed text, and streams thought summaries separately", async () => {
     installStream([
       start(),
