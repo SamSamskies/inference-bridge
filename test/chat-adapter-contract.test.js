@@ -47,7 +47,7 @@ const cases = [
   ["OpenAI Chat Completions", "openai", "compat", "gpt-5-nano", "gpt-6-luna"],
   ["OpenAI Responses", "openai", "responses", "gpt-6-luna", "gpt-6.1-sol"],
   ["Anthropic", "anthropic", "anthropic", "claude-sonnet-5-5", "claude-haiku-5-5"],
-  ["Gemini", "gemini", "gemini", "gemini-3.8-flash", "gemini-4-argon"],
+  ["Gemini", "gemini", "gemini", "gemini-3.8-flash", "gemini-4-carbon"],
   ["Ollama", "ollama", "ollama", "contract-a", "contract-b"],
   ["OpenRouter", "openrouter", "compat", "contract/model-a", "contract/model-b"],
   ["PayPerQ", "ppq", "compat", "model-a", "model-b"],
