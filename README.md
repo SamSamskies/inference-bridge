@@ -154,7 +154,7 @@ Inference Bridge removes extension `Origin` and `Referer` headers from local Oll
 ### Ollama Cloud (no local server)
 
 1. Create an [Ollama account API key](https://ollama.com/settings/keys).
-2. In **Options → Providers**, choose **Ollama Cloud**, paste the key, select a cloud chat model, and **Save**. Its public catalog loads without a key. Use the exact listed IDs (for example `gpt-oss:120b`), rather than local `:cloud` aliases.
+2. In **Options → Providers**, choose **Ollama Cloud**, paste the key, select a cloud chat model, and **Save**. Its public catalog loads without a key. New selections default to `deepseek-v4.1-flash:1017`; saved model choices take precedence. Use the exact listed IDs rather than local `:cloud` aliases.
 3. Run the chat snippet above on an HTTPS or localhost page and approve **Ollama Cloud**. Existing site grants keep their saved provider; change or revoke them in **Site access** to test another route.
 
 Bridge calls [Ollama's hosted API](https://docs.ollama.com/cloud) directly with your extension-stored key. Streaming chat, function tools, hosted web search/fetch, vision input, and thinking controls reuse the native Ollama protocol. Model capabilities and thinking controls come from cloud metadata. The cloud route works while local Ollama is stopped, and never falls back between local and cloud providers. The two providers remember their keys and models separately. Choosing a cloud default does not rewrite existing site grants. The local-server provider can still reach cloud models through a signed-in daemon; its label describes the connection, not where every model runs.

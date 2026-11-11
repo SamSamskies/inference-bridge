@@ -124,7 +124,7 @@ export const ollamaCloudProvider = {
   id: "ollama-cloud",
   label: "Ollama Cloud",
   requiresApiKey: true,
-  defaultModel: "",
+  defaultModel: "deepseek-v4.1-flash:1017",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   listModels: listModelsFor("chat"),

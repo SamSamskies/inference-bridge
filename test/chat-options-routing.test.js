@@ -133,30 +133,33 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect((await storage.getSettings()).allowedOrigins[origin]).toMatchObject(localRoute);
   });
 
-  it("uses the saved PPQ chat model when approval switches providers", async () => {
+  it.each([
+    ["ppq", "claude-sonnet-5.5", "gpt-6.1-terra", "auto"],
+    ["ollama-cloud", "beam", "gpt-oss:120b", "deepseek-v4.1-flash:1017"],
+  ])("uses the saved %s chat model before the factory default when approval switches providers", async (providerId, savedModel, nextModel, factoryDefault) => {
     const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method },
       { url: chrome.runtime.getURL("ui/approval.html") }, resolve
     ));
-    // PPQ is not the global provider: a switch must still use its own saved model.
+    // This is not the global provider: a switch must still use its own saved model.
     await storage.saveSettings({
-      defaultModels: { ppq: "claude-sonnet-5.5" },
-      apiKeys: { ppq: "private-ppq-test-key" },
+      defaultModels: { [providerId]: savedModel },
+      apiKeys: { [providerId]: "private-provider-test-key" },
     });
     let response = await list();
-    expect(response.providers.find((provider) => provider.id === "ppq")).toMatchObject({
-      defaultModel: "claude-sonnet-5.5", hasApiKey: true,
+    expect(response.providers.find((provider) => provider.id === providerId)).toMatchObject({
+      defaultModel: savedModel, hasApiKey: true,
     });
     expect(response.providers.find((provider) => provider.id === "openai").defaultModel).toBe(route.model);
-    expect(JSON.stringify(response)).not.toContain("private-ppq-test-key");
-    await storage.saveSettings({ defaultModels: { ppq: "gpt-6.1-terra" } });
+    expect(JSON.stringify(response)).not.toContain("private-provider-test-key");
+    await storage.saveSettings({ defaultModels: { [providerId]: nextModel } });
     response = await list();
-    expect(response.providers.find((provider) => provider.id === "ppq").defaultModel).toBe("gpt-6.1-terra");
+    expect(response.providers.find((provider) => provider.id === providerId).defaultModel).toBe(nextModel);
     // Do not mutate the adapter's factory default or expose chat models for other methods.
     const { getProvider } = await import("../src/providers/registry.js");
-    expect(getProvider("ppq").defaultModel).toBe("auto");
-    await storage.saveSettings({ defaultModels: { ppq: "" } });
-    expect((await list()).providers.find((provider) => provider.id === "ppq").defaultModel).toBe("auto");
+    expect(getProvider(providerId).defaultModel).toBe(factoryDefault);
+    await storage.saveSettings({ defaultModels: { [providerId]: "" } });
+    expect((await list()).providers.find((provider) => provider.id === providerId).defaultModel).toBe(factoryDefault);
     expect((await list("decide")).providers.find((provider) => provider.id === "openai").defaultModel).not.toBe(route.model);
   });
 
