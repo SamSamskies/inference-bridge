@@ -715,7 +715,7 @@ function updateProviderChrome(providerId) {
       ? ollamaStatus.message ||
         "Ollama is unavailable at http://localhost:11434, so this option is disabled."
       : providerId === "ollama-cloud"
-        ? "Inference runs on ollama.com. No local Ollama server is needed; account usage limits and charges may apply."
+        ? "Inference runs on ollama.com. No local Ollama server is needed."
         : "");
   providerStatusHint.hidden = !message;
   providerStatusHint.textContent = message;
