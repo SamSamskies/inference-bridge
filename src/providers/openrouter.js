@@ -3,6 +3,7 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
+import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { requestSystemOne } from "./system-one.js";
 import {
@@ -298,10 +299,12 @@ export const openrouterProvider = {
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   decisions: {
+    ...DECISION_LIMITS["openrouter"],
     defaultModel: OPENROUTER_DEFAULT_DECISION_MODEL,
     listModels: listOpenRouterDecisionModels,
   },
   async decide(args) {
+    assertDecisionQuestionLimit("OpenRouter", DECISION_LIMITS["openrouter"].maxQuestions, args.questions);
     if (!args.apiKey?.trim())
       throwInference("unavailable", "OpenRouter API key not configured.");
     if (
@@ -318,6 +321,7 @@ export const openrouterProvider = {
     }
     return requestSystemOne({
       ...args,
+      providerId: "openrouter",
       label: "OpenRouter",
       url: "https://openrouter.ai/api/alpha/decisions",
     });

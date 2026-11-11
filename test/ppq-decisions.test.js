@@ -131,7 +131,7 @@ describe("PPQ System One adapter", () => {
   it("validates before any network call and requires the explicit PPQ key", async () => {
     await expect(provider.decide(args({ apiKey: undefined }))).rejects.toMatchObject({ code: "unavailable" });
     await expect(provider.decide(args({ questions: {} }))).rejects.toMatchObject({ code: "invalid_request" });
-    await expect(provider.decide(args({ state: "x".repeat(64 * 1024) }))).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(provider.decide(args({ state: "x".repeat(1024 * 1024) }))).rejects.toMatchObject({ code: "invalid_request" });
     expect(fetch).not.toHaveBeenCalled();
   });
 

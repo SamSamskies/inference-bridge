@@ -1,8 +1,8 @@
 /** Native Gemini Decisions API ↔ the bounded IPA JSON-state envelope.
  * https://aistudio.google.com/docs/decisions-api
  */
+import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
-  DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,
   validateDecideRequest,
 } from "../decisions.js";
@@ -10,6 +10,7 @@ import { checkGeminiAbort, geminiError, geminiJson } from "./gemini-api.js";
 
 export const GEMINI_DECISION_MODEL = "gemini-decision-1";
 export const geminiDecisions = {
+  ...DECISION_LIMITS.gemini,
   defaultModel: GEMINI_DECISION_MODEL,
   models: [{ id: GEMINI_DECISION_MODEL, label: "Gemini Decision 1" }],
 };
@@ -24,6 +25,7 @@ function prepare({ model, state, questions, signal }) {
   const validated = validateDecideRequest({ method: "decide", state, questions });
   if (!validated.ok) throw geminiError("invalid_request", validated.message);
   const request = validated.value;
+  assertDecisionQuestionLimit("Google Gemini", geminiDecisions.maxQuestions, request.questions);
   // Google restricts question/option keys. Aliases preserve arbitrary IPA keys,
   // including Unicode and prototype-like names, without interpreting state.
   const entries = Object.entries(request.questions);
@@ -66,8 +68,7 @@ function prepare({ model, state, questions, signal }) {
       : JSON.stringify(request.state),
     questions: wireQuestions,
   });
-  if (new TextEncoder().encode(body).byteLength > DECISION_BODY_MAX_BYTES)
-    throw geminiError("invalid_request", "Decision request body exceeds 64 KiB.");
+  assertDecisionBodyLimit("Google Gemini", geminiDecisions.maxBodyBytes, body);
   return { body, entries, questions: request.questions };
 }
 

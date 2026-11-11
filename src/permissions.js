@@ -18,8 +18,7 @@ import {
   isExperimentalOperation,
 } from "./storage.js";
 import { normalizeSiteChatReasoningEffort } from "./chat-options.js";
-import { ON_DEVICE_DECISION_MAX_QUESTIONS } from "./decision-api-core.js";
-import { ON_DEVICE_PROVIDER_ID } from "./prompt-api-core.js";
+import { DECISION_LIMITS, decisionQuestionLimitMessage } from "./providers/decision-limits.js";
 import { getDefaultProvider, getProviderAsync, resolveModelCapabilities } from "./providers/registry.js";
 import {
   hasBuiltInHostPermission,
@@ -577,20 +576,17 @@ export async function ensureOperationPermission(args) {
             message: `The selected ${args.method} route is incomplete.`,
           };
         }
-        // Never persist or grant a route the native stack can't run, even if the
-        // approval UI was bypassed.
-        if (
-          args.method === "decide" &&
-          chosenProviderId === ON_DEVICE_PROVIDER_ID &&
-          (args.questionSummaries?.length ?? 0) > ON_DEVICE_DECISION_MAX_QUESTIONS
-        ) {
-          return {
-            allowed: false,
-            providerId: chosenProviderId,
-            model: chosenModel,
-            once: false,
-            code: "invalid_request",
-            message: `On-device decisions support at most ${ON_DEVICE_DECISION_MAX_QUESTIONS} questions per request.`,
+        // Never persist a route whose known question limit is exceeded.
+        if (args.method === "decide") {
+          const provider = await getProviderAsync(chosenProviderId);
+          const limitMessage = decisionQuestionLimitMessage(
+            provider?.label || chosenProviderId,
+            provider?.decisions?.maxQuestions ?? DECISION_LIMITS[chosenProviderId]?.maxQuestions,
+            args.questionSummaries?.length ?? 0
+          );
+          if (limitMessage) return {
+            allowed: false, providerId: chosenProviderId, model: chosenModel,
+            once: false, code: "invalid_request", message: limitMessage,
           };
         }
         const route = {

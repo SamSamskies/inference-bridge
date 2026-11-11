@@ -127,6 +127,39 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
     expect(pageFetch).not.toHaveBeenCalled();
   });
 
+  it.each([["gemini", 1000], ["openai", 400], ["openrouter", 1000], ["ppq", 1000]])
+    ("transports a full %s batch of %s questions with state larger than 63 KiB", async (backend, count) => {
+      const route = routes[backend];
+      await storage.grantOriginOperationAlways(origin, "decide", route);
+      const input = {
+        method: "decide", state: "x".repeat(100 * 1024),
+        questions: Object.fromEntries(Array.from({ length: count }, (_, i) => [
+          `item_${i}`, { type: "noul", instructions: "Is it ready?" },
+        ])),
+      };
+      const original = fetch.getMockImplementation();
+      fetch.mockImplementation(async (url, options) => {
+        if (!/\/decisions$/.test(url)) return original(url, options);
+        const body = JSON.parse(options.body);
+        if (backend === "openai") return Response.json({
+          model: route.model,
+          answers: body.questions.map(({ name }) => ({ name, type: "predicate", probability: 0.8 })),
+        });
+        return Response.json({
+          model: route.model,
+          answers: Object.fromEntries(Object.keys(body.questions).map((id) => [id, {
+            type: "noul", noul: 0.8, ...(backend === "gemini" ? { confidence: 0.8 } : {}),
+          }])),
+        });
+      });
+      const done = await assertDecisionStream(input, inference.request(input));
+      expect(Object.keys(done.answers)).toEqual(Object.keys(input.questions));
+      expect(Object.values(done.answers).every((answer) => answer.noul === 0.8)).toBe(true);
+      expect(fetch.mock.calls.filter(([url]) => /\/decisions$/.test(url))).toHaveLength(1);
+      expect(packets.find((packet) => packet.type === "start").request.state).toBe(input.state);
+      expect(pageFetch).not.toHaveBeenCalled();
+    });
+
   it.each([false, true])("completes typed refusals (all: %s)", async (all) => {
     const body = structuredClone(fixture);
     for (const id of all ? Object.keys(request.questions) : ["is_bug"]) body.answers[id] = { type: "refusal" };

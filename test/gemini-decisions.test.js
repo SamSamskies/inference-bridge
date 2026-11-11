@@ -81,7 +81,7 @@ describe("Gemini Decisions", () => {
     const input = args();
     const overhead = new TextEncoder().encode(JSON.stringify({ state: [""], questions: input.questions })).length;
     input.state = ['"'.repeat(Math.floor((DECISION_PAYLOAD_MAX_BYTES - overhead) / 2))];
-    await expect(geminiProvider.decide(input)).rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("64 KiB") });
+    await expect(geminiProvider.decide(input)).rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("1024 KiB") });
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each([

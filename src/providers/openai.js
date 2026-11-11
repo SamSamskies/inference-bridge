@@ -5,6 +5,7 @@
  * or the model requires Responses for function tools (GPT-6 models).
  */
 
+import { DECISION_LIMITS } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
@@ -83,6 +84,7 @@ export const openaiProvider = {
   },
   hostedTools: Object.freeze(["web_search"]),
   decisions: {
+    ...DECISION_LIMITS["openai"],
     defaultModel: OPENAI_DECISION_MODELS[0],
     models: OPENAI_DECISION_MODELS,
   },

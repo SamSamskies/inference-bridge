@@ -3,6 +3,7 @@
  * Models are discovered via GET /api/tags — no hardcoded catalog.
  */
 
+import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { LOCAL_OLLAMA_ENDPOINT, ollamaHttpErrorCode } from "./ollama-endpoint.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { requestSystemOne } from "./system-one.js";
@@ -808,8 +809,9 @@ export const ollamaProvider = {
         !isOllamaDecisionModel(model.id) && !isOllamaSpeechModel(model.id)
     );
   },
-  decisions: { defaultModel: "nimble", listModels: listOllamaDecisionModels },
+  decisions: { ...DECISION_LIMITS["ollama"], defaultModel: "nimble", listModels: listOllamaDecisionModels },
   async decide(args) {
+    assertDecisionQuestionLimit("Ollama", DECISION_LIMITS["ollama"].maxQuestions, args.questions);
     if (!(await ollamaModelHasDecision(args.model, { signal: args.signal })))
       throwInference(
         "unavailable",
@@ -818,6 +820,7 @@ export const ollamaProvider = {
     await ensureOllamaOriginBypass();
     return requestSystemOne({
       ...args,
+      providerId: "ollama",
       apiKey: undefined,
       label: "Ollama",
       url: `${OLLAMA_BASE_URL}/v1/systemone`,

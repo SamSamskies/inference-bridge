@@ -1,7 +1,7 @@
-/** IPA typed decision envelope shared by provider adapters. */
-export const DECISION_PAYLOAD_MAX_BYTES = 63 * 1024;
-export const DECISION_BODY_MAX_BYTES = 64 * 1024;
-export const DECISION_MAX_QUESTIONS = 64;
+/** IPA typed decision validation with documented Bridge resource limits. */
+export const DECISION_PAYLOAD_MAX_BYTES = 1024 * 1024;
+export const DECISION_BODY_MAX_BYTES = 1024 * 1024;
+export const DECISION_MAX_QUESTIONS = 1000;
 export const DECISION_MAX_CHOICES = 26;
 // The common envelope: TypeSafe scores currently accept at most ten levels.
 export const DECISION_MAX_SCORE_LEVELS = 10;
@@ -71,7 +71,7 @@ export function validateDecideRequest(req) {
   if (!record(req.questions)) return invalid("questions must be an object.");
   const entries = Object.entries(req.questions);
   if (entries.length < 1 || entries.length > DECISION_MAX_QUESTIONS)
-    return invalid("questions must contain 1–64 questions.");
+    return invalid(`Bridge decisions require 1–${DECISION_MAX_QUESTIONS} questions.`);
   try {
     assertJson({ state: req.state, questions: req.questions });
     for (const [id, question] of entries) {
@@ -138,7 +138,7 @@ export function validateDecideRequest(req) {
     const json = JSON.stringify({ state: req.state, questions: req.questions });
     if (new TextEncoder().encode(json).byteLength > DECISION_PAYLOAD_MAX_BYTES)
       return invalid(
-        "Serialized state and questions exceed the 63 KiB decision limit."
+        "Serialized state and questions exceed Bridge's 1 MiB (1048576 UTF-8 bytes) decision payload limit."
       );
     return { ok: true, value: { method: "decide", ...JSON.parse(json) } };
   } catch (err) {

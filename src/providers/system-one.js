@@ -1,6 +1,6 @@
 /** The documented System One JSON protocol shared by cloud and local adapters. */
+import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
-  DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,
   validateDecideRequest,
 } from "../decisions.js";
@@ -16,6 +16,7 @@ function fail(code, message) {
 export async function requestSystemOne({
   url,
   label,
+  providerId,
   apiKey,
   model,
   state,
@@ -29,13 +30,14 @@ export async function requestSystemOne({
     questions,
   });
   if (!validated.ok) fail("invalid_request", validated.message);
+  const limits = DECISION_LIMITS[providerId];
+  assertDecisionQuestionLimit(label, limits.maxQuestions, validated.value.questions);
   const body = JSON.stringify({
     model,
     state: validated.value.state,
     questions: validated.value.questions,
   });
-  if (new TextEncoder().encode(body).byteLength > DECISION_BODY_MAX_BYTES)
-    fail("invalid_request", "Decision request body exceeds 64 KiB.");
+  assertDecisionBodyLimit(label, limits.maxBodyBytes, body);
   let response;
   try {
     response = await fetch(url, {

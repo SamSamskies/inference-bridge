@@ -3,6 +3,7 @@
  * No API key; no model picker. User installs the UA-chosen model in Options.
  */
 
+import { DECISION_LIMITS } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
@@ -44,6 +45,7 @@ export const onDeviceProvider = {
   // Sentinel only — not a real catalog. UI replaces the model control with Install.
   models: [{ id: ON_DEVICE_MODEL_ID, label: "Browser-chosen on-device model" }],
   decisions: {
+    ...DECISION_LIMITS["on-device"],
     defaultModel: ON_DEVICE_MODEL_ID,
     listModels: listOnDeviceDecisionModels,
   },

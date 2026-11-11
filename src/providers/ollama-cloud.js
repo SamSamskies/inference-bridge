@@ -1,4 +1,5 @@
 /** Direct Ollama Cloud access, independent of the local daemon and its grants. */
+import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { normalizeProviderError, readProviderErrorDetail } from "./provider-error.js";
 import { ollamaCloudEndpoint, ollamaHttpErrorCode } from "./ollama-endpoint.js";
 import { getOllamaThinking, streamOllamaChatTurn } from "./ollama.js";
@@ -144,11 +145,13 @@ export const ollamaCloudProvider = {
       imageOutput: false,
     };
   }),
-  decisions: { defaultModel: "", listModels: listModelsFor("decide") },
+  decisions: { ...DECISION_LIMITS["ollama-cloud"], defaultModel: "", listModels: listModelsFor("decide") },
   decide: boundary(async (args) => {
+    assertDecisionQuestionLimit("Ollama Cloud", DECISION_LIMITS["ollama-cloud"].maxQuestions, args.questions);
     await requireModel(args, "decide");
     return requestSystemOne({
       ...args,
+      providerId: "ollama-cloud",
       apiKey: args.apiKey.trim(),
       label: "Ollama Cloud",
       url: "https://ollama.com/v1/systemone",

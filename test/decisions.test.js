@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/system-one-response.json";
 import {
   DECISION_PAYLOAD_MAX_BYTES,
+  DECISION_MAX_QUESTIONS,
   decisionApprovalPreview,
   normalizeDecisionResponse,
 } from "../src/decisions.js";
@@ -111,7 +112,7 @@ describe("stable decide validation", () => {
   });
   it("bounds question/choice counts and measures UTF-8 bytes", () => {
     const many = Object.fromEntries(
-      Array.from({ length: 64 }, (_, i) => [String(i), questions.is_bug])
+      Array.from({ length: DECISION_MAX_QUESTIONS }, (_, i) => [String(i), questions.is_bug])
     );
     expect(validate({ ...request(), questions: many }).ok).toBe(true);
     expect(
@@ -146,7 +147,8 @@ describe("stable decide validation", () => {
       validate(request("a".repeat(DECISION_PAYLOAD_MAX_BYTES - overhead + 1)))
         .ok
     ).toBe(false);
-    expect(validate(request("😀".repeat(17000))).ok).toBe(false);
+    expect(validate(request("😀".repeat(17000))).ok).toBe(true);
+    expect(validate(request("😀".repeat(DECISION_PAYLOAD_MAX_BYTES / 4))).ok).toBe(false);
   });
   it("keeps signal out of the wire snapshot and truncates approval state", () => {
     const value = validate({

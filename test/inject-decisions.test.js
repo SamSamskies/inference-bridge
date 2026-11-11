@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import request from "./fixtures/system-one-request.json";
+import { DECISION_MAX_QUESTIONS, DECISION_PAYLOAD_MAX_BYTES } from "../src/decisions.js";
 import fixture from "./fixtures/system-one-response.json";
 
 function load() {
@@ -125,7 +126,7 @@ describe("page-side stable decide", () => {
     { bad: new Date() },
     { bad: () => true },
     { bad: 1n },
-    "😀".repeat(17000),
+    "😀".repeat(262144),
   ])("rejects lossy or oversized JSON before transport", async (state) => {
     const { inference, messages } = load();
     await expect(
@@ -135,6 +136,27 @@ describe("page-side stable decide", () => {
         .next()
     ).rejects.toMatchObject({ code: "invalid_request" });
     expect(messages).toEqual([]);
+  });
+  it("enforces the same Bridge count and payload limits before transport", async () => {
+    const many = Object.fromEntries(Array.from({ length: DECISION_MAX_QUESTIONS }, (_, i) => [
+      `q${i}`, { type: "noul", instructions: "Ready?" },
+    ]));
+    const { inference, messages } = load();
+    const iterator = inference.request({ method: "decide", state: "x".repeat(100 * 1024), questions: many })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value.type).toBe("accepted");
+    await iterator.return();
+    expect(Object.keys(messages.find((item) => item.type === "start").request.questions)).toHaveLength(DECISION_MAX_QUESTIONS);
+    const blocked = load();
+    await expect(blocked.inference.request({ method: "decide", state: "state", questions: { ...many, extra: many.q0 } })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining(String(DECISION_MAX_QUESTIONS)) });
+    const overhead = new TextEncoder().encode(JSON.stringify({ state: "", questions: request.questions })).length;
+    const boundary = load();
+    const allowed = boundary.inference.request({ method: "decide", ...request, state: "x".repeat(DECISION_PAYLOAD_MAX_BYTES - overhead) })[Symbol.asyncIterator]();
+    expect((await allowed.next()).value.type).toBe("accepted");
+    await allowed.return();
+    await expect(blocked.inference.request({ method: "decide", ...request, state: "x".repeat(DECISION_PAYLOAD_MAX_BYTES - overhead + 1) })[Symbol.asyncIterator]().next())
+      .rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("1 MiB") });
+    expect(blocked.messages).toEqual([]);
   });
   it("rejects cycles and an already aborted signal before transport", async () => {
     const { inference, messages } = load();

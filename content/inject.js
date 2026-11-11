@@ -1158,9 +1158,11 @@
       const payload = { state: request.state, questions: request.questions };
       checkJson(payload);
       const json = JSON.stringify(payload);
-      if (new TextEncoder().encode(json).byteLength > 63 * 1024)
+      if (Object.keys(request.questions || {}).length > 1000)
+        throw new Error("Bridge decisions support at most 1000 questions per request.");
+      if (new TextEncoder().encode(json).byteLength > 1024 * 1024)
         throw new Error(
-          "Serialized state and questions exceed the 63 KiB decision limit."
+          "Serialized state and questions exceed Bridge's 1 MiB (1048576 UTF-8 bytes) decision payload limit."
         );
       return { method: "decide", ...JSON.parse(json) };
     } catch (err) {

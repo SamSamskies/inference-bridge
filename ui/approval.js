@@ -32,7 +32,7 @@ import {
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import { isPlausibleModelForProvider } from "../src/storage-local.js";
-import { ON_DEVICE_DECISION_MAX_QUESTIONS } from "../src/decision-api-core.js";
+import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
 const params = new URLSearchParams(location.search);
@@ -180,6 +180,7 @@ function showError(message) {
 }
 
 function setModelHint(message) {
+  message = decisionLimitWarning() || message;
   if (!message) {
     modelHint.hidden = true;
     modelHint.textContent = "";
@@ -428,14 +429,10 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   updateClearModelButton();
 }
 
-const ON_DEVICE_DECISION_LIMIT_MESSAGE = `On-device decisions support at most ${ON_DEVICE_DECISION_MAX_QUESTIONS} questions per request. Choose another provider.`;
-
-function onDeviceDecisionsOverLimit() {
-  return (
-    requestMethod === "decide" &&
-    providerSelect.value === ON_DEVICE_PROVIDER_ID &&
-    requestQuestionCount > ON_DEVICE_DECISION_MAX_QUESTIONS
-  );
+function decisionLimitWarning() {
+  if (requestMethod !== "decide") return "";
+  const provider = providers.find((p) => p.id === providerSelect.value);
+  return decisionQuestionLimitMessage(provider?.label || "Provider", provider?.maxQuestions, requestQuestionCount);
 }
 
 function updateAllowEnabled() {
@@ -465,7 +462,7 @@ function updateAllowEnabled() {
   );
   allowBtn.disabled =
     !providerReady ||
-    onDeviceDecisionsOverLimit() ||
+    Boolean(decisionLimitWarning()) ||
     !modelsReady ||
     !voicesReady ||
     (requestMethod === "synthesize" && !voiceSelect.value) ||
@@ -710,11 +707,7 @@ async function loadModelsForProvider(providerId, preferredModel) {
         allowUnknown: false,
         disabled: true,
       });
-      setModelHint(
-        onDeviceDecisionsOverLimit()
-          ? ON_DEVICE_DECISION_LIMIT_MESSAGE
-          : ""
-      );
+      setModelHint("");
       modelsReady = onDeviceStatus.available;
       updateAllowEnabled();
       return;
@@ -1024,7 +1017,7 @@ async function decide(action) {
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
       Boolean(geminiApprovalWarning()) ||
       imagesBlockAllow() ||
-      onDeviceDecisionsOverLimit()
+      Boolean(decisionLimitWarning())
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);

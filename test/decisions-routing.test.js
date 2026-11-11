@@ -597,6 +597,10 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       ["ollama-cloud", ""],
       ...(firefox ? [] : [["on-device", "on-device"]]),
     ]);
+    expect(providers.providers.find((provider) => provider.id === "gemini").maxQuestions).toBe(1000);
+    expect(providers.providers.find((provider) => provider.id === "openai").maxQuestions).toBe(400);
+    expect(providers.providers.find((provider) => provider.id === "ollama").maxQuestions).toBe(64);
+    if (!firefox) expect(providers.providers.find((provider) => provider.id === "on-device").maxQuestions).toBe(16);
     const models = await message({
       type: "list-models",
       method: "decide",
@@ -672,6 +676,30 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       expect(fetch).not.toHaveBeenCalled();
     });
   }
+  it.each([["openai", "gpt-6-luna", 400], ["ollama", "nimble:latest", 64], ["ollama-cloud", "clef:27b", 64]])
+    ("rejects oversized %s batches before accepted and grant persistence", async (providerId, model, maximum) => {
+      const route = { providerId, model };
+      const payload = {
+        method: "decide", state: "state",
+        questions: Object.fromEntries(Array.from({ length: maximum + 1 }, (_, i) => [
+          `q${i}`, { type: "noul", instructions: "Ready?" },
+        ])),
+      };
+      await storage.saveSettings({ apiKeys: { [providerId]: "key" } });
+      const pending = start({ payload });
+      await approve(pending, route, "always");
+      await outcome(pending);
+      expect(pending.messages.at(-1).error).toMatchObject({ code: "invalid_request", message: expect.stringContaining(String(maximum)) });
+      expect(await storage.getOriginOperationGrant(origin, "decide")).toBeNull();
+      expect(pending.messages.some((item) => item.chunk?.type === "accepted")).toBe(false);
+      await storage.grantOriginOperationAlways(origin, "decide", route);
+      const saved = start({ payload });
+      await outcome(saved);
+      expect(saved.messages.at(-1).error.code).toBe("invalid_request");
+      expect(saved.messages.some((item) => item.chunk?.type === "accepted")).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
   it("routes approved OpenAI decisions with the saved key and separate grants", async () => {
     await storage.saveSettings({ operationDefaults: { decide: openai } });
     await storage.grantOriginAlways(origin, openai);

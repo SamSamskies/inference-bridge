@@ -138,6 +138,8 @@
  *   models?: readonly (string | ModelInfo)[],
  *   listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
  *   decisions?: {
+ *     maxQuestions?: number,
+ *     maxBodyBytes?: number,
  *     defaultModel: string,
  *     models?: readonly (string | ModelInfo)[],
  *     listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,

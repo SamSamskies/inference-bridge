@@ -778,8 +778,9 @@ fails with `unavailable`; discovery does not promise provider availability.
   endpoint, with separate site approval and no chat fallback. All three question
   types are supported. String state stays text; objects and arrays become JSON
   text, so media-shaped JSON is never interpreted as uploads or URLs. Bridge
-  retains its 64-question, 26-choice, 10-score-level and 63 KiB payload limits;
-  Gemini's native media inputs and larger question limit are outside this envelope.
+  supports up to 1,000 questions per request. Choice and score questions retain
+  the IPA limits of 26 options and 10 levels; native media inputs remain outside
+  this envelope.
   Score descriptions must be non-empty. Question and choice keys are aliased on
   the wire and restored in answers; choice labels are retained in descriptions,
   including when an IPA description is null. Optional `noul` criteria map to
@@ -870,11 +871,31 @@ not medium intensity. See [confidence](https://docs.typesafe.ai/confidence) and
 English is the recommended starting point.
 
 The v1 envelope accepts a nonempty string or JSON object/array as `state`, and
-1–64 named questions. Instructions are nonempty strings. Noul criteria optionally
-contain `true`/`false` string descriptions; Choice criteria contain 2–26 named
-string/null descriptions; Score criteria contain 2–10 ordered strings. Serialized
-UTF-8 `state` + `questions` are limited to **63 KiB** (reserving room for the user
-model in Ollama's 64 KiB request limit), with at most 64 JSON nesting levels.
+one or more named questions, subject to the provider limits below. Instructions
+are nonempty strings. Noul criteria optionally contain `true`/`false` string descriptions; Choice criteria contain 2–26 named
+string/null descriptions; Score criteria contain 2–10 ordered strings.
+
+Bridge's resource limits are **1,000 questions** and **1 MiB (1,048,576 bytes)**
+for the UTF-8 encoding of `JSON.stringify({ state, questions })`, with at most
+64 JSON nesting levels. These are implementation limits; IPA does not fix
+universal question-count or payload-size maxima. Each complete cloud request
+body (including the model, translated input and questions) must also fit within
+**1 MiB**. Local Ollama's complete JSON body must fit within **64 KiB**.
+
+| Provider | Maximum questions per request |
+| --- | --- |
+| [Google Gemini](https://aistudio.google.com/docs/decisions-api#limits) | 1,000 |
+| [OpenAI](https://developers.openai.com/api/docs/guides/decisions#ask-multiple-questions) | 400 |
+| [Ollama local and Cloud](https://docs.ollama.com/openapi.yaml) | 64 (`SystemOneRequest.questions.maxProperties`) |
+| [Chrome On-device](https://github.com/explainers-by-googlers/decisions-api) | 16 (current Chromium implementation) |
+| [OpenRouter](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request) | 1,000 (Bridge resource cap; no fixed provider maximum documented) |
+| [PayPerQ](https://ppq.ai/api-docs) | 1,000 (Bridge resource cap; no fixed provider maximum documented) |
+
+Model context windows and upstream limits can reject smaller requests. Approval
+disables Allow when the selected provider's known question limit is exceeded;
+saved grants and direct adapter calls enforce the same limits. Limit errors
+return `invalid_request` with a useful explanation. Bridge never truncates
+questions or state or automatically splits a request to fit a limit.
 Unknown request/question fields, cycles, binary values, and non-JSON values are
 rejected with `invalid_request` before approval. There are no tools, images,
 audio, video, or URL fetching semantics in decision state.

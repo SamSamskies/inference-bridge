@@ -1,6 +1,6 @@
 /** OpenAI Decisions beta adapter for the IPA decide envelope. */
+import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
-  DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,
   validateDecideRequest,
 } from "../decisions.js";
@@ -135,6 +135,7 @@ export async function decideOpenAI({ apiKey, model, state, questions, signal }) 
   const validated = validateDecideRequest({ method: "decide", state, questions });
   if (!validated.ok) fail("invalid_request", validated.message);
   const request = validated.value;
+  assertDecisionQuestionLimit("OpenAI", DECISION_LIMITS.openai.maxQuestions, request.questions);
   const body = JSON.stringify({
     model,
     input:
@@ -143,8 +144,7 @@ export async function decideOpenAI({ apiKey, model, state, questions, signal }) 
         : JSON.stringify(request.state),
     questions: toOpenAIQuestions(request.questions),
   });
-  if (new TextEncoder().encode(body).byteLength > DECISION_BODY_MAX_BYTES)
-    fail("invalid_request", "Decision request body exceeds 64 KiB.");
+  assertDecisionBodyLimit("OpenAI", DECISION_LIMITS.openai.maxBodyBytes, body);
   try {
     const response = await fetch(DECISIONS_URL, {
       method: "POST",

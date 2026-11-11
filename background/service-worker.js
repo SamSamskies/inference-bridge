@@ -2,6 +2,7 @@
  * Service worker: permission gating, provider orchestration, streaming.
  */
 
+import { assertDecisionQuestionLimit } from "../src/providers/decision-limits.js";
 import { decisionApprovalPreview } from "../src/decisions.js";
 import { serializeInferenceError } from "../src/errors.js";
 import {
@@ -327,6 +328,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const catalog = providerMethodCatalog(p, method);
         return {
           operation: method,
+          ...(method === "decide" ? { maxQuestions: p.decisions?.maxQuestions } : {}),
           id: p.id,
           label: p.label,
           requiresApiKey: Boolean(p.requiresApiKey),
@@ -876,6 +878,7 @@ async function handleDecideStart({
       "unavailable",
       `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
     );
+  assertDecisionQuestionLimit(provider.label, provider.decisions.maxQuestions, request.questions);
   await provider.preflightDecide?.({
     model: permission.model, state: request.state, questions: request.questions,
     signal: controller.signal,

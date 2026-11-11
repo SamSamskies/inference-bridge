@@ -1,6 +1,7 @@
 /** PPQ chat and provider-executed Auto web search. Catalogs for other methods
  * belong to their own descriptors; /v1/models is only the chat catalog.
  */
+import { DECISION_LIMITS } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
 import { omitHostedWebSearchIfNone } from "./hosted-tools.js";
@@ -99,6 +100,7 @@ export const ppqProvider = {
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
   decisions: {
+    ...DECISION_LIMITS.ppq,
     defaultModel: PPQ_DEFAULT_DECISION_MODEL,
     listModels: listPPQDecisionModels,
   },
