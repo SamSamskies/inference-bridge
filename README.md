@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
 - Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
-- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PayPerQ, local or cloud Ollama, or Chrome On-device
+- Typed decisions through stable `request()`, using OpenAI, Google Gemini, OpenRouter, PayPerQ, local or cloud Ollama, or Chrome On-device
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
 - Synchronous capability discovery through `window.inference.getFeatures()`
@@ -66,7 +66,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 | --- | --- | --- |
 | OpenAI | API key in Options | Curated chat model list in the UI |
 | Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
-| Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
+| Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, typed decisions, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | PayPerQ | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, separately approved System One decisions, transcription, and MP3 synthesis. Separate live catalogs and method defaults. |
 | Ollama (local server) | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
@@ -772,6 +772,20 @@ fails with `unavailable`; discovery does not promise provider availability.
   scores use zero-based level indices. Optional `noul` criteria are included in
   the predicate instructions. OpenAI's native image input and boolean choice
   values are outside the Bridge's current JSON-state decision envelope.
+- **Google Gemini:** reuse your Google AI Studio key from **Options → Providers**,
+  then choose Google Gemini and `gemini-decision-1` in **Options → Decisions**.
+  Requests use the native [`POST /v1beta/decisions`](https://aistudio.google.com/docs/decisions-api)
+  endpoint, with separate site approval and no chat fallback. All three question
+  types are supported. String state stays text; objects and arrays become JSON
+  text, so media-shaped JSON is never interpreted as uploads or URLs. Bridge
+  retains its 64-question, 26-choice, 10-score-level and 63 KiB payload limits;
+  Gemini's native media inputs and larger question limit are outside this envelope.
+  Score descriptions must be non-empty. Question and choice keys are aliased on
+  the wire and restored in answers; choice labels are retained in descriptions,
+  including when an IPA description is null. Optional `noul` criteria map to
+  Google's `true_description` / `false_description`; native yes/no confidence is
+  omitted from the IPA answer. Token usage is mapped to IPA fields (zero output
+  tokens). Safety blocks fail the request with `invalid_request`.
 - **Local:** run **Ollama 0.35+**, install a model with `ollama pull nimble`
   (or `ollama pull tev1:0.8b`), and select Ollama and its installed decision model
   in Decisions. Requests use [`POST /v1/systemone`](https://docs.ollama.com/api/systemone).
@@ -798,7 +812,7 @@ fails with `unavailable`; discovery does not promise provider availability.
   are destroyed after success, failure, or cancellation. Firefox does not offer
   this provider. Decisions use separate defaults and site grants from chat.
 - Anthropic and OpenAI-compatible providers do not support
-  this operation. There is no chat emulation or fallback. OpenRouter, PayPerQ, and Ollama
+  this operation. There is no chat emulation or fallback. Google Gemini, OpenRouter, PayPerQ, and Ollama
   decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
   also remains available for chat.
 
@@ -1107,6 +1121,7 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] Stable discovery immediately reports `methods.decide: true`; stable `request({ method: "decide", ... })` works, and the deprecated experimental alias reports the same optional methods
 - [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
+- [ ] Google Gemini offers `gemini-decision-1` in Decisions and completes the same console example using its saved AI Studio key and separate site approval; cancellation stops the request, and the model never appears in the chat picker
 - [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
 - [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint
 - [ ] Decisions model pickers list only their separate catalogs; an empty local decision catalog disables Allow and explains `ollama pull nimble`

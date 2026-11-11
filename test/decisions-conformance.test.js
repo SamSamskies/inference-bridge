@@ -5,6 +5,7 @@ import { installChromeMock } from "./helpers/chrome-mock.js";
 import { assertDecisionStream } from "./helpers/decisions-conformance.mjs";
 import payload from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
+import geminiFixture from "./fixtures/gemini-decisions-response.json";
 import openaiFixture from "./fixtures/openai-decisions-response.json";
 import catalog from "./fixtures/openrouter-decisions-models.json";
 import ppqCatalog from "./fixtures/ppq-decisions-models.json";
@@ -14,6 +15,7 @@ const request = { method: "decide", ...payload };
 const routes = {
   openrouter: { providerId: "openrouter", model: "typesafe/jev-1.13" },
   openai: { providerId: "openai", model: "gpt-6-luna" },
+  gemini: { providerId: "gemini", model: "gemini-decision-1" },
   ollama: { providerId: "ollama", model: "nimble:latest" },
   ppq: { providerId: "ppq", model: "typesafe/jev-1.13" },
 };
@@ -69,7 +71,7 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
     permissions = await import("../src/permissions.js");
     await import("../background/service-worker.js");
     await storage.saveSettings({
-      apiKeys: { openai: "test-key", openrouter: "test-key", ppq: "ppq-test-key" },
+      apiKeys: { gemini: "gemini-test-key", openai: "test-key", openrouter: "test-key", ppq: "ppq-test-key" },
       operationDefaults: { decide: routes.openrouter },
     });
     await storage.grantOriginOperationAlways(origin, "decide", routes.openrouter);
@@ -79,6 +81,7 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
       if (url.endsWith("?output_modalities=decisions")) return Response.json(catalog);
       if (url.endsWith("/api/tags")) return Response.json({ models: [{ name: routes.ollama.model }] });
       if (url.endsWith("/api/show")) return Response.json({ capabilities: ["decision"], details: { format: "safetensors", runner: "mlx" } });
+      if (url === "https://generativelanguage.googleapis.com/v1beta/decisions") return Response.json(geminiFixture);
       if (url === "https://api.openai.com/v1/decisions") return Response.json(openaiFixture);
       if (url.endsWith("/alpha/decisions") || url.endsWith("/v1/systemone")) return Response.json(fixture);
       throw new Error(`Unexpected privileged fetch: ${url}`);
