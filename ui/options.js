@@ -631,6 +631,11 @@ const API_KEY_SETUP_LINKS = Object.freeze({
     label: "Get an Ollama API key",
     detail: ". Used for hosted web search via ollama.com.",
   },
+  "ollama-cloud": {
+    href: "https://ollama.com/settings/keys",
+    label: "Get an Ollama API key",
+    detail: ". Required for direct cloud inference. No local Ollama installation needed.",
+  },
 });
 
 /**
@@ -658,6 +663,9 @@ function updateApiKeyField(providerId) {
   apiKeyBoundProviderId = provider.id;
   if (provider.id === "ollama") {
     apiKeyLabel.textContent = "Ollama API key (optional)";
+    apiKeyInput.placeholder = "Ollama account API key";
+  } else if (provider.id === "ollama-cloud") {
+    apiKeyLabel.textContent = "Ollama Cloud API key (required)";
     apiKeyInput.placeholder = "Ollama account API key";
   } else if (provider.id === "gemini") {
     apiKeyLabel.textContent = "Google Gemini API key";
@@ -706,7 +714,9 @@ function updateProviderChrome(providerId) {
     (providerId === "ollama" && !ollamaStatus.available
       ? ollamaStatus.message ||
         "Ollama is unavailable at http://localhost:11434, so this option is disabled."
-      : "");
+      : providerId === "ollama-cloud"
+        ? "Inference runs on ollama.com. No local Ollama server is needed; account usage limits and charges may apply."
+        : "");
   providerStatusHint.hidden = !message;
   providerStatusHint.textContent = message;
   providerStatusHint.classList.toggle("error", Boolean(accessError));
@@ -730,7 +740,7 @@ function providerAccessError(providerId) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return providerId !== "gemini" && providerId !== "ollama" && providerId !== ON_DEVICE_PROVIDER_ID;
+  return providerId !== "gemini" && providerId !== "ollama" && providerId !== "ollama-cloud" && providerId !== ON_DEVICE_PROVIDER_ID;
 }
 
 /**
@@ -1061,6 +1071,8 @@ modelInput.addEventListener("input", () => {
       modelHint.hidden = false;
       modelHint.textContent = providerId === "gemini"
         ? "Choose a model from the Google Gemini catalog."
+        : providerId === "ollama-cloud"
+          ? "Choose a model from the Ollama Cloud catalog."
         : "Choose a model from the installed Ollama tags.";
     } else if (!modelHint.textContent.startsWith("Ollama is")) {
       modelHint.hidden = true;
@@ -1817,6 +1829,11 @@ async function loadSpeechModels(operation, providerId, preferredModel) {
     method: operation,
   });
   const models = response?.ok ? normalizeModels(response.models) : [];
+  const hint = document.getElementById(`${operation === "transcribe" ? "transcription" : "synthesis"}ModelHint`);
+  hint.textContent = response?.error?.message || (providerId === "ollama-cloud" && models.length === 0
+    ? `Ollama Cloud currently lists no ${operation === "transcribe" ? "transcription" : "speech synthesis"} models. Choose another provider or retry later.`
+    : "");
+  hint.hidden = !hint.textContent;
   return fillSimpleSelect(modelSelect, models, preferredModel);
 }
 
@@ -1892,6 +1909,8 @@ async function loadDecisionModels(providerId, preferredModel) {
         ? "Uses your saved OpenRouter API key and the Decisions alpha service."
         : providerId === "ppq"
           ? "Uses your saved PayPerQ API key and its separate System One Decisions API."
+          : providerId === "ollama-cloud"
+            ? "Uses your saved Ollama Cloud API key. Cloud decisions require a paid plan or usage credits; no local server needed."
           : "Uses installed local decision models on Ollama 0.35+ (Clef: 0.35.1+; MLX: 0.40+)."
     : response?.error?.message ||
       (providerId === "openai"
@@ -1900,6 +1919,8 @@ async function loadDecisionModels(providerId, preferredModel) {
           ? "No decision models are currently listed by OpenRouter."
           : providerId === "ppq"
             ? "No decision models are currently listed by PayPerQ. Retry discovery."
+            : providerId === "ollama-cloud"
+              ? "No decision models are currently listed by Ollama Cloud. Retry discovery."
             : "No installed decision models. Run ollama pull nimble. GGUF requires Ollama 0.35+ (Clef: 0.35.1+); MLX requires 0.40+.");
 }
 

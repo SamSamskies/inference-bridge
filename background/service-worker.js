@@ -34,6 +34,7 @@ import {
   resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
 import { getOllamaThinking } from "../src/providers/ollama.js";
+import { getOllamaCloudThinking } from "../src/providers/ollama-cloud.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import {
   BinaryChunkReceiver,
@@ -462,7 +463,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "ollama-thinking") {
     const model = typeof message.model === "string" ? message.model : "";
-    void getOllamaThinking(model)
+    const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
+    void (async () => {
+      if (!(await hasBuiltInHostPermission(providerId))) return undefined;
+      if (providerId === "ollama") return getOllamaThinking(model);
+      const settings = await getSettings();
+      return getOllamaCloudThinking(model, { apiKey: settings.apiKeys[providerId] });
+    })()
       .then((thinking) => sendResponse({ ok: true, thinking }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -1027,7 +1034,7 @@ async function handleSpeechStart({
     signal: controller.signal,
   });
   if (
-    (operationModels.length > 0 || provider.id === "gemini") &&
+    (operationModels.length > 0 || provider.id === "gemini" || provider.id === "ollama-cloud") &&
     !operationModels.some((candidate) => candidate.id === model)
   ) {
     throw inferenceError(

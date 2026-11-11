@@ -6,12 +6,12 @@ export function createThinkingGuidance(hint, sendMessage) {
   return async ({ method, providerId, model, ready }) => {
     const id = ++checkId;
     hint.textContent = "";
-    hint.hidden = method !== "chat" || providerId !== "ollama" || !ready || !model;
+    hint.hidden = method !== "chat" || !["ollama", "ollama-cloud"].includes(providerId) || !ready || !model;
     if (hint.hidden) return;
     hint.textContent = "Checking this model's thinking controls…";
     let thinking;
     try {
-      const response = await sendMessage({ type: "ollama-thinking", model });
+      const response = await sendMessage({ type: "ollama-thinking", model, providerId });
       if (response?.ok) thinking = parseOllamaThinking({ thinking: response.thinking });
     } catch {
       // Missing metadata is advisory and must never prevent permission approval.

@@ -1,4 +1,4 @@
-import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
+import { LOCAL_OLLAMA_ENDPOINT, ollamaHttpErrorCode } from "./ollama-endpoint.js";
 import {
   AUDIO_TRANSFER_CHUNK_BYTES,
   SYNTHESIS_OUTPUT_MAX_BYTES,
@@ -6,11 +6,6 @@ import {
   TRANSCRIPTION_INPUT_MAX_BYTES,
   countUnicodeCodePoints,
 } from "../speech.js";
-
-const OLLAMA_BASE_URL = "http://localhost:11434";
-const OLLAMA_SHOW_URL = `${OLLAMA_BASE_URL}/api/show`;
-const OLLAMA_TRANSCRIPTION_URL = `${OLLAMA_BASE_URL}/v1/audio/transcriptions`;
-const OLLAMA_SYNTHESIS_URL = `${OLLAMA_BASE_URL}/v1/audio/speech`;
 
 /** Ollama's multipart parser allows 25 MiB; Bridge's lower cap is authoritative. */
 export const OLLAMA_MULTIPART_MAX_BYTES = 25 << 20;
@@ -32,9 +27,9 @@ export const OLLAMA_SYNTHESIS_DEFAULT_VOICE = "default";
  * @param {string} model
  * @returns {string[]}
  */
-export function ollamaTranscriptionMediaTypesForModel(model) {
+export function ollamaTranscriptionMediaTypesForModel(model, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   const mediaTypes = ["audio/wav"];
-  if (OLLAMA_MP3_TRANSCRIPTION_MODELS.includes(model.trim().toLowerCase())) {
+  if (!endpoint.cloud && OLLAMA_MP3_TRANSCRIPTION_MODELS.includes(model.trim().toLowerCase())) {
     mediaTypes.push("audio/mpeg");
   }
   return mediaTypes;
@@ -65,14 +60,14 @@ export function isOllamaSpeechModel(model) {
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
  */
-export async function ollamaModelSupportsTranscription(model, { signal } = {}) {
+export async function ollamaModelSupportsTranscription(model, { signal } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (!model) return false;
-  await ensureOllamaOriginBypass();
+  await endpoint.prepare();
   let response;
   try {
-    response = await fetch(OLLAMA_SHOW_URL, {
+    response = await fetch(`${endpoint.baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...endpoint.headers },
       body: JSON.stringify({ model, name: model }),
       signal,
     });
@@ -105,9 +100,9 @@ export async function ollamaModelSupportsTranscription(model, { signal } = {}) {
  *   onDelta: (content: string) => void | Promise<void>,
  * }} args
  */
-export async function transcribeOllama(args) {
+export async function transcribeOllama(args, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (
-    !ollamaTranscriptionMediaTypesForModel(args.model).includes(
+    !ollamaTranscriptionMediaTypesForModel(args.model, endpoint).includes(
       args.audio.mediaType
     )
   ) {
@@ -130,7 +125,7 @@ export async function transcribeOllama(args) {
       "Transcription exceeds Ollama's multipart upload limit."
     );
   }
-  if (!(await ollamaModelSupportsTranscription(args.model, { signal: args.signal }))) {
+  if (!(await ollamaModelSupportsTranscription(args.model, { signal: args.signal }, endpoint))) {
     throw inferenceError(
       "unavailable",
       `Ollama model "${args.model}" does not report the required "audio" and "completion" capabilities for transcription. Select an audio-capable text-generation model.`
@@ -149,8 +144,9 @@ export async function transcribeOllama(args) {
 
   let response;
   try {
-    response = await fetch(OLLAMA_TRANSCRIPTION_URL, {
+    response = await fetch(`${endpoint.baseUrl}/v1/audio/transcriptions`, {
       method: "POST",
+      ...(endpoint.cloud ? { headers: endpoint.headers } : {}),
       body,
       signal: args.signal,
     });
@@ -166,7 +162,7 @@ export async function transcribeOllama(args) {
     );
   }
   if (!response.ok) {
-    throw await mapOllamaError(response);
+    throw await mapOllamaError(response, "transcription", endpoint);
   }
 
   const contentType = (response.headers.get("Content-Type") || "")
@@ -223,10 +219,10 @@ export async function transcribeOllama(args) {
  * @param {string} model
  * @param {{ signal?: AbortSignal }} [args]
  */
-export async function ollamaModelSupportsSynthesis(model, { signal } = {}) {
-  const shown = await showOllamaModel(model, { signal });
+export async function ollamaModelSupportsSynthesis(model, { signal } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
+  const shown = await showOllamaModel(model, { signal }, endpoint);
   const supported = Boolean(shown?.capabilities.includes("speech"));
-  if (model) {
+  if (model && !endpoint.cloud) {
     if (supported) speechModelIds.add(model);
     else speechModelIds.delete(model);
   }
@@ -237,8 +233,8 @@ export async function ollamaModelSupportsSynthesis(model, { signal } = {}) {
  * @param {{ model?: string, signal?: AbortSignal }} [args]
  * @returns {Promise<import("./types.js").VoiceInfo[]>}
  */
-export async function listOllamaSynthesisVoices({ model, signal } = {}) {
-  const shown = await showOllamaModel(model, { signal, verbose: true });
+export async function listOllamaSynthesisVoices({ model, signal } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
+  const shown = await showOllamaModel(model, { signal, verbose: true }, endpoint);
   if (!shown?.capabilities.includes("speech")) return [];
   return voicesFromShow(shown.payload);
 }
@@ -253,7 +249,7 @@ export async function listOllamaSynthesisVoices({ model, signal } = {}) {
  *   onAudioDelta: (data: Uint8Array) => void | Promise<void>,
  * }} args
  */
-export async function synthesizeOllama(args) {
+export async function synthesizeOllama(args, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (args.mediaType !== "audio/wav") {
     throw inferenceError(
       "unavailable",
@@ -271,11 +267,13 @@ export async function synthesizeOllama(args) {
   const shown = await showOllamaModel(args.model, {
     signal: args.signal,
     verbose: true,
-  });
+  }, endpoint);
   if (!shown?.capabilities.includes("speech")) {
     throw inferenceError(
       "unavailable",
-      `Ollama model "${args.model}" does not report the required "speech" capability. Pull a speech model such as phonon (Ollama 0.40.9+).`
+      endpoint.cloud
+        ? `Ollama Cloud model "${args.model}" does not report the required "speech" capability. Choose an available cloud speech model.`
+        : `Ollama model "${args.model}" does not report the required "speech" capability. Pull a speech model such as phonon (Ollama 0.40.9+).`
     );
   }
   const voices = voicesFromShow(shown.payload);
@@ -288,9 +286,9 @@ export async function synthesizeOllama(args) {
 
   let response;
   try {
-    response = await fetch(OLLAMA_SYNTHESIS_URL, {
+    response = await fetch(`${endpoint.baseUrl}/v1/audio/speech`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...endpoint.headers },
       body: JSON.stringify({
         model: args.model,
         input: args.text,
@@ -311,7 +309,7 @@ export async function synthesizeOllama(args) {
     );
   }
   if (!response.ok) {
-    throw await mapOllamaError(response, "synthesis");
+    throw await mapOllamaError(response, "synthesis", endpoint);
   }
   const responseMediaType = (response.headers.get("Content-Type") || "")
     .split(";")[0]
@@ -362,14 +360,14 @@ export async function synthesizeOllama(args) {
  * @param {{ signal?: AbortSignal, verbose?: boolean }} [args]
  * @returns {Promise<{ payload: any, capabilities: string[] } | null>}
  */
-async function showOllamaModel(model, { signal, verbose } = {}) {
+async function showOllamaModel(model, { signal, verbose } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (!model) return null;
-  await ensureOllamaOriginBypass();
+  await endpoint.prepare();
   let response;
   try {
-    response = await fetch(OLLAMA_SHOW_URL, {
+    response = await fetch(`${endpoint.baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...endpoint.headers },
       body: JSON.stringify({
         model,
         name: model,
@@ -603,7 +601,7 @@ function normalizeOllamaWav(bytes) {
   return out;
 }
 
-async function mapOllamaError(response, operation = "transcription") {
+async function mapOllamaError(response, operation = "transcription", endpoint = LOCAL_OLLAMA_ENDPOINT) {
   let message = "";
   try {
     const payload = await response.json();
@@ -646,10 +644,8 @@ async function mapOllamaError(response, operation = "transcription") {
     );
   }
   return inferenceError(
-    response.status === 404 || response.status >= 500
-      ? "unavailable"
-      : "provider_error",
-    `Ollama ${operation} failed (${response.status})${message ? `: ${message}` : "."}`
+    ollamaHttpErrorCode(response.status),
+    `${endpoint.label} ${operation} failed (${response.status})${message ? `: ${message}` : "."}`
   );
 }
 

@@ -158,6 +158,26 @@ async function setupNativeDecisions(status = "available") {
 describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
 
+  it("routes direct Ollama Cloud decisions with an independent operation grant and key", async () => {
+    const cloudRoute = { providerId: "ollama-cloud", model: "clef:27b" };
+    await storage.saveSettings({ apiKeys: { "ollama-cloud": "cloud-key" }, operationDefaults: { decide: cloudRoute } });
+    await storage.grantOriginAlways(origin, { providerId: "ollama", model: "gemma4" });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      expect(url.startsWith("https://ollama.com/")).toBe(true);
+      if (url.endsWith("/api/tags")) return Response.json({ models: [{ name: "clef:27b", capabilities: ["decision"] }] });
+      if (url.endsWith("/api/show")) return Response.json({ capabilities: ["decision"] });
+      return Response.json({ ...fixture, model: "clef:27b" });
+    }));
+    const port = start();
+    await approve(port, cloudRoute, "always");
+    await outcome(port);
+    expect(fetch.mock.calls.at(-1)[0]).toBe("https://ollama.com/v1/systemone");
+    expect(fetch.mock.calls.at(-1)[1].headers.Authorization).toBe("Bearer cloud-key");
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(cloudRoute);
+    expect((await storage.getSettings()).allowedOrigins[origin]).toMatchObject({ providerId: "ollama" });
+    expect(JSON.stringify(port.messages)).not.toContain("cloud-key");
+  });
+
   if (!firefox) {
     it("routes native on-device decisions with independent site approval and no cloud calls", async () => {
       const native = await setupNativeDecisions();
@@ -569,6 +589,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       ["openrouter", cloud.model],
       ["ppq", "typesafe/jev-1.13"],
       ["ollama", "nimble"],
+      ["ollama-cloud", ""],
       ...(firefox ? [] : [["on-device", "on-device"]]),
     ]);
     const models = await message({

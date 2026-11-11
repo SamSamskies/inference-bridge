@@ -27,6 +27,7 @@ describe("provider registry", () => {
       "anthropic",
       "gemini",
       "ollama",
+      "ollama-cloud",
       "on-device",
       "openai",
       "openrouter",
@@ -71,6 +72,7 @@ describe("provider registry", () => {
         "anthropic",
         "gemini",
         "ollama",
+        "ollama-cloud",
         "on-device",
         "openai",
         "openrouter",
@@ -196,18 +198,18 @@ describe("operation-scoped provider capabilities", () => {
       filterProvidersForMethod(listProviders(), "transcribe").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama", "ollama-cloud"]);
     expect(
       filterProvidersForMethod(listProviders(), "synthesize").map(
         (provider) => provider.id
       )
-    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama"]);
+    ).toEqual(["openai", "gemini", "openrouter", "ppq", "ollama", "ollama-cloud"]);
   });
 
   it("filters synthesis routes by exact output type without assuming MP3 on WAV-only providers", () => {
     const all = listProviders();
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wav" }).map((p) => p.id))
-      .toEqual(["openai", "gemini", "ollama"]);
+      .toEqual(["openai", "gemini", "ollama", "ollama-cloud"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/mpeg" }).map((p) => p.id))
       .toEqual(["openai", "openrouter", "ppq"]);
     expect(filterProvidersForMethod(all, "synthesize", { mediaType: "audio/wave" })).toEqual([]);

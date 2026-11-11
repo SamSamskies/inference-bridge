@@ -100,6 +100,39 @@ afterEach(() => {
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
 
+  it("routes approved cloud chat with its own key and remembers it independently of local defaults", async () => {
+    const cloudRoute = { providerId: "ollama-cloud", model: "gpt-oss:120b" };
+    await storage.saveSettings({ apiKeys: { "ollama-cloud": "cloud-key", ollama: "local-search-key" }, defaultModels: { "ollama-cloud": cloudRoute.model } });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      expect(url.startsWith("https://ollama.com/")).toBe(true);
+      return url.endsWith("/api/show") ? Response.json({ capabilities: ["completion"] })
+        : new Response('{"model":"gpt-oss:120b","message":{"role":"assistant","content":"Cloud reply"},"done":true}\n');
+    }));
+    const port = start();
+    await pending(port);
+    await permissions.resolveApproval(port.streamId, { decision: "always", ...cloudRoute });
+    await outcome(port);
+    expect((await storage.getSettings()).allowedOrigins[origin]).toMatchObject(cloudRoute);
+    expect((await storage.getSettings()).originLastUsed[origin]).toMatchObject(cloudRoute);
+    expect(fetch.mock.calls.at(-1)[1].headers.Authorization).toBe("Bearer cloud-key");
+    await storage.saveSettings({ defaultProviderId: "ollama", defaultModel: "local-model" });
+    await outcome(start());
+    expect(fetch.mock.calls.every(([url]) => url.startsWith("https://ollama.com/"))).toBe(true);
+    expect(JSON.stringify(port.messages)).not.toContain("cloud-key");
+  });
+
+  it("keeps an existing local grant local after the global default changes to cloud", async () => {
+    const localRoute = { providerId: "ollama", model: "gpt-oss:120b" };
+    await storage.grantOriginAlways(origin, localRoute);
+    await storage.saveSettings({ defaultProviderId: "ollama-cloud", defaultModel: "gpt-oss:120b", apiKeys: { "ollama-cloud": "cloud-key" } });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Local daemon stopped"); }));
+    const port = start();
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("unavailable"));
+    expect(fetch.mock.calls.every(([url]) => url.startsWith("http://localhost:11434/"))).toBe(true);
+    expect(fetch.mock.calls.every(([, init]) => !init.headers?.Authorization)).toBe(true);
+    expect((await storage.getSettings()).allowedOrigins[origin]).toMatchObject(localRoute);
+  });
+
   it("uses the saved PPQ chat model when approval switches providers", async () => {
     const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method },
