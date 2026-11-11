@@ -158,7 +158,7 @@ export async function transcribeOllama(args, endpoint = LOCAL_OLLAMA_ENDPOINT) {
       "unavailable",
       err instanceof Error
         ? err.message
-        : "Network error contacting Ollama. Is it running on localhost:11434?"
+        : networkErrorMessage(endpoint)
     );
   }
   if (!response.ok) {
@@ -305,7 +305,7 @@ export async function synthesizeOllama(args, endpoint = LOCAL_OLLAMA_ENDPOINT) {
       "unavailable",
       err instanceof Error
         ? err.message
-        : "Network error contacting Ollama. Is it running on localhost:11434?"
+        : networkErrorMessage(endpoint)
     );
   }
   if (!response.ok) {
@@ -599,6 +599,12 @@ function normalizeOllamaWav(bytes) {
     );
   }
   return out;
+}
+
+function networkErrorMessage(endpoint) {
+  return endpoint.cloud
+    ? "Network error contacting Ollama Cloud. Retry later."
+    : "Network error contacting Ollama. Is it running on localhost:11434?";
 }
 
 async function mapOllamaError(response, operation = "transcription", endpoint = LOCAL_OLLAMA_ENDPOINT) {

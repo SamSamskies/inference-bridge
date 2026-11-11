@@ -97,8 +97,17 @@ const listModelsFor = (method) => boundary(async (args) => {
     const id = typeof entry?.name === "string" ? entry.name.trim()
       : typeof entry?.model === "string" ? entry.model.trim() : "";
     if (!id) return null;
-    const capabilities = Array.isArray(entry.capabilities) ? entry.capabilities
-      : (await cloudJson("/api/show", { ...discoveryArgs, model: id }))?.capabilities;
+    let capabilities = entry.capabilities;
+    if (!Array.isArray(capabilities)) {
+      // One stale or rate-limited tag must not fail the whole catalog.
+      try {
+        capabilities = (await cloudJson("/api/show", { ...discoveryArgs, model: id }))?.capabilities;
+      } catch (cause) {
+        checkAbort(args.signal);
+        if (cause?.code === "aborted") throw cause;
+        return null;
+      }
+    }
     return supports(capabilities, method) ? { id } : null;
   }));
   return [...new Map(models.filter(Boolean).map((model) => [model.id, model])).values()]

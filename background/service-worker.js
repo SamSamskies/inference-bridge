@@ -1009,7 +1009,7 @@ async function handleSpeechStart({
       `The selected provider no longer supports ${method}.`
     );
   }
-  if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+  if (provider.requiresApiKey && !hasStoredApiKey(settings.apiKeys[provider.id])) {
     throw inferenceError(
       "unavailable",
       `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
@@ -1341,7 +1341,7 @@ async function handleStart(port, msg, onStreamId) {
       );
     }
 
-    if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+    if (provider.requiresApiKey && !hasStoredApiKey(settings.apiKeys[provider.id])) {
       throwInference(
         "unavailable",
         `${provider.label} API key not configured. Open the Inference Bridge options to add your key.`

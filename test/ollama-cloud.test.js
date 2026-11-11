@@ -63,6 +63,21 @@ describe("Ollama Cloud discovery and readiness", () => {
     expect(await cloud.listModels()).toEqual([{ id: "custom-chat" }]);
   });
 
+  it("skips tags whose capability probe fails instead of failing the whole catalog", async () => {
+    mockCloud({ models: [{ name: "stale" }, { name: "limited" }, { name: "good" }],
+      show: (model) => model === "stale" ? Response.json({ error: "not found" }, { status: 404 })
+        : model === "limited" ? Response.json({ error: "slow down" }, { status: 429 })
+          : Response.json({ capabilities: ["completion"] }) });
+    expect(await cloud.listModels()).toEqual([{ id: "good" }]);
+  });
+
+  it("still aborts catalog discovery when the signal is aborted", async () => {
+    mockCloud({ models: [{ name: "a" }], show: () => Response.json({ capabilities: ["completion"] }) });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(cloud.listModels({ signal: controller.signal })).rejects.toMatchObject({ code: "aborted" });
+  });
+
   it.each([{}, { models: "bad" }])("rejects a malformed catalog: %j", async (body) => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(body)));
     await expect(cloud.listModels()).rejects.toMatchObject({ code: "provider_error" });
