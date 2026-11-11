@@ -106,6 +106,8 @@ describe("Firefox built-in host grants", () => {
     expect(contains).toHaveBeenCalledWith({ origins: ["https://generativelanguage.googleapis.com/*"] });
     expect(await hasBuiltInHostPermission("ppq")).toBe(false);
     expect(contains).toHaveBeenCalledWith({ origins: ["https://api.ppq.ai/*"] });
+    expect(await hasBuiltInHostPermission("ollama-cloud")).toBe(false);
+    expect(contains).toHaveBeenCalledWith({ origins: ["https://ollama.com/*"] });
   });
 
   it("does not block Chrome built-ins or custom endpoints", async () => {

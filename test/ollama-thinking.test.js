@@ -90,6 +90,14 @@ describe("fresh optional metadata probes", () => {
 
 describe("approval thinking guidance", () => {
   const route = { method: "chat", providerId: "ollama", model: "beam:cloud", ready: true };
+  it("follows a switch from the local server to direct cloud metadata", async () => {
+    const hint = {};
+    const send = vi.fn().mockResolvedValue({ ok: true, thinking: beam });
+    const refresh = createThinkingGuidance(hint, send);
+    await refresh({ ...route, providerId: "ollama-cloud", model: "beam" });
+    expect(hint.hidden).toBe(false);
+    expect(send).toHaveBeenLastCalledWith({ type: "ollama-thinking", providerId: "ollama-cloud", model: "beam" });
+  });
   it("follows the selected model and clears stale replies after route changes", async () => {
     const hint = {};
     let reply;
@@ -99,7 +107,7 @@ describe("approval thinking guidance", () => {
     const first = refresh(route);
     await refresh({ ...route, model: "qwen3" });
     expect(hint.textContent).toContain("None requests thinking off");
-    expect(send).toHaveBeenLastCalledWith({ type: "ollama-thinking", model: "qwen3" });
+    expect(send).toHaveBeenLastCalledWith({ type: "ollama-thinking", model: "qwen3", providerId: "ollama" });
     reply({ ok: true, thinking: beam });
     await first;
     expect(hint.textContent).not.toContain("lowest supported effort");

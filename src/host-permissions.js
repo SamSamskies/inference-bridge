@@ -14,6 +14,7 @@ const FIREFOX_BUILTIN_HOSTS = Object.freeze({
   openrouter: "https://openrouter.ai/*",
   ppq: "https://api.ppq.ai/*",
   ollama: "http://localhost/*",
+  "ollama-cloud": "https://ollama.com/*",
   "ollama-web-search": "https://ollama.com/*",
 });
 

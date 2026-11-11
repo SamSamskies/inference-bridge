@@ -282,7 +282,7 @@ export function summarizeToolsForPreview(tools) {
  */
 export function hostedToolLabel(hostedId, provider) {
   if (hostedId === "web_search") {
-    if (provider?.id === "ollama") return "Web search (Ollama cloud)";
+    if (["ollama", "ollama-cloud"].includes(provider?.id)) return "Web search (Ollama cloud)";
     return "Web search (provider-hosted)";
   }
   return hostedId;
@@ -330,7 +330,7 @@ export function summarizeToolFingerprintLabels(
  * @returns {string}
  */
 export function hostedToolDescription(hostedId, provider) {
-  if (hostedId === "web_search" && provider?.id === "ollama") {
+  if (hostedId === "web_search" && ["ollama", "ollama-cloud"].includes(provider?.id)) {
     return "Runs in Inference Bridge against ollama.com (search and fetch). An Ollama account and usage may apply.";
   }
   if (hostedId === "web_search" && provider?.id === "gemini") {

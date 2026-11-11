@@ -82,9 +82,9 @@
           <h3 id="default-provider-heading">Default provider</h3>
           <label class="field">
             <span>Default provider</span>
-            <select id="provider"></select>
+            <select id="provider" aria-describedby="providerStatusHint"></select>
           </label>
-          <p class="hint" id="providerStatusHint" hidden></p>
+          <p class="hint" id="providerStatusHint" aria-live="polite" hidden></p>
           <div id="onDevicePanel" hidden>
             <p class="hint" id="onDeviceHint"></p>
             <progress
@@ -130,6 +130,9 @@
                 spellcheck="false"
                 placeholder="sk-..."
                 aria-labelledby="apiKeyLabel"
+                aria-describedby="apiKeyHint"
+                autocapitalize="none"
+                autocorrect="off"
               />
               <button
                 type="button"
@@ -336,8 +339,9 @@
             </label>
             <label class="field">
               <span>Model</span>
-              <select id="transcriptionModel"></select>
+              <select id="transcriptionModel" aria-describedby="transcriptionModelHint"></select>
             </label>
+            <p class="hint" id="transcriptionModelHint" aria-live="polite" hidden></p>
           </div>
           <div class="speech-defaults">
             <h4>Synthesis default</h4>
@@ -347,8 +351,9 @@
             </label>
             <label class="field">
               <span>Model</span>
-              <select id="synthesisModel"></select>
+              <select id="synthesisModel" aria-describedby="synthesisModelHint"></select>
             </label>
+            <p class="hint" id="synthesisModelHint" aria-live="polite" hidden></p>
             <label class="field">
               <span>Voice</span>
               <select id="synthesisVoice"></select>
@@ -389,7 +394,9 @@
             <label class="field" id="decisionsModelField"><span>Model</span><select id="decisionsModel"></select></label>
           </div>
           <p class="hint" id="decisionsModelHint">
-            OpenAI, OpenRouter, and PayPerQ use your saved API keys. Local decisions require Ollama
+            OpenAI, OpenRouter, PayPerQ, and Ollama Cloud use your saved API keys.
+            Ollama Cloud decisions require a paid plan or usage credits; no local server is needed.
+            Local decisions require Ollama
             0.35+ and an installed decision model (for example, ollama pull nimble).
             GGUF Clef and Clef Flash require Ollama 0.35.1+; MLX models require 0.40+.
           </p>

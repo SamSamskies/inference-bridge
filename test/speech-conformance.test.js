@@ -243,7 +243,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method: "synthesize", mediaType: "audio/wav" }, {}, resolve
     ));
-    expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini", "ollama"]);
+    expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini", "ollama", "ollama-cloud"]);
     const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };
     const result = assertSpeechStream(request, inference.request(request), { expectedAudio: wav });
     let pending;
@@ -256,6 +256,25 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     expect(packets.some((p) => p.chunk?.type === "accepted")).toBe(false);
     permissions.resolveApproval(pending.requestId, { decision: "allow_once", ...wavRoute });
     expect((await result).done.audio.mediaType).toBe("audio/wav");
+  });
+
+  it.each(["transcribe", "synthesize"])("rejects a saved cloud %s route when its catalog is empty before transferring inputs", async (method) => {
+    await storage.saveSettings({ apiKeys: { "ollama-cloud": "cloud-key" } });
+    await storage.grantOriginOperationAlways(origin, method, { providerId: "ollama-cloud", model: "retired-audio-model", voice: "default" });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      expect(url).toBe("https://ollama.com/api/tags");
+      return Response.json({ models: [{ name: "chat-model", capabilities: ["completion"] }] });
+    }));
+    const request = method === "transcribe"
+      ? { method, media: { mediaType: "audio/wav", data: new Blob([wav], { type: "audio/wav" }) } }
+      : { method, text: "Hello", output: { mediaType: "audio/wav" } };
+    const chunks = [];
+    await expect((async () => {
+      for await (const chunk of inference.request(request)) chunks.push(chunk);
+    })()).rejects.toMatchObject({ code: "unavailable" });
+    expect(chunks).toEqual([]);
+    expect(packets.some((packet) => packet.type === "binary-pull")).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each(["audio/wav", "audio/mpeg"])("rejects an incompatible saved route for %s without switching providers", async (mediaType) => {

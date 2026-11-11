@@ -34,6 +34,7 @@ import {
   resolveTranscriptionMediaTypes,
 } from "../src/providers/registry.js";
 import { getOllamaThinking } from "../src/providers/ollama.js";
+import { getOllamaCloudThinking } from "../src/providers/ollama-cloud.js";
 import { ensureOllamaOriginBypass } from "../src/ollama-origin-bypass.js";
 import {
   BinaryChunkReceiver,
@@ -462,7 +463,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "ollama-thinking") {
     const model = typeof message.model === "string" ? message.model : "";
-    void getOllamaThinking(model)
+    const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
+    void (async () => {
+      if (!(await hasBuiltInHostPermission(providerId))) return undefined;
+      if (providerId === "ollama") return getOllamaThinking(model);
+      const settings = await getSettings();
+      return getOllamaCloudThinking(model, { apiKey: settings.apiKeys[providerId] });
+    })()
       .then((thinking) => sendResponse({ ok: true, thinking }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -1002,7 +1009,7 @@ async function handleSpeechStart({
       `The selected provider no longer supports ${method}.`
     );
   }
-  if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+  if (provider.requiresApiKey && !hasStoredApiKey(settings.apiKeys[provider.id])) {
     throw inferenceError(
       "unavailable",
       `${provider.label} API key not configured. Open Inference Bridge Options to add it.`
@@ -1027,7 +1034,7 @@ async function handleSpeechStart({
     signal: controller.signal,
   });
   if (
-    (operationModels.length > 0 || provider.id === "gemini") &&
+    (operationModels.length > 0 || provider.id === "gemini" || provider.id === "ollama-cloud") &&
     !operationModels.some((candidate) => candidate.id === model)
   ) {
     throw inferenceError(
@@ -1334,7 +1341,7 @@ async function handleStart(port, msg, onStreamId) {
       );
     }
 
-    if (provider.requiresApiKey && !settings.apiKeys[provider.id]) {
+    if (provider.requiresApiKey && !hasStoredApiKey(settings.apiKeys[provider.id])) {
       throwInference(
         "unavailable",
         `${provider.label} API key not configured. Open the Inference Bridge options to add your key.`

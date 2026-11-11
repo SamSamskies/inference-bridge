@@ -10,7 +10,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 - Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
 - Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
-- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PayPerQ, local Ollama, or Chrome On-device
+- Typed decisions through stable `request()`, using OpenAI, OpenRouter, PayPerQ, local or cloud Ollama, or Chrome On-device
 - Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
 - Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
 - Synchronous capability discovery through `window.inference.getFeatures()`
@@ -54,7 +54,8 @@ This installs a temporary development build. See the [Firefox release checklist]
    - **Google Gemini** — paste a Google AI Studio API key and choose a default model from the curated list
    - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
    - **PayPerQ** — paste your PayPerQ API key; searchable public chat catalog and provider-hosted Auto web search
-   - **Ollama** — local models from your Ollama install; optional ollama.com API key for hosted web search
+   - **Ollama (local server)** — models from your Ollama install; optional ollama.com API key for hosted web search
+   - **Ollama Cloud** — direct access to hosted models with an Ollama account API key; no local server needed
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
 8. Click **Save** (skip if you just used On-device **Install**, which already saves)
@@ -68,7 +69,8 @@ This installs a temporary development build. See the [Firefox release checklist]
 | Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
 | OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
 | PayPerQ | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, separately approved System One decisions, transcription, and MP3 synthesis. Separate live catalogs and method defaults. |
-| Ollama | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
+| Ollama (local server) | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
+| Ollama Cloud | Ollama account API key in Options | Direct native `/api/chat` and `/v1/systemone` at `https://ollama.com`; public `/api/tags` catalog with separate chat, decision, and speech capability filters. No local installation required. |
 | On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
 | OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
 
@@ -141,13 +143,25 @@ Vision input requires explicit image support in the current chat catalog; image 
    ollama pull gemma4
    ```
 
-3. In Options, set **Default provider** to **Ollama**. If it is unavailable or has no models, the picker shows a setup hint and blocks Save.
+3. In Options, set **Default provider** to **Ollama (local server)**. If it is unavailable or has no models, the picker shows a setup hint and blocks Save.
 4. Confirm the model field populates from installed models (type to filter)
 5. Optionally paste an [Ollama account API key](https://ollama.com/settings/keys) if you want hosted `{ type: "web_search" }` (local chat does not need this key)
 6. Click **Save**
 7. Run the snippet above on an HTTPS or localhost page
 
 Inference Bridge removes extension `Origin` and `Referer` headers from local Ollama requests, so extra `OLLAMA_ORIGINS` configuration is usually unnecessary. For an unpacked Chrome build, click **Reload** on `chrome://extensions` after updating so the header rules are refreshed.
+
+### Ollama Cloud (no local server)
+
+1. Create an [Ollama account API key](https://ollama.com/settings/keys).
+2. In **Options → Providers**, choose **Ollama Cloud**, paste the key, select a cloud chat model, and **Save**. Its public catalog loads without a key. New selections default to `deepseek-v4.1-flash:1017`; saved model choices take precedence. Use the exact listed IDs rather than local `:cloud` aliases.
+3. Run the chat snippet above on an HTTPS or localhost page and approve **Ollama Cloud**. Existing site grants keep their saved provider; change or revoke them in **Site access** to test another route.
+
+Bridge calls [Ollama's hosted API](https://docs.ollama.com/cloud) directly with your extension-stored key. Streaming chat, function tools, hosted web search/fetch, vision input, and thinking controls reuse the native Ollama protocol. Model capabilities and thinking controls come from cloud metadata. The cloud route works while local Ollama is stopped, and never falls back between local and cloud providers. The two providers remember their keys and models separately. Choosing a cloud default does not rewrite existing site grants. The local-server provider can still reach cloud models through a signed-in daemon; its label describes the connection, not where every model runs.
+
+For [cloud decisions](https://docs.ollama.com/capabilities/decision), select **Ollama Cloud** under **Options → Decisions** and choose its separately discovered decision model (currently `clef:27b`). Decisions use `/v1/systemone`, need their own site approval, and require a paid Ollama plan or usage credits.
+
+Transcription and synthesis use independent capability-filtered catalogs in **Options → Speech**. The public cloud catalog checked on November 11, 2026 advertised no `audio` or `speech` models, so these pickers are empty and approval is disabled. Bridge can route WAV transcription and WAV synthesis when the hosted catalog and fresh model metadata advertise the required capabilities; cloud speech has not been live-verified. Local speech support does not imply hosted availability, and the local MP3 transcription allowlist is not applied to cloud models.
 
 ### On-device (Chrome built-in AI, no API key)
 
@@ -214,7 +228,7 @@ For app-side helpers (TypeScript types, drain a stream to `done`, page-executed 
 - API keys are stored in local extension storage, which Bridge does not encrypt; page scripts cannot read them
 - Where supported, Bridge restricts `storage.local` to trusted extension contexts using [`setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })`](https://developer.chrome.com/docs/extensions/reference/api/storage/StorageArea#method-StorageArea-setAccessLevel). The background applies it on every start, and settings operations await it before reading or writing. Options and approval handling retain access; the content script only relays messages and needs no storage access. If the supported API fails, Bridge keeps trusted settings usable and retries on the next call — a failed restriction still leaves content scripts with default storage access, so rejecting Options and approvals would not reduce that exposure. This is asynchronous defense in depth, so it does not guarantee isolation before startup initialization completes.
 - Browsers without `setAccessLevel` keep their default extension-storage access. [Firefox currently does not support this API](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/StorageArea/setAccessLevel#browser_compatibility), so its extension content scripts retain storage access; page scripts still cannot read extension storage.
-- Ollama chat, transcription, and decisions use local port 11434. Hosted web search sends queries and fetch URLs to `https://ollama.com` with your optional Ollama account key.
+- **Ollama (local server)** uses port 11434 for inference. Its hosted web search sends queries and fetch URLs to `https://ollama.com` with your optional Ollama account key. **Ollama Cloud** sends approved inference inputs directly to `https://ollama.com` with its separately saved account key; no local server is contacted. Cloud model discovery also contacts ollama.com.
 - Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
 - Chrome optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
 - Firefox match patterns cannot include ports, so its host permissions cover the saved hostname; provider requests still use the saved URL and port
@@ -1045,6 +1059,12 @@ try {
 - [ ] Firefox: revoked built-in or custom-server host access shows “(unavailable)” while remaining selectable; selecting it shows the reason, and Save is blocked until access is restored
 - [ ] Refreshing Firefox Options rechecks provider host access and Ollama availability
 - [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
+- [ ] With local Ollama stopped, **Ollama Cloud** lists hosted chat models, saves its key/model, and streams chat, reasoning, function tools, and approved hosted search/fetch
+- [ ] Ollama Cloud approval thinking guidance follows the cloud model, and vision succeeds only for cloud models advertising `vision`
+- [ ] Existing local-server site grants continue to use localhost after selecting a cloud global default; missing local Ollama fails without sending inference inputs to cloud
+- [ ] **Options → Decisions → Ollama Cloud** lists the cloud decision catalog and completes stable `method: "decide"` with separate site approval and the cloud key
+- [ ] Empty cloud speech catalogs explain hosted unavailability and disable Allow; when cloud speech is advertised, test WAV transcription and playable WAV synthesis independently
+- [ ] Missing/invalid cloud key, exhausted usage, cancellation, and revoked Firefox ollama.com host access produce a useful failure without local-server setup advice or fallback
 - [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
 - [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
 - [ ] Compat small `/v1/models` list uses `<select>`; large catalogs use searchable autosuggest

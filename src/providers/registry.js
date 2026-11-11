@@ -6,6 +6,7 @@ import { openaiProvider } from "./openai.js";
 import { anthropicProvider } from "./anthropic.js";
 import { geminiProvider } from "./gemini.js";
 import { ollamaProvider } from "./ollama.js";
+import { ollamaCloudProvider } from "./ollama-cloud.js";
 import { openrouterProvider } from "./openrouter.js";
 import { ppqProvider } from "./ppq.js";
 import { onDeviceProvider } from "./on-device.js";
@@ -31,6 +32,7 @@ const providers = new Map([
   [openrouterProvider.id, openrouterProvider],
   [ppqProvider.id, ppqProvider],
   [ollamaProvider.id, ollamaProvider],
+  [ollamaCloudProvider.id, ollamaCloudProvider],
   [onDeviceProvider.id, onDeviceProvider],
 ]);
 

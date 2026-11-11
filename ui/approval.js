@@ -349,6 +349,7 @@ function allowUnknownFor(providerId) {
     requestMethod === "chat" &&
     providerId !== "gemini" &&
     providerId !== "ollama" &&
+    providerId !== "ollama-cloud" &&
     providerId !== ON_DEVICE_PROVIDER_ID
   );
 }
@@ -758,7 +759,9 @@ async function loadModelsForProvider(providerId, preferredModel) {
 
     if (models.length === 0) {
       setModelHint(
-        providerId === "ollama" &&
+        providerId === "ollama-cloud"
+          ? `Ollama Cloud currently lists no models for ${requestMethod}. Choose another provider or retry discovery later.`
+          : providerId === "ollama" &&
           requestMethod === "transcribe" &&
           requestMediaType === "audio/mpeg"
           ? "No installed Ollama audio model has verified MP3 support. WAV is more compatible."

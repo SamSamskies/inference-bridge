@@ -3,6 +3,7 @@
  * Models are discovered via GET /api/tags — no hardcoded catalog.
  */
 
+import { LOCAL_OLLAMA_ENDPOINT, ollamaHttpErrorCode } from "./ollama-endpoint.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { requestSystemOne } from "./system-one.js";
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
@@ -40,7 +41,7 @@ import {
   TRANSCRIPTION_INPUT_MAX_BYTES,
 } from "../speech.js";
 
-export const OLLAMA_BASE_URL = "http://localhost:11434";
+export const OLLAMA_BASE_URL = LOCAL_OLLAMA_ENDPOINT.baseUrl;
 
 /**
  * Probe fresh for each route/request; no cached controls survive a model update.
@@ -48,7 +49,7 @@ export const OLLAMA_BASE_URL = "http://localhost:11434";
  * timeout prevents optional metadata from blocking chat or popup guidance.
  * @returns {Promise<import("./ollama-thinking.js").OllamaThinking | undefined>}
  */
-export async function getOllamaThinking(model, { signal } = {}) {
+export async function getOllamaThinking(model, { signal } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (!model) return undefined;
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -56,10 +57,10 @@ export async function getOllamaThinking(model, { signal } = {}) {
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   try {
-    await ensureOllamaOriginBypass();
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+    await endpoint.prepare();
+    const response = await fetch(`${endpoint.baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...endpoint.headers },
       body: JSON.stringify({ model }),
       signal: controller.signal,
     });
@@ -170,7 +171,7 @@ function throwInference(code, message) {
  * @param {AbortSignal} signal
  * @returns {never}
  */
-function rethrowNetwork(err, signal) {
+function rethrowNetwork(err, signal, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (signal.aborted || (err && /** @type {Error} */ (err).name === "AbortError")) {
     throwInference("aborted", "Request aborted");
   }
@@ -178,7 +179,9 @@ function rethrowNetwork(err, signal) {
     "unavailable",
     err instanceof Error
       ? err.message
-      : "Network error contacting Ollama. Is it running on localhost:11434?"
+      : endpoint.cloud
+        ? "Network error contacting Ollama Cloud. Retry later."
+        : "Network error contacting Ollama. Is it running on localhost:11434?"
   );
 }
 
@@ -306,16 +309,16 @@ const visionByModel = new Map();
  * @param {{ signal?: AbortSignal }} [args]
  * @returns {Promise<boolean | null>}
  */
-async function probeOllamaVision(model, { signal } = {}) {
+async function probeOllamaVision(model, { signal } = {}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
   if (!model) return null;
-  const cached = visionByModel.get(model);
+  const cached = !endpoint.cloud ? visionByModel.get(model) : undefined;
   if (cached !== undefined) return cached;
-  await ensureOllamaOriginBypass();
+  await endpoint.prepare();
   let response;
   try {
-    response = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+    response = await fetch(`${endpoint.baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...endpoint.headers },
       body: JSON.stringify({ model, name: model }),
       signal,
     });
@@ -328,15 +331,15 @@ async function probeOllamaVision(model, { signal } = {}) {
     const caps = body?.capabilities;
     if (!Array.isArray(caps)) return null;
     const vision = caps.includes("vision");
-    visionByModel.set(model, vision);
+    if (!endpoint.cloud) visionByModel.set(model, vision);
     return vision;
   } catch {
     return null;
   }
 }
 
-async function ollamaModelCapabilities({ model, signal }) {
-  return { imageInput: await probeOllamaVision(model, { signal }), imageOutput: false };
+async function ollamaModelCapabilities({ model, signal }, endpoint = LOCAL_OLLAMA_ENDPOINT) {
+  return { imageInput: await probeOllamaVision(model, { signal }, endpoint), imageOutput: false };
 }
 
 /**
@@ -516,7 +519,7 @@ export function finalizeOllamaToolCalls(toolCallsByIndex) {
 
 /**
  * Stream a single Ollama `/api/chat` turn. Hosted web_search looping lives in
- * `runOllamaHostedSearchLoop`; this helper always talks to localhost.
+ * `runOllamaHostedSearchLoop`; the endpoint is selected by the extension-owned provider adapter.
  *
  * @param {{
  *   model: string,
@@ -550,18 +553,20 @@ export async function streamOllamaChatTurn({
   signal,
   onDelta,
   onReasoningDelta,
-}) {
+}, endpoint = LOCAL_OLLAMA_ENDPOINT) {
     if (!model) {
       throwInference(
         "unavailable",
-        "No Ollama model selected. Pull a model (e.g. ollama pull gemma4) and choose it in the extension."
+        endpoint.cloud
+          ? "Choose an Ollama Cloud model in the extension."
+          : "No Ollama model selected. Pull a model (e.g. ollama pull gemma4) and choose it in the extension."
       );
     }
 
-    await ensureOllamaOriginBypass();
+    await endpoint.prepare();
     assertImagesSupported({ label: "Ollama" }, [], output, { imageOutput: false });
     if (messagesHaveImageParts(messages)) {
-      const caps = await ollamaModelCapabilities({ model, signal });
+      const caps = await ollamaModelCapabilities({ model, signal }, endpoint);
       if (signal.aborted) throwInference("aborted", "Request aborted");
       if (caps.imageInput !== true) {
         throwInference(
@@ -586,7 +591,7 @@ export async function streamOllamaChatTurn({
       }
       const effort = options?.reasoningEffort;
       const thinking = effort && effort !== "auto"
-        ? await getOllamaThinking(model, { signal })
+        ? await getOllamaThinking(model, { signal }, endpoint)
         : undefined;
       const think = mapReasoningEffortForOllama(effort, thinking);
       if (think !== undefined) {
@@ -597,15 +602,15 @@ export async function streamOllamaChatTurn({
         body.options = { temperature };
       }
 
-      response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      response = await fetch(`${endpoint.baseUrl}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...endpoint.headers },
         // Omit think for Auto or when supported controls cannot be verified.
         body: JSON.stringify(body),
         signal,
       });
     } catch (err) {
-      rethrowNetwork(err, signal);
+      rethrowNetwork(err, signal, endpoint);
     }
 
     if (!response.ok) {
@@ -616,11 +621,11 @@ export async function streamOllamaChatTurn({
       } catch {
         // ignore parse failure
       }
-      if (response.status === 403) {
+      if (response.status === 403 && !endpoint.cloud) {
         detail =
           "Ollama rejected the request (HTTP 403). Chrome extensions send a chrome-extension:// Origin that Ollama blocks by default. Reload this extension (so it can strip that header), or restart Ollama with OLLAMA_ORIGINS=chrome-extension://*";
       }
-      const code =
+      const code = endpoint.cloud ? ollamaHttpErrorCode(response.status) :
         response.status === 403
           ? "unavailable"
           : response.status === 404
@@ -763,7 +768,7 @@ export async function streamOllamaChatTurn({
 /** @type {Provider} */
 export const ollamaProvider = {
   id: "ollama",
-  label: "Ollama",
+  label: "Ollama (local server)",
   getModelCapabilities: ollamaModelCapabilities,
   requiresApiKey: false,
   optionalApiKey: true,
