@@ -101,7 +101,7 @@ https://api.anthropic.com/* — Selected Anthropic Messages API.
 https://generativelanguage.googleapis.com/* — Gemini discovery, approved chat/search and separate transcription/cleanup/WAV synthesis.
 https://openrouter.ai/* — OpenRouter models, chat/images and separately approved decisions/speech.
 https://api.ppq.ai/* — PayPerQ catalogs/voices, approved chat/images/search and separate decisions/transcription/synthesis.
-https://ollama.com/* — Selected Ollama Cloud chat/search and separately approved decisions/speech (optional account key).
+https://ollama.com/* — Selected Ollama Cloud chat/search and separately approved decisions/speech.
 http://localhost:11434/* — Built-in local Ollama chat and approved speech/decisions.
 optional http://*/* and https://*/* — Requested only for each custom OpenAI-compatible server saved in Options; not granted at install.
 ```
