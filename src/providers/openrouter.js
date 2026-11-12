@@ -3,9 +3,10 @@
  * Models are discovered via the public GET /api/v1/models catalog.
  */
 
+import { assertDecisionMediaSupported } from "../decision-media.js";
 import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
-import { requestSystemOne } from "./system-one.js";
+import { requestSystemOne, preflightSystemOne } from "./system-one.js";
 import {
   assertImagesSupported,
   messagesHaveImageParts,
@@ -303,6 +304,7 @@ export const openrouterProvider = {
     defaultModel: OPENROUTER_DEFAULT_DECISION_MODEL,
     listModels: listOpenRouterDecisionModels,
   },
+  preflightDecide: (args) => preflightSystemOne({ ...args, providerId: "openrouter", label: "OpenRouter" }),
   async decide(args) {
     assertDecisionQuestionLimit("OpenRouter", DECISION_LIMITS["openrouter"].maxQuestions, args.questions);
     if (!args.apiKey?.trim())
@@ -319,6 +321,7 @@ export const openrouterProvider = {
         `Unknown OpenRouter Decisions model: ${args.model}.`
       );
     }
+    assertDecisionMediaSupported({ label: "OpenRouter", decisions: DECISION_LIMITS["openrouter"] }, args.attachments, decisionCatalog.find((entry) => entry.id === args.model));
     return requestSystemOne({
       ...args,
       providerId: "openrouter",

@@ -22,7 +22,7 @@ import {
   streamOpenAICompatChat,
 } from "./openai-compat-stream.js";
 import { streamOpenAIResponsesChat } from "./openai-responses.js";
-import { decideOpenAI, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
+import { decideOpenAI, preflightOpenAIDecide, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
 import {
   OPENAI_SYNTHESIS_MODELS,
   OPENAI_SYNTHESIS_MEDIA_TYPES,
@@ -89,6 +89,7 @@ export const openaiProvider = {
     models: OPENAI_DECISION_MODELS,
   },
   decide: decideOpenAI,
+  preflightDecide: preflightOpenAIDecide,
   transcription: {
     defaultModel: OPENAI_TRANSCRIPTION_MODELS[0],
     models: OPENAI_TRANSCRIPTION_MODELS,

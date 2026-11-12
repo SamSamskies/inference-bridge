@@ -3,6 +3,8 @@ import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
 import { assertDecisionStream } from "./helpers/decisions-conformance.mjs";
+import images from "./fixtures/decision-images.json";
+import { decisionScreenshot } from "./helpers/decision-image.js";
 import payload from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
 import geminiFixture from "./fixtures/gemini-decisions-response.json";
@@ -160,6 +162,124 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
       expect(pageFetch).not.toHaveBeenCalled();
     });
 
+  it("transports a 4284 × 5712 decision image without resizing or a Bridge pixel cap", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 4284, height: 5712, close() {} })));
+    await storage.grantOriginOperationAlways(origin, "decide", { ...routes.gemini, imageMediaTypes: ["image/png"] });
+    const image = decisionScreenshot();
+    const input = { ...request, attachments: [{ ...image, data: new Blob([Buffer.from(image.data, "base64")], { type: image.mediaType }) }] };
+    await assertDecisionStream(input, inference.request(input));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body).input[1].data).toBe(image.data);
+    expect(packets.some((packet) => packet.chunk?.type === "accepted")).toBe(true);
+  });
+
+  it.each(["gemini", "openai"])("requires MIME-scoped media consent on %s and keeps exact image bytes", async (backend) => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 3, close() {} })));
+    const route = routes[backend];
+    await storage.grantOriginAlways(origin, { ...route, imageInput: true });
+    await storage.grantOriginOperationAlways(origin, "decide", route);
+    const makeRequest = (mediaType) => ({ ...structuredClone(request), attachments: [
+      { type: "image", mediaType, data: new Blob([Uint8Array.from(atob(images[mediaType]), (c) => c.charCodeAt(0))], { type: mediaType }) },
+    ] });
+    const first = makeRequest("image/png");
+    const pending = assertDecisionStream(first, inference.request(first));
+    let streamId;
+    await vi.waitFor(() => {
+      streamId = packets.filter((packet) => packet.type === "started").at(-1)?.streamId;
+      expect(permissions.getPendingApproval(streamId)?.attachmentSummaries).toEqual([
+        { index: 0, mediaType: "image/png", byteLength: atob(images["image/png"]).length, width: 2, height: 3 },
+      ]);
+    });
+    expect(permissions.getPendingApproval(streamId)).toMatchObject(route);
+    expect(JSON.stringify(permissions.getPendingApproval(streamId))).not.toContain(images["image/png"]);
+    expect(fetch).not.toHaveBeenCalled();
+    first.attachments[0].data = new Blob(["replaced"]);
+    permissions.resolveApproval(streamId, { decision: "always", ...route });
+    await pending;
+    const wire = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    if (backend === "gemini") expect(wire.input[1]).toEqual({ type: "image", data: images["image/png"], mime_type: "image/png" });
+    else expect(wire.input[0].content[1].image_url).toBe(`data:image/png;base64,${images["image/png"]}`);
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject({ ...route, imageMediaTypes: ["image/png"] });
+    expect(JSON.stringify(await storage.getSettings())).not.toContain(images["image/png"]);
+    fetch.mockClear();
+    await assertDecisionStream(makeRequest("image/png"), inference.request(makeRequest("image/png")));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(permissions.getPendingApproval(packets.filter((packet) => packet.type === "started").at(-1).streamId)).toBeNull();
+    const wider = makeRequest("image/jpeg");
+    const widening = assertDecisionStream(wider, inference.request(wider));
+    await vi.waitFor(() => {
+      streamId = packets.filter((packet) => packet.type === "started").at(-1)?.streamId;
+      expect(permissions.getPendingApproval(streamId)?.imageMediaTypes).toEqual(["image/jpeg"]);
+    });
+    permissions.resolveApproval(streamId, { decision: "always", ...route });
+    await widening;
+    expect((await storage.getOriginOperationGrant(origin, "decide")).imageMediaTypes).toEqual(["image/jpeg", "image/png"]);
+    await storage.setOriginOperationRoute(origin, "decide", route);
+    expect((await storage.getOriginOperationGrant(origin, "decide")).imageMediaTypes).toBeUndefined();
+    await assertDecisionStream(request, inference.request(request));
+    const fresh = makeRequest("image/png");
+    const denied = expect(assertDecisionStream(fresh, inference.request(fresh))).rejects.toMatchObject({ code: "permission_denied" });
+    await vi.waitFor(() => {
+      streamId = packets.filter((packet) => packet.type === "started").at(-1)?.streamId;
+      expect(permissions.getPendingApproval(streamId)?.imageMediaTypes).toEqual(["image/png"]);
+    });
+    permissions.resolveApproval(streamId, { decision: "deny", ...route });
+    await denied;
+    expect((await storage.getOriginOperationGrant(origin, "decide")).imageMediaTypes).toBeUndefined();
+    expect(pageFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects corrupt image bytes before consent or accepted", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => { throw new DOMException("corrupt", "InvalidStateError"); }));
+    const input = { ...request, attachments: [{ type: "image", mediaType: "image/png", data: images["image/png"] }] };
+    const chunks = [];
+    await expect((async () => { for await (const chunk of inference.request(input)) chunks.push(chunk); })())
+      .rejects.toMatchObject({ code: "invalid_request" });
+    expect(chunks).toEqual([]); expect(fetch).not.toHaveBeenCalled();
+    expect(permissions.getPendingApproval(packets.find((packet) => packet.type === "started").streamId)).toBeNull();
+  });
+
+  it("keeps unsupported saved media routes and fails before accepted without fallback", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 3, close() {} })));
+    await storage.grantOriginOperationAlways(origin, "decide", { ...routes.ppq, imageMediaTypes: ["image/png"] });
+    const input = { ...request, attachments: [{ type: "image", mediaType: "image/png", data: images["image/png"] }] };
+    const chunks = [];
+    await expect((async () => { for await (const chunk of inference.request(input)) chunks.push(chunk); })())
+      .rejects.toMatchObject({ code: "unavailable" });
+    expect(chunks).toEqual([]); expect(fetch).not.toHaveBeenCalled();
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(routes.ppq);
+  });
+
+  it("does not persist unsupported media approval or send inference", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 3, close() {} })));
+    await storage.revokeOriginOperation(origin, "decide");
+    const input = { ...request, attachments: [{ type: "image", mediaType: "image/png", data: images["image/png"] }] };
+    const pending = expect(assertDecisionStream(input, inference.request(input))).rejects.toMatchObject({ code: "unavailable" });
+    let streamId;
+    await vi.waitFor(() => {
+      streamId = packets.filter((packet) => packet.type === "started").at(-1)?.streamId;
+      expect(permissions.getPendingApproval(streamId)?.attachmentSummaries).toHaveLength(1);
+    });
+    permissions.resolveApproval(streamId, { decision: "always", ...routes.ppq });
+    await pending;
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("cancels local decoding and closes a late bitmap without consent or inference", async () => {
+    let resolve;
+    vi.stubGlobal("createImageBitmap", vi.fn(() => new Promise((done) => { resolve = done; })));
+    const controller = new AbortController();
+    const input = { ...request, signal: controller.signal, attachments: [{ type: "image", mediaType: "image/png", data: images["image/png"] }] };
+    const pending = expect(assertDecisionStream(input, inference.request(input))).rejects.toMatchObject({ code: "aborted" });
+    await vi.waitFor(() => expect(resolve).toBeTypeOf("function"));
+    controller.abort(); await pending;
+    const close = vi.fn(); resolve({ width: 2, height: 3, close });
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(packets.some((packet) => packet.chunk?.type === "accepted" || packet.chunk?.type === "done")).toBe(false);
+  });
+
   it.each([false, true])("completes typed refusals (all: %s)", async (all) => {
     const body = structuredClone(fixture);
     for (const id of all ? Object.keys(request.questions) : ["is_bug"]) body.answers[id] = { type: "refusal" };
@@ -202,7 +322,7 @@ describe.each(["Chrome", "Firefox"])("%s stable decision contract", (browser) =>
     input.questions.team.criteria.frontend = "mutated";
     permissions.resolveApproval(streamId, { decision: "always", ...routes.openrouter });
     await result;
-    expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).state).toEqual(request.state);
+    expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).state).toEqual(JSON.stringify(request.state));
     expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).questions).toEqual(request.questions);
     await storage.saveSettings({ defaultProviderId: "anthropic", operationDefaults: { decide: routes.openai } });
     fetch.mockClear();

@@ -1,6 +1,7 @@
 /** PPQ chat and provider-executed Auto web search. Catalogs for other methods
  * belong to their own descriptors; /v1/models is only the chat catalog.
  */
+import { preflightSystemOne } from "./system-one.js";
 import { DECISION_LIMITS } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { streamOpenAICompatChat } from "./openai-compat-stream.js";
@@ -99,6 +100,7 @@ export const ppqProvider = {
   defaultModel: "auto",
   supportsFunctionTools: true,
   hostedTools: Object.freeze(["web_search"]),
+  preflightDecide: (args) => preflightSystemOne({ ...args, providerId: "ppq", label: "PayPerQ" }),
   decisions: {
     ...DECISION_LIMITS.ppq,
     defaultModel: PPQ_DEFAULT_DECISION_MODEL,

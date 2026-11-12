@@ -248,7 +248,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     ]);
     const options = fetch.mock.calls.at(-1)[1];
     expect(options.headers.Authorization).toBe("Bearer ppq-key");
-    expect(JSON.parse(options.body)).toEqual({ model: ppq.model, ...request });
+    expect(JSON.parse(options.body)).toEqual({ model: ppq.model, ...request, state: JSON.stringify(request.state) });
     const settings = await storage.getSettings();
     expect(settings.defaultModels.ppq).toBe("auto");
     expect(settings.operationDefaults.decide).toEqual(ppq);

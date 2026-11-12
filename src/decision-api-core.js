@@ -108,10 +108,11 @@ function nativeError(cause, signal) {
   throw normalizeProviderError(cause, { signal });
 }
 
-export async function decideWithDecisionModel({ DecisionModel, state, questions, signal }) {
+export async function decideWithDecisionModel({ DecisionModel, state, questions, attachments, signal }) {
   let session;
   try {
     checkAbort(signal);
+    if (attachments?.length) throwInference("unavailable", "On-device decisions do not support native image attachments.");
     const validated = validateDecideRequest({ method: "decide", state, questions });
     if (!validated.ok) throwInference("invalid_request", validated.message);
     ({ state, questions } = validated.value);

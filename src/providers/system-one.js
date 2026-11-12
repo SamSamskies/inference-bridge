@@ -1,4 +1,5 @@
 /** The documented System One JSON protocol shared by cloud and local adapters. */
+import { validateDecisionImages, assertDecisionMediaSupported, DECISION_MEDIA_TRANSPORT_MAX_BYTES } from "../decision-media.js";
 import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
   normalizeDecisionResponse,
@@ -13,31 +14,38 @@ function fail(code, message) {
   throw error;
 }
 
-export async function requestSystemOne({
-  url,
-  label,
-  providerId,
-  apiKey,
-  model,
-  state,
-  questions,
-  signal,
-  mapStatus,
-}) {
+export function preflightSystemOne({ providerId, label, model, state, questions, attachments }) {
   const validated = validateDecideRequest({
-    method: "decide",
-    state,
-    questions,
+    method: "decide", state, questions,
+    ...(attachments !== undefined ? { attachments } : {}),
   });
   if (!validated.ok) fail("invalid_request", validated.message);
+  const request = validated.value;
   const limits = DECISION_LIMITS[providerId];
-  assertDecisionQuestionLimit(label, limits.maxQuestions, validated.value.questions);
-  const body = JSON.stringify({
-    model,
-    state: validated.value.state,
-    questions: validated.value.questions,
-  });
-  assertDecisionBodyLimit(label, limits.maxBodyBytes, body);
+  assertDecisionQuestionLimit(label, limits.maxQuestions, request.questions);
+  assertDecisionMediaSupported({ label, decisions: limits }, request.attachments);
+  // Aggregators may interpret native media-shaped state objects. Serialize JSON
+  // state as text so only the explicit attachment path can activate image input.
+  const textState = typeof request.state === "string" ? request.state : JSON.stringify(request.state);
+  const wire = { model, state: ["openrouter", "ppq"].includes(providerId) ? textState : request.state, questions: request.questions };
+  assertDecisionBodyLimit(label, limits.maxBodyBytes, JSON.stringify(wire));
+  if (request.attachments?.length) {
+    if (providerId === "openrouter") {
+      wire.state = [
+        { type: "text", text: typeof request.state === "string" ? request.state : JSON.stringify(request.state) },
+        ...request.attachments.map((image) => ({ type: "image_url", image_url: { url: `data:${image.mediaType};base64,${image.data}` } })),
+      ];
+    } else wire.images = request.attachments.map((image) => image.data);
+  }
+  const body = JSON.stringify(wire);
+  assertDecisionBodyLimit(label, limits.maxMediaBodyBytes ?? DECISION_MEDIA_TRANSPORT_MAX_BYTES, body);
+  return { request, body };
+}
+
+export async function requestSystemOne(args) {
+  const { url, label, apiKey, signal, mapStatus } = args;
+  const { request, body } = preflightSystemOne(args);
+  await validateDecisionImages(request.attachments, { signal });
   let response;
   try {
     response = await fetch(url, {
@@ -82,7 +90,7 @@ export async function requestSystemOne({
       fail("provider_error", `${label} returned invalid decision JSON.`);
     }
     if (signal?.aborted) fail("aborted", "Request aborted");
-    return normalizeDecisionResponse(result, validated.value.questions);
+    return normalizeDecisionResponse(result, request.questions);
   } catch (err) {
     if (signal?.aborted || err?.name === "AbortError")
       fail("aborted", "Request aborted");

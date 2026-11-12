@@ -105,7 +105,7 @@ describe("OpenAI Decisions", () => {
     // Nested JSON is encoded as text input, adding a second layer of escaping.
     const overhead = new TextEncoder().encode(JSON.stringify({ state: [""], questions: input.questions })).length;
     input.state = ['"'.repeat(Math.floor((DECISION_PAYLOAD_MAX_BYTES - overhead) / 2))];
-    await expect(openaiProvider.decide(input)).rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("1024 KiB") });
+    await expect(openaiProvider.decide(input)).rejects.toMatchObject({ code: "invalid_request", message: expect.stringContaining("1 MB") });
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each([

@@ -48,7 +48,7 @@ describe("Ollama Cloud discovery and readiness", () => {
   it("uses public exact cloud ids and separates operation catalogs", async () => {
     const mock = mockCloud();
     expect(await cloud.listModels({ apiKey })).toEqual([{ id: "gemma4:31b" }, { id: "gpt-oss:120b" }]);
-    expect(await cloud.decisions.listModels()).toEqual([{ id: "clef:27b" }]);
+    expect(await cloud.decisions.listModels()).toEqual([{ id: "clef:27b", inputModalities: ["text", "image"] }]);
     expect(await cloud.transcription.listModels()).toEqual([]);
     expect(await cloud.synthesis.listModels()).toEqual([]);
     expect(mock).toHaveBeenCalledTimes(4);

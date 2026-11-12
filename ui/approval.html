@@ -24,7 +24,7 @@
           <h2>Provider / model</h2>
           <label class="field">
             <span>Provider</span>
-            <select id="provider"></select>
+            <select id="provider" aria-describedby="providerHint modelHint capabilityWarning"></select>
             <p class="hint" id="providerHint" hidden></p>
           </label>
           <label class="field" id="modelField">
@@ -88,6 +88,8 @@
 
         <section class="panel stack images-panel" id="imagesPanel" hidden>
           <h2>Images</h2>
+          <p class="hint" id="decisionMediaSummary" hidden></p>
+          <ol class="tools-list" id="decisionAttachmentsList" hidden></ol>
           <ul class="tools-list" id="imagesList"></ul>
         </section>
 

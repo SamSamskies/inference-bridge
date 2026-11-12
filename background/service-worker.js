@@ -2,6 +2,7 @@
  * Service worker: permission gating, provider orchestration, streaming.
  */
 
+import { validateDecisionImages, assertDecisionMediaSupported } from "../src/decision-media.js";
 import { assertDecisionQuestionLimit } from "../src/providers/decision-limits.js";
 import { decisionApprovalPreview } from "../src/decisions.js";
 import { serializeInferenceError } from "../src/errors.js";
@@ -328,7 +329,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const catalog = providerMethodCatalog(p, method);
         return {
           operation: method,
-          ...(method === "decide" ? { maxQuestions: p.decisions?.maxQuestions } : {}),
+          ...(method === "decide" ? {
+            maxQuestions: p.decisions?.maxQuestions,
+            imageMediaTypes: p.decisions?.imageMediaTypes || [],
+            imageInputRequiresModelCapability: p.decisions?.imageInputRequiresModelCapability === true,
+            maxImageBytes: p.decisions?.maxImageBytes,
+            maxImagePixels: p.decisions?.maxImagePixels,
+            maxTotalImageBytes: p.decisions?.maxTotalImageBytes,
+            maxMediaBodyBytes: p.decisions?.maxMediaBodyBytes,
+          } : {}),
           id: p.id,
           label: p.label,
           requiresApiKey: Boolean(p.requiresApiKey),
@@ -838,6 +847,8 @@ async function handleDecideStart({
   if (!preferred)
     throw inferenceError("unavailable", "No provider supports decisions.");
   port.postMessage({ type: "started", streamId });
+  const attachmentSummaries = await validateDecisionImages(request.attachments, { signal: controller.signal });
+  if (controller.signal.aborted || !activeStreams.has(streamId)) return streamId;
   const permission = await ensureOperationPermission({
     requestId: streamId,
     origin,
@@ -845,6 +856,7 @@ async function handleDecideStart({
     preferredProviderId: preferred.id,
     preferredModel: storedDefault?.model || preferred.decisions.defaultModel,
     ...decisionApprovalPreview(request),
+    ...(attachmentSummaries.length ? { attachmentSummaries } : {}),
   });
   let entry = activeStreams.get(streamId);
   if (!entry || controller.signal.aborted) return streamId;
@@ -881,6 +893,7 @@ async function handleDecideStart({
   assertDecisionQuestionLimit(provider.label, provider.decisions.maxQuestions, request.questions);
   await provider.preflightDecide?.({
     model: permission.model, state: request.state, questions: request.questions,
+    ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
     signal: controller.signal,
   });
   const models = await resolveProviderModels(provider, {
@@ -896,6 +909,7 @@ async function handleDecideStart({
         : `Choose a model from the ${provider.label} Decisions catalog.`
     );
   }
+  assertDecisionMediaSupported(provider, request.attachments, models.find((model) => model.id === permission.model));
   if (controller.signal.aborted || !activeStreams.has(streamId))
     return streamId;
   entry.port.postMessage({ type: "chunk", chunk: { type: "accepted" } });
@@ -904,6 +918,7 @@ async function handleDecideStart({
     model: permission.model,
     state: request.state,
     questions: request.questions,
+    ...(request.attachments !== undefined ? { attachments: request.attachments } : {}),
     signal: controller.signal,
   });
   if (controller.signal.aborted || !activeStreams.has(streamId))

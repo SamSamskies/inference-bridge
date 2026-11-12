@@ -7,6 +7,7 @@ import {
   revokeOrigin,
   revokeAllOriginAccess,
   revokeOriginOperation,
+  setOriginOperationRoute,
   clearOriginToolsScope,
   clearOriginImageScope,
   setOriginProviderModel,
@@ -1780,6 +1781,7 @@ function createOperationGrantControl(grant) {
     provider,
     grant.model,
     ...(grant.voice ? [`Voice: ${grant.voice}`] : []),
+    ...(grant.operation === "decide" && grant.imageMediaTypes?.length ? [`Decision images: ${grant.imageMediaTypes.join(", ")}`] : []),
   ].join(" · ");
   meta.append(heading, details);
 
@@ -1801,6 +1803,21 @@ function createOperationGrantControl(grant) {
     }, button);
   });
   section.append(meta, button);
+  if (grant.operation === "decide" && grant.imageMediaTypes?.length) {
+    const revokeMedia = document.createElement("button");
+    revokeMedia.type = "button";
+    revokeMedia.className = "danger";
+    revokeMedia.textContent = "Revoke decision images";
+    revokeMedia.setAttribute("aria-label", `Revoke decision images for ${grant.origin}`);
+    revokeMedia.addEventListener("click", () => {
+      void runSiteAccessAction(async () => {
+        await setOriginOperationRoute(grant.origin, "decide", { providerId: grant.providerId, model: grant.model });
+        await renderAllowedSites(grant.origin);
+        setSiteAccessStatus(`Revoked decision images for ${grant.origin}. Text decisions remain allowed.`, "ok");
+      }, revokeMedia);
+    });
+    section.append(revokeMedia);
+  }
   return section;
 }
 

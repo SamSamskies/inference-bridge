@@ -69,7 +69,7 @@ describe.each(cases)("%s decision request limits", (providerId, model, maximum) 
     const input = args(1, { state: "x".repeat(100 * 1024) });
     if (providerId === "ollama") {
       await expect(getProvider(providerId).decide(input)).rejects.toMatchObject({
-        code: "invalid_request", message: expect.stringContaining("64 KiB"),
+        code: "invalid_request", message: expect.stringContaining("65.5 kB"),
       });
       expect(fetch.mock.calls.some(([url]) => url.endsWith("/v1/systemone"))).toBe(false);
     } else {
@@ -98,5 +98,5 @@ it("uses the same provider descriptor in approval messages and enforces exact UT
   expect(decisionQuestionLimitMessage("OpenAI", DECISION_LIMITS.openai.maxQuestions, 401)).toContain("400");
   const body = "😀".repeat(DECISION_PAYLOAD_MAX_BYTES / 4);
   expect(() => assertDecisionBodyLimit("Provider", DECISION_PAYLOAD_MAX_BYTES, body)).not.toThrow();
-  expect(() => assertDecisionBodyLimit("Provider", DECISION_PAYLOAD_MAX_BYTES, body + "a")).toThrow(/1024 KiB/);
+  expect(() => assertDecisionBodyLimit("Provider", DECISION_PAYLOAD_MAX_BYTES, body + "a")).toThrow(/1 MB/);
 });

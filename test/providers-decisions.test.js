@@ -291,7 +291,7 @@ describe.each([
           ? { Authorization: "Bearer stored-key" }
           : {}),
       },
-      body: JSON.stringify({ model, ...request }),
+      body: JSON.stringify({ model, ...request, ...(provider.id === "openrouter" ? { state: JSON.stringify(request.state) } : {}) }),
       signal: input.signal,
     });
   });

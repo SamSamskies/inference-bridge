@@ -1,4 +1,5 @@
 import { createModelCapabilityCheck } from "./model-capability-check.js";
+import { formatBytes } from "../src/format-bytes.js";
 import { UNKNOWN_MODEL_CAPABILITIES } from "../src/providers/model-capabilities.js";
 import {
   isModelValid,
@@ -32,6 +33,7 @@ import {
 import { geminiModelNote, geminiRequestWarning } from "../src/providers/gemini-capabilities.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "../src/chat-options.js";
 import { isPlausibleModelForProvider } from "../src/storage-local.js";
+import { assertDecisionMediaSupported } from "../src/decision-media.js";
 import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
 
@@ -95,6 +97,8 @@ const toolsPanel = document.getElementById("toolsPanel");
 const toolsList = document.getElementById("toolsList");
 const imagesPanel = document.getElementById("imagesPanel");
 const imagesList = document.getElementById("imagesList");
+const decisionMediaSummary = document.getElementById("decisionMediaSummary");
+const decisionAttachmentsList = document.getElementById("decisionAttachmentsList");
 const previewEl = document.getElementById("preview");
 const errorEl = document.getElementById("error");
 const rememberInput = document.getElementById("remember");
@@ -118,6 +122,7 @@ let requestMethod = "chat";
 let requestMediaType = "";
 /** Number of typed questions in a pending decide request. */
 let requestQuestionCount = 0;
+let requestAttachmentSummaries = [];
 let voicesReady = true;
 let requestPreferredProviderId = "";
 let requestPreferredVoice = "";
@@ -180,7 +185,7 @@ function showError(message) {
 }
 
 function setModelHint(message) {
-  message = decisionLimitWarning() || message;
+  message = decisionLimitWarning() || decisionMediaWarning() || message;
   if (!message) {
     modelHint.hidden = true;
     modelHint.textContent = "";
@@ -219,6 +224,7 @@ function updateCapabilityWarning(providerId = providerSelect.value) {
     ...capabilityWarnings(provider, requestTools, requestToolChoice),
     ...imageCapabilityWarnings(provider, request, selectedModelCapabilities),
     ...(geminiApprovalWarning() ? [geminiApprovalWarning()] : []),
+    ...(decisionMediaWarning() ? [decisionMediaWarning()] : []),
   ];
   const notes = imageCapabilityNotes(request, selectedModelCapabilities);
   if (warnings.length === 0 && notes.length === 0) {
@@ -241,6 +247,24 @@ function geminiApprovalWarning() {
 
 function renderImages() {
   imagesList.replaceChildren();
+  decisionAttachmentsList.replaceChildren();
+  decisionMediaSummary.hidden = true;
+  decisionAttachmentsList.hidden = true;
+  imagesList.hidden = false;
+  if (requestMethod === "decide" && requestAttachmentSummaries.length) {
+    imagesPanel.hidden = false;
+    decisionMediaSummary.hidden = false;
+    decisionAttachmentsList.hidden = false;
+    imagesList.hidden = true;
+    const total = requestAttachmentSummaries.reduce((sum, image) => sum + image.byteLength, 0);
+    decisionMediaSummary.textContent = `Native decision image input: ${requestAttachmentSummaries.length} attachments, ${formatBytes(total)} total. Every image will be sent to the selected provider and shared by all questions.`;
+    for (const image of requestAttachmentSummaries) {
+      const item = document.createElement("li");
+      item.textContent = `Attachment ${image.index} · ${image.mediaType} · ${formatBytes(image.byteLength)}`;
+      decisionAttachmentsList.append(item);
+    }
+    return;
+  }
   if (!requestImageInput && !requestImageOutput) {
     imagesPanel.hidden = true;
     return;
@@ -429,6 +453,16 @@ function populateModelControl(providerId, models, selected, opts = {}) {
   updateClearModelButton();
 }
 
+function decisionMediaWarning() {
+  if (requestMethod !== "decide" || !requestAttachmentSummaries.length) return "";
+  const provider = providers.find((p) => p.id === providerSelect.value);
+  try {
+    assertDecisionMediaSupported({ label: provider?.label, decisions: provider || {} }, requestAttachmentSummaries,
+      currentModels.find((model) => model.id === readModelValue(providerSelect.value)) || {});
+    return "";
+  } catch (error) { return error.message; }
+}
+
 function decisionLimitWarning() {
   if (requestMethod !== "decide") return "";
   const provider = providers.find((p) => p.id === providerSelect.value);
@@ -440,6 +474,7 @@ function updateAllowEnabled() {
     // Hard page error already disables controls.
     return;
   }
+  updateCapabilityWarning();
   const providerId = providerSelect.value;
   const provider = providers.find((p) => p.id === providerId);
   const providerReady = provider
@@ -463,6 +498,7 @@ function updateAllowEnabled() {
   allowBtn.disabled =
     !providerReady ||
     Boolean(decisionLimitWarning()) ||
+    Boolean(decisionMediaWarning()) ||
     !modelsReady ||
     !voicesReady ||
     (requestMethod === "synthesize" && !voiceSelect.value) ||
@@ -1017,7 +1053,7 @@ async function decide(action) {
       blocksAllowForRequestTools(provider, requestTools, requestToolChoice) ||
       Boolean(geminiApprovalWarning()) ||
       imagesBlockAllow() ||
-      Boolean(decisionLimitWarning())
+      Boolean(decisionLimitWarning()) || Boolean(decisionMediaWarning())
     ) {
       updateProviderHint(providerId);
       updateCapabilityWarning(providerId);
@@ -1123,6 +1159,7 @@ async function load() {
       : "chat";
   requestMediaType =
     typeof request.mediaType === "string" ? request.mediaType : "";
+  requestAttachmentSummaries = requestMethod === "decide" && Array.isArray(request.attachmentSummaries) ? request.attachmentSummaries : [];
   requestQuestionCount =
     requestMethod === "decide" && Array.isArray(request.questionSummaries)
       ? request.questionSummaries.length

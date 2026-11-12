@@ -23,7 +23,8 @@ export async function listOnDeviceDecisionModels({ signal } = {}) {
     : [];
 }
 
-export async function preflightOnDeviceDecide({ model, questions, signal }) {
+export async function preflightOnDeviceDecide({ model, questions, attachments, signal }) {
+  if (attachments?.length) throwInference("unavailable", "On-device decisions do not support native image attachments.");
   if (signal?.aborted) throwInference("aborted", "Request aborted");
   if (model !== ON_DEVICE_MODEL_ID) throwInference("unavailable", "Choose the browser-chosen on-device decision model.");
   const status = await getOnDeviceDecisionAvailability({ questions });
@@ -31,8 +32,8 @@ export async function preflightOnDeviceDecide({ model, questions, signal }) {
   assertDecisionModelAvailable(status);
 }
 
-export async function decideOnDevice({ model, state, questions, signal }) {
-  await preflightOnDeviceDecide({ model, questions, signal });
+export async function decideOnDevice({ model, state, questions, attachments, signal }) {
+  await preflightOnDeviceDecide({ model, questions, attachments, signal });
   const requestId = `decision_${crypto.randomUUID()}`;
   const abort = () => {
     void sendPromptApiOffscreenMessage({ type: "prompt-api-abort-stream", requestId }).catch(() => {});

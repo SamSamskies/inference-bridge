@@ -779,8 +779,8 @@ fails with `unavailable`; discovery does not promise provider availability.
   types are supported. String state stays text; objects and arrays become JSON
   text, so media-shaped JSON is never interpreted as uploads or URLs. Bridge
   supports up to 1,000 questions per request. Choice and score questions retain
-  the IPA limits of 26 options and 10 levels; native media inputs remain outside
-  this envelope.
+  the IPA limits of 26 options and 10 levels. Shared image attachments use native
+  image content blocks; audio, video, and PDFs remain outside this envelope.
   Score descriptions must be non-empty. Question and choice keys are aliased on
   the wire and restored in answers; choice labels are retained in descriptions,
   including when an IPA description is null. Optional `noul` criteria map to
@@ -878,9 +878,10 @@ string/null descriptions; Score criteria contain 2–10 ordered strings.
 Bridge's resource limits are **1,000 questions** and **1 MiB (1,048,576 bytes)**
 for the UTF-8 encoding of `JSON.stringify({ state, questions })`, with at most
 64 JSON nesting levels. These are implementation limits; IPA does not fix
-universal question-count or payload-size maxima. Each complete cloud request
-body (including the model, translated input and questions) must also fit within
-**1 MiB**. Local Ollama's complete JSON body must fit within **64 KiB**.
+universal question-count or payload-size maxima. Each cloud request's text/schema
+body (including the model and translated input/questions, excluding image data)
+must also fit within **1 MiB**. Local Ollama's text/schema JSON body must fit
+within **64 KiB**. Images have the separate decoded and encoded budgets below.
 
 | Provider | Maximum questions per request |
 | --- | --- |
@@ -897,14 +898,112 @@ saved grants and direct adapter calls enforce the same limits. Limit errors
 return `invalid_request` with a useful explanation. Bridge never truncates
 questions or state or automatically splits a request to fit a limit.
 Unknown request/question fields, cycles, binary values, and non-JSON values are
-rejected with `invalid_request` before approval. There are no tools, images,
-audio, video, or URL fetching semantics in decision state.
+rejected with `invalid_request` before approval. There are no tools, media, or
+URL fetching semantics inside decision state. Native images must be explicit
+`attachments`, as described below.
 
 Bridge validates the complete result before `done`. Choices must select a maximum
 probability option (ties are allowed); scores must match the normalized weighted
 level index within 0.02 and preserve the requested legend. Distributions must sum
 to 1 within 0.02. Malformed answers fail with `provider_error`, without a `done`;
 Bridge does not repair them, turn them into refusals, or fall back to chat.
+
+### Native decision images
+
+Feature-detect `getFeatures().decisionMedia?.imageMediaTypes` independently of
+chat `imageInput`. Bridge advertises **JPEG, PNG, and WebP**. Both stable and
+experimental discovery preserve boolean `methods.decide: true`; discovery is
+synchronous and independent of the selected provider, credentials, and grants.
+
+A decision request may include `attachments: [{ type: "image", mediaType, data }]`.
+`data` is a page-owned `Blob`/`File` or canonical raw base64, with an explicit
+advertised MIME type. Nonempty Blob MIME types must match exactly. Omission and
+`attachments: []` remain text-only. Attachments are shared by every question in
+array order; instructions can refer to attachment 0, attachment 1, and so on.
+URLs and provider file handles are rejected. JSON/media-shaped objects inside
+`state` remain ordinary data. Bridge never fetches decision URLs, rewrites or
+resizes images, substitutes captions/OCR, or drops images to complete a request.
+
+| Decision route | Native image input |
+| --- | --- |
+| Google Gemini (`gemini-decision-1`) | Inline native image content blocks |
+| OpenAI (`gpt-6-luna`) | Native `input_image` parts alongside complete state |
+| Ollama local / Cloud | Native `images` array; `/api/show` must advertise both decision and vision support |
+| OpenRouter | Native `image_url` content parts; the separate decision catalog must advertise image input |
+| PayPerQ / Chrome On-device | Unavailable; Bridge has no verified native decision-image protocol for these routes |
+
+Bridge accepts at most **4 attachments**, **20 MB (20,000,000 decoded bytes) per
+image**, and **32 MB (32,000,000 decoded bytes) total**. Bridge imposes no image
+dimension or megapixel cap. Each image must be static; animated PNG and WebP
+are rejected, and GIF is not advertised. These are Bridge limits. Format,
+container checksums where applicable, dimensions, and actual browser decoding
+are checked before prompting. Base64/Blob sizes are checked before decoding to
+bound allocations. Images count once per request, independently of question
+count. The complete encoded page request and provider body, including base64,
+metadata, state, questions, and envelope fields, must each fit within **48 MB
+(48,000,000 UTF-8 bytes)**. The 1 MiB JSON-state budget excludes attachments.
+These budgets bound extension memory and transport; they are not provider maxima.
+
+Smaller provider limits also apply. [Ollama Cloud](https://docs.ollama.com/api/systemone)
+allows **4 MiB and 16 megapixels per image**, **8 MiB total decoded**, and **13 MiB for the encoded
+request body** (4,194,304 / 8,388,608 / 13,631,488 bytes). Local Ollama allows a
+**32 MiB encoded body** (33,554,432 bytes), with its separate 64 KiB text/schema
+budget. Approval and errors use decimal **MB** and **kB** for readability: for
+example, Ollama Cloud's per-image limit displays as **4.2 MB**. Errors include
+both the actual size and the applicable limit; exact bytes disambiguate rounded
+values near the boundary. Other upstream model/context limits can still reject
+a request below these caps.
+
+Decision images need a separate MIME-scoped grant for the exact origin,
+provider, and model. Existing text-decision and chat-image grants do not cover
+them. Approval lists every attachment's index, MIME type, decoded size, count,
+and total size. Remembering a media approval covers future images of those
+types; adding a type requires fresh approval. **Site access → Allowed sites**
+shows the granted types and offers **Revoke decision images** independently of
+text decisions. No media bytes or previews are stored in grants.
+
+Unsupported routes are disabled in approval and fail with `unavailable` if
+invoked through a saved grant. Invalid media and exceeded limits fail with
+`invalid_request`. Known preflight failures produce no `accepted`; a later
+upstream error produces no `done`. All media is forwarded inline; Bridge creates
+no temporary provider files or handles. Cancellation stops encoding/validation
+and native requests, suppresses late results, and closes decoded bitmap buffers.
+
+Paste this into a secure page's DevTools console, then choose an image with the
+new file control. The selected decision route must support native images:
+
+```js
+const features = window.inference?.getFeatures?.();
+const imageTypes = features?.decisionMedia?.imageMediaTypes ?? [];
+if (features?.methods?.decide !== true || imageTypes.length === 0) {
+  throw new Error("This page needs native decision image support.");
+}
+const picker = document.createElement("input");
+picker.type = "file";
+picker.accept = imageTypes.join(",");
+picker.setAttribute("aria-label", "Choose an image for typed decisions");
+picker.addEventListener("change", async () => {
+  const image = picker.files?.[0];
+  if (!image) return;
+  try {
+    if (!imageTypes.includes(image.type)) throw new Error("Unsupported image type.");
+    for await (const chunk of window.inference.request({
+      method: "decide",
+      state: { task: "Inspect the attached photo." },
+      attachments: [{ type: "image", mediaType: image.type, data: image }],
+      questions: {
+        visible_damage: {
+          type: "noul",
+          instructions: "Does attachment 0 show physical damage?",
+        },
+      },
+    })) console.log(chunk);
+  } catch (error) {
+    console.error(error.code, error.message); // Includes unsupported-route failures.
+  }
+});
+document.body.append(picker);
+```
 
 ## Experimental compatibility
 
@@ -1142,6 +1241,8 @@ OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:
 - [ ] Stable discovery immediately reports `methods.decide: true`; stable `request({ method: "decide", ... })` works, and the deprecated experimental alias reports the same optional methods
 - [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
 - [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
+- [ ] Decision image requests preview ordered attachment types/sizes; chat and old decision grants prompt again, adding a MIME type prompts again, and Revoke decision images preserves text decisions
+- [ ] Native decision JPEG/PNG/WebP reaches Gemini, OpenAI, a vision-capable Ollama local/Cloud model, and a vision-capable OpenRouter decision model without fetching URLs or converting bytes; corrupt/oversized input and unsupported routes fail before accepted
 - [ ] Google Gemini offers `gemini-decision-1` in Decisions and completes the same console example using its saved AI Studio key and separate site approval; cancellation stops the request, and the model never appears in the chat picker
 - [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
 - [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint

@@ -677,7 +677,8 @@
             serializable = prepared.request;
             uploadSource = prepared.source;
           } else if (serializable.method === "decide") {
-            serializable = snapshotDecisionRequest(serializable);
+            sourceController = new AbortController();
+            serializable = await snapshotDecisionRequest(serializable, sourceController.signal);
           } else if (serializable.method === "synthesize") {
             synthesisMediaType = serializable.output?.mediaType ?? "audio/mpeg";
             serializable.output = { mediaType: synthesisMediaType };
@@ -1010,7 +1011,7 @@
     "signal",
   ]);
   const DECIDE_FIELDS = new Set([
-    "method", "state", "questions", "signal",
+    "method", "state", "questions", "attachments", "signal",
   ]);
   const TRANSCRIPTION_MEDIA_FIELDS = new Set(["data", "url", "mediaType"]);
 
@@ -1111,7 +1112,23 @@
 
   // Repeat JSON checks before crossing Chrome's JSON / Firefox's clone boundary.
   // Detailed question validation and byte limits are also enforced by the worker.
-  function snapshotDecisionRequest(request) {
+  // MAIN-world code cannot import modules. Keep these bounds and formatting in
+  // sync with src/decision-media.js and src/format-bytes.js.
+  const DECISION_IMAGE_MAX_BYTES = 20_000_000;
+  const DECISION_IMAGES_MAX_BYTES = 32_000_000;
+  const DECISION_MEDIA_TRANSPORT_MAX_BYTES = 48_000_000;
+  function formatDecisionBytes(bytes) {
+    if (bytes < 1000) return `${bytes} B`;
+    const divisor = bytes < 1_000_000 ? 1000 : 1_000_000;
+    return `${Number((bytes / divisor).toFixed(1))} ${divisor === 1000 ? "kB" : "MB"}`;
+  }
+  function decisionByteLimitMessage(subject, bytes, limit) {
+    const size = formatDecisionBytes(bytes), maximum = formatDecisionBytes(limit);
+    const exact = size === maximum ? ` (${bytes.toLocaleString("en-US")} > ${limit.toLocaleString("en-US")} bytes)` : "";
+    return `${subject} is ${size}; the limit is ${maximum}${exact}.`;
+  }
+
+  async function snapshotDecisionRequest(request, signal) {
     if (
       typeof request.state !== "string" &&
       (!request.state || typeof request.state !== "object")
@@ -1164,8 +1181,86 @@
         throw new Error(
           "Serialized state and questions exceed Bridge's 1 MiB (1048576 UTF-8 bytes) decision payload limit."
         );
-      return { method: "decide", ...JSON.parse(json) };
+      const result = { method: "decide", ...JSON.parse(json) };
+      if (Object.prototype.hasOwnProperty.call(request, "attachments")) {
+        const supported = ["image/jpeg", "image/png", "image/webp"];
+        if (!Array.isArray(request.attachments) || request.attachments.length > 4)
+          throw new Error("Decision attachments must be a dense array of at most 4 images.");
+        let total = 0;
+        // Copy every field and immutable Blob reference before the first await.
+        const images = [];
+        for (let index = 0; index < request.attachments.length; index += 1) {
+          const image = request.attachments[index];
+          const proto = image && typeof image === "object" ? Object.getPrototypeOf(image) : undefined;
+          const plain = proto === null || (proto && Object.getPrototypeOf(proto) === null && proto.constructor?.name === "Object");
+          if (!Object.prototype.hasOwnProperty.call(request.attachments, index) || !plain || Array.isArray(image) ||
+              Object.keys(image).length !== 3 || Object.keys(image).some((key) => !["type", "mediaType", "data"].includes(key)) ||
+              image.type !== "image" || !supported.includes(image.mediaType))
+            throw new Error(`Decision attachment ${index}: expected type, advertised mediaType, and data only.`);
+          const blob = typeof Blob !== "undefined" && image.data instanceof Blob;
+          let size;
+          if (blob) {
+            if (image.data.type && image.data.type !== image.mediaType)
+              throw new Error(`Decision attachment ${index}: Blob type must match mediaType exactly.`);
+            size = image.data.size;
+          } else {
+            const data = image.data;
+            if (typeof data !== "string" || !data || data.length % 4 !== 0)
+              throw new Error(`Decision attachment ${index}: invalid or oversized raw base64.`);
+            const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+            size = data.length / 4 * 3 - padding;
+            if (size > DECISION_IMAGE_MAX_BYTES)
+              throw new Error(decisionByteLimitMessage(`Decision attachment ${index}`, size, DECISION_IMAGE_MAX_BYTES));
+            if (/[^A-Za-z0-9+/]/.test(data.slice(0, data.length - padding)))
+              throw new Error(`Decision attachment ${index}: invalid raw base64.`);
+            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            if ((padding === 2 && (alphabet.indexOf(data.at(-3)) & 15)) || (padding === 1 && (alphabet.indexOf(data.at(-2)) & 3)))
+              throw new Error(`Decision attachment ${index}: noncanonical base64 padding.`);
+            size = data.length / 4 * 3 - padding;
+          }
+          if (!size) throw new Error(`Decision attachment ${index}: image must not be empty.`);
+          if (size > DECISION_IMAGE_MAX_BYTES)
+            throw new Error(decisionByteLimitMessage(`Decision attachment ${index}`, size, DECISION_IMAGE_MAX_BYTES));
+          total += size;
+          if (total > DECISION_IMAGES_MAX_BYTES) throw new Error(decisionByteLimitMessage("Total decoded images", total, DECISION_IMAGES_MAX_BYTES));
+          images.push({ type: "image", mediaType: image.mediaType, data: image.data, blob, byteLength: size });
+        }
+        result.attachments = [];
+        for (const image of images) {
+          if (signal?.aborted) throw makeError("aborted", "Request aborted");
+          let data = image.data;
+          if (image.blob) {
+            let onAbort;
+            let buffer;
+            try {
+              buffer = await Promise.race([
+                data.arrayBuffer(),
+                new Promise((_, reject) => {
+                  onAbort = () => reject(makeError("aborted", "Request aborted"));
+                  signal?.addEventListener("abort", onAbort, { once: true });
+                  if (signal?.aborted) onAbort();
+                }),
+              ]);
+            } finally { signal?.removeEventListener("abort", onAbort); }
+            if (signal?.aborted) throw makeError("aborted", "Request aborted");
+            if (buffer.byteLength !== image.byteLength || buffer.byteLength > DECISION_IMAGE_MAX_BYTES)
+              throw new Error("Decision Blob bytes changed while reading the image.");
+            const bytes = new Uint8Array(buffer);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000)
+              binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            data = btoa(binary);
+          }
+          result.attachments.push({ type: "image", mediaType: image.mediaType, data });
+        }
+      }
+      if (signal?.aborted) throw makeError("aborted", "Request aborted");
+      const transportBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+      if (transportBytes > DECISION_MEDIA_TRANSPORT_MAX_BYTES)
+        throw new Error(decisionByteLimitMessage("Encoded decision request", transportBytes, DECISION_MEDIA_TRANSPORT_MAX_BYTES));
+      return result;
     } catch (err) {
+      if (err?.code === "aborted") throw err;
       throw makeError(
         "invalid_request",
         err instanceof Error ? err.message : "Invalid decision JSON."
@@ -1246,6 +1341,7 @@
       getFeatures() {
         return {
           methods: getOptionalMethods(),
+          decisionMedia: { imageMediaTypes: ["image/jpeg", "image/png", "image/webp"] },
           toolCalling: true,
           webSearch: true,
           imageInput: true,
@@ -1259,6 +1355,7 @@
         },
         getFeatures() {
           return {
+            decisionMedia: { imageMediaTypes: ["image/jpeg", "image/png", "image/webp"] },
             methods: {
               chat: true,
               ...getOptionalMethods(),

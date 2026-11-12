@@ -43,7 +43,7 @@ async function removeSettingsKeys(keys) {
  * @typedef {{ providerId: string, model?: string, usedAt: number }} OriginLastUsed
  * @typedef {{ id: string, name: string, baseUrl: string }} CompatEndpoint
  * @typedef {"decide" | "transcribe" | "synthesize"} ExperimentalOperation
- * @typedef {{ providerId: string, model: string, voice?: string }} OperationRoute
+ * @typedef {{ providerId: string, model: string, voice?: string, imageMediaTypes?: string[] }} OperationRoute
  * @typedef {OperationRoute & { allowedAt: number }} OperationGrant
  * @typedef {OperationRoute & { usedAt: number }} OperationLastUsed
  * @typedef {Partial<Record<ExperimentalOperation, OperationRoute>>} OperationDefaults
@@ -253,6 +253,9 @@ function normalizeOperationRoute(value, operation) {
     providerId,
     model,
     ...(operation === "synthesize" ? { voice } : {}),
+    ...(operation === "decide" && Array.isArray(value.imageMediaTypes) && value.imageMediaTypes.length && value.imageMediaTypes.length <= 3 &&
+      Array.from(value.imageMediaTypes).every((type) => ["image/jpeg", "image/png", "image/webp"].includes(type))
+      ? { imageMediaTypes: [...new Set(value.imageMediaTypes)].sort() } : {}),
   };
 }
 

@@ -140,6 +140,12 @@
  *   decisions?: {
  *     maxQuestions?: number,
  *     maxBodyBytes?: number,
+ *     imageMediaTypes?: readonly string[],
+ *     maxImageBytes?: number,
+ *     maxImagePixels?: number,
+ *     maxTotalImageBytes?: number,
+ *     maxMediaBodyBytes?: number,
+ *     imageInputRequiresModelCapability?: boolean,
  *     defaultModel: string,
  *     models?: readonly (string | ModelInfo)[],
  *     listModels?: (args?: { signal?: AbortSignal, apiKey?: string }) => Promise<ModelInfo[]>,
@@ -148,6 +154,7 @@
  *     apiKey?: string,
  *     model: string,
  *     state: string | Record<string, unknown> | unknown[],
+ *     attachments?: Array<{ type: "image", mediaType: string, data: string }>,
  *     questions: Record<string, DecideQuestion>,
  *     signal: AbortSignal,
  *   }) => Promise<{
@@ -158,7 +165,7 @@
  *   transcription?: TranscriptionDescriptor,
  *   synthesis?: SynthesisDescriptor,
  *   preflightMessages?: (messages: ChatMessage[]) => void,
- *   preflightDecide?: (args: { model: string, state: string | Record<string, unknown> | unknown[], questions: Record<string, DecideQuestion>, signal: AbortSignal }) => void | Promise<void>,
+ *   preflightDecide?: (args: { model: string, state: string | Record<string, unknown> | unknown[], questions: Record<string, DecideQuestion>, attachments?: Array<{ type: "image", mediaType: string, data: string }>, signal: AbortSignal }) => unknown | Promise<unknown>,
  *   preflightChat?: (args: { model: string, messages: ChatMessage[], apiKey?: string, signal?: AbortSignal, origin?: string, tools?: Tool[], toolChoice?: ToolChoice, options?: InferenceOptions, output?: { images?: boolean } }) => void | Promise<void>,
  *   transcribe?: (args: {
  *     apiKey?: string,

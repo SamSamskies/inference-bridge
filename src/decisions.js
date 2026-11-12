@@ -1,4 +1,6 @@
 /** IPA typed decision validation with documented Bridge resource limits. */
+import { snapshotDecisionAttachments, decisionImageByteLength, decisionMediaTypes, DECISION_MEDIA_TRANSPORT_MAX_BYTES } from "./decision-media.js";
+import { byteLimitMessage } from "./format-bytes.js";
 export const DECISION_PAYLOAD_MAX_BYTES = 1024 * 1024;
 export const DECISION_BODY_MAX_BYTES = 1024 * 1024;
 export const DECISION_MAX_QUESTIONS = 1000;
@@ -55,7 +57,7 @@ function assertJson(value, ancestors = new Set(), depth = 0) {
 export function validateDecideRequest(req) {
   const invalid = (message) => ({ ok: false, message });
   const unknown = Object.keys(req).find(
-    (key) => !["method", "state", "questions", "signal"].includes(key)
+    (key) => !["method", "state", "questions", "attachments", "signal"].includes(key)
   );
   if (unknown)
     return invalid(`Field "${unknown}" is not valid for method "decide".`);
@@ -140,7 +142,12 @@ export function validateDecideRequest(req) {
       return invalid(
         "Serialized state and questions exceed Bridge's 1 MiB (1048576 UTF-8 bytes) decision payload limit."
       );
-    return { ok: true, value: { method: "decide", ...JSON.parse(json) } };
+    const attachments = own(req, "attachments") ? snapshotDecisionAttachments(req.attachments) : undefined;
+    const value = { method: "decide", ...JSON.parse(json), ...(attachments ? { attachments } : {}) };
+    const transportBytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    if (transportBytes > DECISION_MEDIA_TRANSPORT_MAX_BYTES)
+      return invalid(byteLimitMessage("Encoded decision request", transportBytes, DECISION_MEDIA_TRANSPORT_MAX_BYTES));
+    return { ok: true, value };
   } catch (err) {
     return invalid(
       err instanceof Error ? err.message : "state and questions must be JSON."
@@ -278,6 +285,10 @@ export function decisionApprovalPreview(request) {
       : JSON.stringify(request.state);
   return {
     stateSummary: text.length > 1200 ? `${text.slice(0, 1200)}…` : text,
+    ...(request.attachments?.length ? {
+      attachmentSummaries: request.attachments.map((image, index) => ({ index, mediaType: image.mediaType, byteLength: decisionImageByteLength(image.data, index) })),
+      imageMediaTypes: decisionMediaTypes(request.attachments),
+    } : {}),
     questionSummaries: Object.entries(request.questions).map(
       ([id, question]) => ({ id, type: question.type })
     ),

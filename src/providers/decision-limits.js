@@ -1,18 +1,26 @@
 /** Adapter-owned limits; these are Bridge/provider limits, not IPA maxima. */
+import { DECISION_IMAGE_MEDIA_TYPES, DECISION_IMAGE_MAX_BYTES, DECISION_IMAGES_MAX_BYTES, DECISION_MEDIA_TRANSPORT_MAX_BYTES } from "../decision-media.js";
+import { byteLimitMessage } from "../format-bytes.js";
 import { DECISION_BODY_MAX_BYTES, DECISION_MAX_QUESTIONS } from "../decisions.js";
 
+const imageLimits = {
+  imageMediaTypes: DECISION_IMAGE_MEDIA_TYPES,
+  maxImageBytes: DECISION_IMAGE_MAX_BYTES,
+  maxTotalImageBytes: DECISION_IMAGES_MAX_BYTES,
+  maxMediaBodyBytes: DECISION_MEDIA_TRANSPORT_MAX_BYTES,
+};
 export const DECISION_LIMITS = Object.freeze({
   // https://developers.openai.com/api/docs/guides/decisions#ask-multiple-questions
-  openai: Object.freeze({ maxQuestions: 400, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
+  openai: Object.freeze({ ...imageLimits, maxQuestions: 400, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
   // https://aistudio.google.com/docs/decisions-api#limits
-  gemini: Object.freeze({ maxQuestions: 1000, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
+  gemini: Object.freeze({ ...imageLimits, maxQuestions: 1000, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
   // https://docs.ollama.com/openapi.yaml — SystemOneRequest.questions.maxProperties
-  ollama: Object.freeze({ maxQuestions: 64, maxBodyBytes: 64 * 1024 }),
-  "ollama-cloud": Object.freeze({ maxQuestions: 64, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
+  ollama: Object.freeze({ ...imageLimits, maxMediaBodyBytes: 32 * 1024 * 1024, imageInputRequiresModelCapability: true, maxQuestions: 64, maxBodyBytes: 64 * 1024 }),
+  "ollama-cloud": Object.freeze({ ...imageLimits, maxImageBytes: 4 * 1024 * 1024, maxImagePixels: 16_000_000, maxTotalImageBytes: 8 * 1024 * 1024, maxMediaBodyBytes: 13 * 1024 * 1024, imageInputRequiresModelCapability: true, maxQuestions: 64, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
   "on-device": Object.freeze({ maxQuestions: 16 }),
   // Neither aggregator documents a fixed maximum. Keep Bridge's resource cap;
   // selected upstream models may reject smaller requests with invalid_request.
-  openrouter: Object.freeze({ maxQuestions: DECISION_MAX_QUESTIONS, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
+  openrouter: Object.freeze({ ...imageLimits, imageInputRequiresModelCapability: true, maxQuestions: DECISION_MAX_QUESTIONS, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
   ppq: Object.freeze({ maxQuestions: DECISION_MAX_QUESTIONS, maxBodyBytes: DECISION_BODY_MAX_BYTES }),
 });
 
@@ -29,9 +37,10 @@ export function assertDecisionQuestionLimit(label, maxQuestions, questions) {
 }
 
 export function assertDecisionBodyLimit(label, maxBodyBytes, body) {
-  if (new TextEncoder().encode(body).byteLength > maxBodyBytes) {
+  const bytes = new TextEncoder().encode(body).byteLength;
+  if (bytes > maxBodyBytes) {
     throw Object.assign(new Error(
-      `${label} decision request body exceeds ${maxBodyBytes / 1024} KiB (${maxBodyBytes} UTF-8 bytes), including the model and translated questions.`
+      byteLimitMessage(`${label} encoded decision request body`, bytes, maxBodyBytes)
     ), { name: "InferenceError", code: "invalid_request" });
   }
 }

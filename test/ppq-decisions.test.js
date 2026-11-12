@@ -99,7 +99,7 @@ describe("PPQ System One adapter", () => {
     });
     expect(posts()).toEqual([[url, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer private-ppq-key" },
-      body: JSON.stringify({ model, ...request }), signal: input.signal,
+      body: JSON.stringify({ model, ...request, state: JSON.stringify(request.state) }), signal: input.signal,
     }]]);
     expect(JSON.parse(posts()[0][1].body).stream).toBeUndefined();
   });
@@ -112,7 +112,7 @@ describe("PPQ System One adapter", () => {
     input.questions.is_bug.instructions = "changed";
     await pending;
     const body = JSON.parse(posts()[0][1].body);
-    expect(body.state).toEqual(expected);
+    expect(body.state).toEqual(JSON.stringify(expected));
     expect(body.questions).toEqual(request.questions);
   });
 

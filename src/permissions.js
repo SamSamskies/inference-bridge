@@ -18,8 +18,9 @@ import {
   isExperimentalOperation,
 } from "./storage.js";
 import { normalizeSiteChatReasoningEffort } from "./chat-options.js";
+import { coversDecisionMedia, assertDecisionMediaSupported } from "./decision-media.js";
 import { DECISION_LIMITS, decisionQuestionLimitMessage } from "./providers/decision-limits.js";
-import { getDefaultProvider, getProviderAsync, resolveModelCapabilities } from "./providers/registry.js";
+import { getDefaultProvider, getProviderAsync, resolveModelCapabilities, resolveProviderModels } from "./providers/registry.js";
 import {
   hasBuiltInHostPermission,
   hasHostPermissionForBaseUrl,
@@ -70,6 +71,8 @@ import {
  *   text?: string,
  *   stateSummary?: string,
  *   questionSummaries?: Array<{ id: string, type: string }>,
+ *   attachmentSummaries?: Array<{ index: number, mediaType: string, byteLength: number, width: number, height: number }>,
+ *   imageMediaTypes?: string[],
  * }} ApprovalRequest
  */
 
@@ -456,6 +459,8 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output, 
  *   text?: string,
  *   stateSummary?: string,
  *   questionSummaries?: Array<{ id: string, type: string }>,
+ *   attachmentSummaries?: Array<{ index: number, mediaType: string, byteLength: number, width: number, height: number }>,
+ *   imageMediaTypes?: string[],
  * }} args
  */
 export async function ensureOperationPermission(args) {
@@ -475,6 +480,7 @@ export async function ensureOperationPermission(args) {
   const defaults = settings.operationDefaults[args.method];
   const existing = await getOriginOperationGrant(args.origin, args.method);
   const providerId =
+    (args.method === "decide" && existing?.providerId) ||
     (typeof args.preferredProviderId === "string" &&
       args.preferredProviderId.trim()) ||
     existing?.providerId ||
@@ -483,6 +489,7 @@ export async function ensureOperationPermission(args) {
     "";
   const sameProvider = (route) => route?.providerId === providerId;
   const model =
+    (args.method === "decide" && sameProvider(existing) && existing.model) ||
     (typeof args.preferredModel === "string" && args.preferredModel.trim()) ||
     (sameProvider(existing) && existing.model) ||
     (sameProvider(lastUsed) && lastUsed.model) ||
@@ -507,7 +514,7 @@ export async function ensureOperationPermission(args) {
       once: false,
     };
   }
-  if (existing?.providerId && existing.model) {
+  if (existing?.providerId && existing.model && (args.method !== "decide" || coversDecisionMedia(existing, args.imageMediaTypes))) {
     return {
       allowed: true,
       providerId: existing.providerId,
@@ -543,7 +550,7 @@ export async function ensureOperationPermission(args) {
       : {}),
     ...(typeof args.text === "string" ? { text: args.text } : {}),
     ...(args.method === "decide"
-      ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries }
+      ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries, ...(args.attachmentSummaries?.length ? { attachmentSummaries: args.attachmentSummaries, imageMediaTypes: args.imageMediaTypes } : {}) }
       : {}),
   });
   return finishApproval(decision, async () => {
@@ -579,6 +586,17 @@ export async function ensureOperationPermission(args) {
         // Never persist a route whose known question limit is exceeded.
         if (args.method === "decide") {
           const provider = await getProviderAsync(chosenProviderId);
+          if (args.attachmentSummaries?.length) {
+            try {
+              if (!provider?.decisions) throw Object.assign(new Error("The selected route does not support decisions."), { code: "unavailable" });
+              assertDecisionMediaSupported(provider, args.attachmentSummaries);
+              const models = await resolveProviderModels(provider, { method: "decide", apiKey: settings.apiKeys[chosenProviderId] });
+              if (!models.some((model) => model.id === chosenModel)) throw Object.assign(new Error("Choose a model from the decision catalog."), { code: "unavailable" });
+              assertDecisionMediaSupported(provider, args.attachmentSummaries, models.find((model) => model.id === chosenModel) || {});
+            } catch (error) {
+              return { allowed: false, providerId: chosenProviderId, model: chosenModel, once: false, code: error.code || "unavailable", message: error.message || "Native decision media is unavailable." };
+            }
+          }
           const limitMessage = decisionQuestionLimitMessage(
             provider?.label || chosenProviderId,
             provider?.decisions?.maxQuestions ?? DECISION_LIMITS[chosenProviderId]?.maxQuestions,
@@ -597,6 +615,12 @@ export async function ensureOperationPermission(args) {
         await saveApprovalChoice(args.origin, {
           ...route,
           operation: args.method,
+          ...(args.method === "decide" && args.imageMediaTypes?.length ? {
+            imageMediaTypes: [...new Set([
+              ...(existing?.providerId === chosenProviderId && existing.model === chosenModel ? existing.imageMediaTypes || [] : []),
+              ...args.imageMediaTypes,
+            ])].sort(),
+          } : {}),
           always: decision.decision === "always",
         });
         return {

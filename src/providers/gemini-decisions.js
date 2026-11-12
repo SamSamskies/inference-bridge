@@ -1,6 +1,7 @@
 /** Native Gemini Decisions API ↔ the bounded IPA JSON-state envelope.
  * https://aistudio.google.com/docs/decisions-api
  */
+import { validateDecisionImages } from "../decision-media.js";
 import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
   normalizeDecisionResponse,
@@ -15,14 +16,14 @@ export const geminiDecisions = {
   models: [{ id: GEMINI_DECISION_MODEL, label: "Gemini Decision 1" }],
 };
 
-function prepare({ model, state, questions, signal }) {
+function prepare({ model, state, questions, attachments, signal }) {
   checkGeminiAbort(signal);
   if (model !== GEMINI_DECISION_MODEL)
     throw geminiError(
       "unavailable",
       "Choose Gemini Decision 1 in Options → Decisions."
     );
-  const validated = validateDecideRequest({ method: "decide", state, questions });
+  const validated = validateDecideRequest({ method: "decide", state, questions, ...(attachments !== undefined ? { attachments } : {}) });
   if (!validated.ok) throw geminiError("invalid_request", validated.message);
   const request = validated.value;
   assertDecisionQuestionLimit("Google Gemini", geminiDecisions.maxQuestions, request.questions);
@@ -61,15 +62,21 @@ function prepare({ model, state, questions, signal }) {
       ];
     })
   );
-  const body = JSON.stringify({
+  const wire = {
     model,
     input: typeof request.state === "string"
       ? request.state
       : JSON.stringify(request.state),
     questions: wireQuestions,
-  });
-  assertDecisionBodyLimit("Google Gemini", geminiDecisions.maxBodyBytes, body);
-  return { body, entries, questions: request.questions };
+  };
+  assertDecisionBodyLimit("Google Gemini", geminiDecisions.maxBodyBytes, JSON.stringify(wire));
+  if (request.attachments?.length) wire.input = [
+    { type: "text", text: wire.input },
+    ...request.attachments.map((image) => ({ type: "image", data: image.data, mime_type: image.mediaType })),
+  ];
+  const body = JSON.stringify(wire);
+  assertDecisionBodyLimit("Google Gemini", geminiDecisions.maxMediaBodyBytes, body);
+  return { body, entries, questions: request.questions, attachments: request.attachments };
 }
 
 export function preflightGeminiDecide(args) {
@@ -78,6 +85,7 @@ export function preflightGeminiDecide(args) {
 
 export async function decideGemini(args) {
   const request = prepare(args);
+  await validateDecisionImages(request.attachments, { signal: args.signal });
   let result;
   try {
     result = await geminiJson("/v1beta/decisions", {

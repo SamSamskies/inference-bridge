@@ -1,4 +1,5 @@
 /** Direct Ollama Cloud access, independent of the local daemon and its grants. */
+import { assertDecisionMediaSupported } from "../decision-media.js";
 import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { normalizeProviderError, readProviderErrorDetail } from "./provider-error.js";
 import { ollamaCloudEndpoint, ollamaHttpErrorCode } from "./ollama-endpoint.js";
@@ -6,7 +7,7 @@ import { getOllamaThinking, streamOllamaChatTurn } from "./ollama.js";
 import { filterFunctionTools } from "./openai-compat-stream.js";
 import { hostedWebSearchActive } from "./hosted-tools.js";
 import { runOllamaHostedSearchLoop } from "./ollama-web-search.js";
-import { requestSystemOne } from "./system-one.js";
+import { requestSystemOne, preflightSystemOne } from "./system-one.js";
 import {
   listOllamaSynthesisVoices,
   synthesizeOllama,
@@ -109,7 +110,7 @@ const listModelsFor = (method) => boundary(async (args) => {
         return null;
       }
     }
-    return supports(capabilities, method) ? { id } : null;
+    return supports(capabilities, method) ? { id, ...(method === "decide" && capabilities.includes("vision") ? { inputModalities: ["text", "image"] } : {}) } : null;
   }));
   return [...new Map(models.filter(Boolean).map((model) => [model.id, model])).values()]
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -146,9 +147,11 @@ export const ollamaCloudProvider = {
     };
   }),
   decisions: { ...DECISION_LIMITS["ollama-cloud"], defaultModel: "", listModels: listModelsFor("decide") },
+  preflightDecide: (args) => preflightSystemOne({ ...args, providerId: "ollama-cloud", label: "Ollama Cloud" }),
   decide: boundary(async (args) => {
     assertDecisionQuestionLimit("Ollama Cloud", DECISION_LIMITS["ollama-cloud"].maxQuestions, args.questions);
-    await requireModel(args, "decide");
+    const metadata = await requireModel(args, "decide");
+    assertDecisionMediaSupported({ label: "Ollama Cloud", decisions: DECISION_LIMITS["ollama-cloud"] }, args.attachments, { inputModalities: metadata.capabilities.includes("vision") ? ["text", "image"] : ["text"] });
     return requestSystemOne({
       ...args,
       providerId: "ollama-cloud",
