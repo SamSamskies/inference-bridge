@@ -5,6 +5,7 @@
  * or the model requires Responses for function tools (GPT-6 models).
  */
 
+import { DECISION_LIMITS } from "./decision-limits.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
 import { resolveModelCapabilities } from "./model-capabilities.js";
 import {
@@ -21,7 +22,7 @@ import {
   streamOpenAICompatChat,
 } from "./openai-compat-stream.js";
 import { streamOpenAIResponsesChat } from "./openai-responses.js";
-import { decideOpenAI, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
+import { decideOpenAI, preflightOpenAIDecide, OPENAI_DECISION_MODELS } from "./openai-decisions.js";
 import {
   OPENAI_SYNTHESIS_MODELS,
   OPENAI_SYNTHESIS_MEDIA_TYPES,
@@ -83,10 +84,12 @@ export const openaiProvider = {
   },
   hostedTools: Object.freeze(["web_search"]),
   decisions: {
+    ...DECISION_LIMITS["openai"],
     defaultModel: OPENAI_DECISION_MODELS[0],
     models: OPENAI_DECISION_MODELS,
   },
   decide: decideOpenAI,
+  preflightDecide: preflightOpenAIDecide,
   transcription: {
     defaultModel: OPENAI_TRANSCRIPTION_MODELS[0],
     models: OPENAI_TRANSCRIPTION_MODELS,

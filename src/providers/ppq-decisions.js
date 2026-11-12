@@ -1,4 +1,5 @@
 /** PPQ's non-streaming System One API and independent public model catalog. */
+import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { validateDecideRequest } from "../decisions.js";
 import { normalizeProviderError } from "./provider-error.js";
 import { requestSystemOne } from "./system-one.js";
@@ -90,8 +91,9 @@ export async function decidePPQ(args) {
   try {
     checkAbort(args.signal);
     if (!args.apiKey?.trim()) fail("unavailable", "PayPerQ API key not configured. Add it in Options.");
-    const validated = validateDecideRequest({ method: "decide", state: args.state, questions: args.questions });
+    const validated = validateDecideRequest({ method: "decide", state: args.state, questions: args.questions, ...(args.attachments !== undefined ? { attachments: args.attachments } : {}) });
     if (!validated.ok) fail("invalid_request", validated.message);
+    assertDecisionQuestionLimit("PayPerQ", DECISION_LIMITS.ppq.maxQuestions, validated.value.questions);
     if (!decisionCatalog || Date.now() - listedAt >= CATALOG_MAX_AGE_MS) {
       await listPPQDecisionModels({ signal: args.signal });
     }
@@ -101,6 +103,7 @@ export async function decidePPQ(args) {
     }
     const result = await requestSystemOne({
       ...args,
+      providerId: "ppq",
       state: validated.value.state,
       questions: validated.value.questions,
       url: PPQ_DECISIONS_URL,

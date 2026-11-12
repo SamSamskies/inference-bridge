@@ -4,11 +4,13 @@ import request from "./fixtures/system-one-request.json";
 import fixture from "./fixtures/system-one-response.json";
 import catalog from "./fixtures/openrouter-decisions-models.json";
 import openaiFixture from "./fixtures/openai-decisions-response.json";
+import geminiFixture from "./fixtures/gemini-decisions-response.json";
 import ppqCatalog from "./fixtures/ppq-decisions-models.json";
 
 const origin = "https://app.example";
 const cloud = { providerId: "openrouter", model: "typesafe/jev-1.13" };
 const openai = { providerId: "openai", model: "gpt-6-luna" };
+const gemini = { providerId: "gemini", model: "gemini-decision-1" };
 const local = { providerId: "ollama", model: "nimble:latest" };
 const ppq = { providerId: "ppq", model: "morph/reflex" };
 const decide = { method: "decide", ...request };
@@ -38,7 +40,7 @@ async function setup(firefox) {
   permissions = await import("../src/permissions.js");
   await import("../background/service-worker.js");
   await storage.saveSettings({
-    apiKeys: { openrouter: "test-key", openai: "openai-key", ppq: "ppq-key" },
+    apiKeys: { openrouter: "test-key", openai: "openai-key", ppq: "ppq-key", gemini: "gemini-key" },
     operationDefaults: { decide: cloud },
   });
   vi.stubGlobal(
@@ -80,6 +82,8 @@ async function setup(firefox) {
         });
       if (url === "https://api.openai.com/v1/decisions")
         return Response.json(openaiFixture);
+      if (url === "https://generativelanguage.googleapis.com/v1beta/decisions")
+        return Response.json(geminiFixture);
       throw new Error(`Unexpected fetch: ${url}`);
     })
   );
@@ -244,7 +248,7 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     ]);
     const options = fetch.mock.calls.at(-1)[1];
     expect(options.headers.Authorization).toBe("Bearer ppq-key");
-    expect(JSON.parse(options.body)).toEqual({ model: ppq.model, ...request });
+    expect(JSON.parse(options.body)).toEqual({ model: ppq.model, ...request, state: JSON.stringify(request.state) });
     const settings = await storage.getSettings();
     expect(settings.defaultModels.ppq).toBe("auto");
     expect(settings.operationDefaults.decide).toEqual(ppq);
@@ -586,12 +590,17 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       ])
     ).toEqual([
       ["openai", "gpt-6-luna"],
+      ["gemini", "gemini-decision-1"],
       ["openrouter", cloud.model],
       ["ppq", "typesafe/jev-1.13"],
       ["ollama", "nimble"],
       ["ollama-cloud", ""],
       ...(firefox ? [] : [["on-device", "on-device"]]),
     ]);
+    expect(providers.providers.find((provider) => provider.id === "gemini").maxQuestions).toBe(1000);
+    expect(providers.providers.find((provider) => provider.id === "openai").maxQuestions).toBe(400);
+    expect(providers.providers.find((provider) => provider.id === "ollama").maxQuestions).toBe(64);
+    if (!firefox) expect(providers.providers.find((provider) => provider.id === "on-device").maxQuestions).toBe(16);
     const models = await message({
       type: "list-models",
       method: "decide",
@@ -605,6 +614,92 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
       { signal: undefined }
     );
   });
+  it("routes Gemini decisions with separate approval and keeps chat grants intact", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: gemini } });
+    await storage.grantOriginAlways(origin, cloud);
+    const port = start();
+    await approve(port, gemini, "always");
+    await outcome(port);
+    expect(port.messages.filter((item) => item.chunk).map((item) => item.chunk.type))
+      .toEqual(["accepted", "done"]);
+    expect(port.messages.at(-1).chunk).toEqual({
+      type: "done", model: gemini.model, answers: fixture.answers,
+      usage: { inputTokens: 476, outputTokens: 0 },
+    });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      "https://generativelanguage.googleapis.com/v1beta/decisions",
+      expect.objectContaining({ headers: { "Content-Type": "application/json", "x-goog-api-key": "gemini-key" } })
+    );
+    expect(await storage.getOriginOperationGrant(origin, "decide")).toMatchObject(gemini);
+    expect((await storage.getSettings()).allowedOrigins[origin]).toMatchObject(cloud);
+    expect(JSON.stringify(port.messages)).not.toContain("gemini-key");
+  });
+  it("checks Gemini credentials after approval and validates schema before accepted", async () => {
+    await storage.saveSettings({ operationDefaults: { decide: gemini } });
+    const port = start();
+    await vi.waitFor(() => expect(permissions.getPendingApproval(port.streamId)?.method).toBe("decide"));
+    await storage.saveSettings({ apiKeys: { gemini: "" } });
+    await approve(port, gemini);
+    await outcome(port);
+    expect(port.messages.at(-1).error.code).toBe("unavailable");
+    await storage.saveSettings({ apiKeys: { gemini: "gemini-key" } });
+    await storage.grantOriginOperationAlways(origin, "decide", gemini);
+    const payload = structuredClone(decide);
+    payload.questions.urgency.criteria[0] = "";
+    const invalid = start({ payload });
+    await outcome(invalid);
+    expect(invalid.messages.at(-1).error.code).toBe("invalid_request");
+    expect(invalid.messages.some((item) => item.chunk?.type === "accepted")).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("cancels Gemini decisions without a late done", async () => {
+    await storage.grantOriginOperationAlways(origin, "decide", gemini);
+    fetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const port = start();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    const signal = fetch.mock.calls[0][1].signal;
+    port.onMessage.emit({ type: "abort", streamId: port.streamId });
+    await outcome(port);
+    expect(signal.aborted).toBe(true);
+    expect(port.messages.at(-1).error.code).toBe("aborted");
+    expect(port.messages.some((item) => item.chunk?.type === "done")).toBe(false);
+  });
+  if (firefox) {
+    it("checks Gemini host access before sending decisions", async () => {
+      await storage.grantOriginOperationAlways(origin, "decide", gemini);
+      chrome.permissions.contains.mockResolvedValue(false);
+      const port = start();
+      await outcome(port);
+      expect(port.messages.at(-1).error.code).toBe("unavailable");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  }
+  it.each([["openai", "gpt-6-luna", 400], ["ollama", "nimble:latest", 64], ["ollama-cloud", "clef:27b", 64]])
+    ("rejects oversized %s batches before accepted and grant persistence", async (providerId, model, maximum) => {
+      const route = { providerId, model };
+      const payload = {
+        method: "decide", state: "state",
+        questions: Object.fromEntries(Array.from({ length: maximum + 1 }, (_, i) => [
+          `q${i}`, { type: "noul", instructions: "Ready?" },
+        ])),
+      };
+      await storage.saveSettings({ apiKeys: { [providerId]: "key" } });
+      const pending = start({ payload });
+      await approve(pending, route, "always");
+      await outcome(pending);
+      expect(pending.messages.at(-1).error).toMatchObject({ code: "invalid_request", message: expect.stringContaining(String(maximum)) });
+      expect(await storage.getOriginOperationGrant(origin, "decide")).toBeNull();
+      expect(pending.messages.some((item) => item.chunk?.type === "accepted")).toBe(false);
+      await storage.grantOriginOperationAlways(origin, "decide", route);
+      const saved = start({ payload });
+      await outcome(saved);
+      expect(saved.messages.at(-1).error.code).toBe("invalid_request");
+      expect(saved.messages.some((item) => item.chunk?.type === "accepted")).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
   it("routes approved OpenAI decisions with the saved key and separate grants", async () => {
     await storage.saveSettings({ operationDefaults: { decide: openai } });
     await storage.grantOriginAlways(origin, openai);

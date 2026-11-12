@@ -99,7 +99,7 @@ describe("PPQ System One adapter", () => {
     });
     expect(posts()).toEqual([[url, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer private-ppq-key" },
-      body: JSON.stringify({ model, ...request }), signal: input.signal,
+      body: JSON.stringify({ model, ...request, state: JSON.stringify(request.state) }), signal: input.signal,
     }]]);
     expect(JSON.parse(posts()[0][1].body).stream).toBeUndefined();
   });
@@ -112,7 +112,7 @@ describe("PPQ System One adapter", () => {
     input.questions.is_bug.instructions = "changed";
     await pending;
     const body = JSON.parse(posts()[0][1].body);
-    expect(body.state).toEqual(expected);
+    expect(body.state).toEqual(JSON.stringify(expected));
     expect(body.questions).toEqual(request.questions);
   });
 
@@ -131,7 +131,7 @@ describe("PPQ System One adapter", () => {
   it("validates before any network call and requires the explicit PPQ key", async () => {
     await expect(provider.decide(args({ apiKey: undefined }))).rejects.toMatchObject({ code: "unavailable" });
     await expect(provider.decide(args({ questions: {} }))).rejects.toMatchObject({ code: "invalid_request" });
-    await expect(provider.decide(args({ state: "x".repeat(64 * 1024) }))).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(provider.decide(args({ state: "x".repeat(1024 * 1024) }))).rejects.toMatchObject({ code: "invalid_request" });
     expect(fetch).not.toHaveBeenCalled();
   });
 

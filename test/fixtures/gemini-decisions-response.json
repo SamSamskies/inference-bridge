@@ -1,0 +1,39 @@
+{
+  "answers": {
+    "q0": {
+      "type": "noul",
+      "noul": 0.96,
+      "confidence": 0.96
+    },
+    "q1": {
+      "type": "choice",
+      "choice": "option_2",
+      "probabilities": {
+        "option_0": 0,
+        "option_1": 0.16,
+        "option_2": 0.84
+      },
+      "confidence": 0.75
+    },
+    "q2": {
+      "type": "score",
+      "score": 1.99,
+      "legend": {
+        "0": "Can wait for the next release",
+        "1": "Should be fixed this week",
+        "2": "Blocking revenue right now"
+      },
+      "probabilities": {
+        "0": 0,
+        "1": 0.01,
+        "2": 0.99
+      },
+      "confidence": 0.99
+    }
+  },
+  "usage": {
+    "total_input_tokens": 476,
+    "total_output_tokens": 0,
+    "total_tokens": 476
+  }
+}

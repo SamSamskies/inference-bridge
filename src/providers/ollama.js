@@ -3,9 +3,11 @@
  * Models are discovered via GET /api/tags — no hardcoded catalog.
  */
 
+import { assertDecisionMediaSupported } from "../decision-media.js";
+import { DECISION_LIMITS, assertDecisionQuestionLimit } from "./decision-limits.js";
 import { LOCAL_OLLAMA_ENDPOINT, ollamaHttpErrorCode } from "./ollama-endpoint.js";
 import { withChatErrorBoundary } from "./chat-errors.js";
-import { requestSystemOne } from "./system-one.js";
+import { requestSystemOne, preflightSystemOne } from "./system-one.js";
 import { ensureOllamaOriginBypass } from "../ollama-origin-bypass.js";
 import { hostedWebSearchActive } from "./hosted-tools.js";
 import {
@@ -88,6 +90,8 @@ export function isOllamaDecisionModel(model) {
   );
 }
 
+const decisionImageModelIds = new Set();
+
 /** A fresh capability probe supports installed aliases and future model families. */
 export async function ollamaModelHasDecision(model, { signal } = {}) {
   if (!model || /:(?:[^:]*-)?cloud(?:-[^:]*)?$/i.test(model)) return false;
@@ -111,6 +115,8 @@ export async function ollamaModelHasDecision(model, { signal } = {}) {
       return false;
     }
     decisionModelIds.add(model);
+    if (payload.capabilities.includes("vision")) decisionImageModelIds.add(model);
+    else decisionImageModelIds.delete(model);
     // Ollama supports GGUF and MLX/Safetensors System One models. The
     // decision capability, rather than the model family/name, is authoritative.
     return (
@@ -135,7 +141,7 @@ async function filterOllamaDecisionModels(models, args) {
       supported: await ollamaModelHasDecision(model.id, args),
     }))
   );
-  return checks.filter(({ supported }) => supported).map(({ model }) => model);
+  return checks.filter(({ supported }) => supported).map(({ model }) => decisionImageModelIds.has(model.id) ? { ...model, inputModalities: ["text", "image"] } : model);
 }
 
 /** Probe `/api/show` so custom speech names are excluded from chat. */
@@ -808,16 +814,20 @@ export const ollamaProvider = {
         !isOllamaDecisionModel(model.id) && !isOllamaSpeechModel(model.id)
     );
   },
-  decisions: { defaultModel: "nimble", listModels: listOllamaDecisionModels },
+  decisions: { ...DECISION_LIMITS["ollama"], defaultModel: "nimble", listModels: listOllamaDecisionModels },
+  preflightDecide: (args) => preflightSystemOne({ ...args, providerId: "ollama", label: "Ollama" }),
   async decide(args) {
+    assertDecisionQuestionLimit("Ollama", DECISION_LIMITS["ollama"].maxQuestions, args.questions);
     if (!(await ollamaModelHasDecision(args.model, { signal: args.signal })))
       throwInference(
         "unavailable",
         "Select an installed local model with Ollama's decision capability."
       );
+    assertDecisionMediaSupported({ label: "Ollama", decisions: DECISION_LIMITS["ollama"] }, args.attachments, { inputModalities: decisionImageModelIds.has(args.model) ? ["text", "image"] : ["text"] });
     await ensureOllamaOriginBypass();
     return requestSystemOne({
       ...args,
+      providerId: "ollama",
       apiKey: undefined,
       label: "Ollama",
       url: `${OLLAMA_BASE_URL}/v1/systemone`,

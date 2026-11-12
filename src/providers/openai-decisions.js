@@ -1,6 +1,7 @@
 /** OpenAI Decisions beta adapter for the IPA decide envelope. */
+import { validateDecisionImages } from "../decision-media.js";
+import { DECISION_LIMITS, assertDecisionQuestionLimit, assertDecisionBodyLimit } from "./decision-limits.js";
 import {
-  DECISION_BODY_MAX_BYTES,
   normalizeDecisionResponse,
   validateDecideRequest,
 } from "../decisions.js";
@@ -120,31 +121,42 @@ function fromOpenAIResponse(body, questions) {
   return normalizeDecisionResponse({ ...body, answers }, questions);
 }
 
-export async function decideOpenAI({ apiKey, model, state, questions, signal }) {
+export function preflightOpenAIDecide({ model, state, questions, attachments, signal }) {
   if (signal?.aborted) fail("aborted", "Request aborted");
-  if (typeof apiKey !== "string" || !apiKey.trim())
-    fail(
-      "unavailable",
-      "OpenAI API key not configured. Open Inference Bridge Options to add it."
-    );
   if (!OPENAI_DECISION_MODELS.includes(model))
     fail(
       "unavailable",
-      `Unknown OpenAI Decisions model: ${model}. Choose gpt-6-luna in Options.`
+      `Choose a model from the OpenAI Decisions catalog: ${model} is unavailable. Choose gpt-6-luna in Options.`
     );
-  const validated = validateDecideRequest({ method: "decide", state, questions });
+  const validated = validateDecideRequest({ method: "decide", state, questions, ...(attachments !== undefined ? { attachments } : {}) });
   if (!validated.ok) fail("invalid_request", validated.message);
   const request = validated.value;
-  const body = JSON.stringify({
+  assertDecisionQuestionLimit("OpenAI", DECISION_LIMITS.openai.maxQuestions, request.questions);
+  const wire = {
     model,
     input:
       typeof request.state === "string"
         ? request.state
         : JSON.stringify(request.state),
     questions: toOpenAIQuestions(request.questions),
-  });
-  if (new TextEncoder().encode(body).byteLength > DECISION_BODY_MAX_BYTES)
-    fail("invalid_request", "Decision request body exceeds 64 KiB.");
+  };
+  assertDecisionBodyLimit("OpenAI", DECISION_LIMITS.openai.maxBodyBytes, JSON.stringify(wire));
+  if (request.attachments?.length) wire.input = [{ role: "user", content: [
+    { type: "input_text", text: wire.input },
+    ...request.attachments.map((image) => ({ type: "input_image", image_url: `data:${image.mediaType};base64,${image.data}` })),
+  ] }];
+  const body = JSON.stringify(wire);
+  assertDecisionBodyLimit("OpenAI", DECISION_LIMITS.openai.maxMediaBodyBytes, body);
+  return { request, body };
+}
+
+export async function decideOpenAI(args) {
+  const { apiKey, signal } = args;
+  if (signal?.aborted) fail("aborted", "Request aborted");
+  if (typeof apiKey !== "string" || !apiKey.trim())
+    fail("unavailable", "OpenAI API key not configured. Open Inference Bridge Options to add it.");
+  const { request, body } = preflightOpenAIDecide(args);
+  await validateDecisionImages(request.attachments, { signal });
   try {
     const response = await fetch(DECISIONS_URL, {
       method: "POST",

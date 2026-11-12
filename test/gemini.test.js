@@ -166,10 +166,10 @@ describe("Gemini curated models and capability boundaries", () => {
         .thinking_level
     ).toBe("low");
   });
-  it("advertises dedicated WAV synthesis and no typed Decisions", () => {
+  it("advertises dedicated WAV synthesis and typed Decisions", () => {
     expect(geminiProvider.defaultModel).toBe("gemini-3.8-flash");
-    expect(geminiProvider.decisions).toBeUndefined();
-    expect(geminiProvider.decide).toBeUndefined();
+    expect(geminiProvider.decisions.defaultModel).toBe("gemini-decision-1");
+    expect(typeof geminiProvider.decide).toBe("function");
     expect(geminiProvider.synthesis.outputMediaTypes).toEqual(["audio/wav"]);
     expect(typeof geminiProvider.synthesize).toBe("function");
   });

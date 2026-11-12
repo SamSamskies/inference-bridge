@@ -391,6 +391,10 @@
         },
       });
       cleanup();
+    } finally {
+      // The native port cloned the payload; do not retain encoded media while
+      // listeners wait for consent or a provider result.
+      data = null;
     }
   }
 })();

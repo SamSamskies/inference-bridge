@@ -1,6 +1,7 @@
 /** Chrome DecisionModel ↔ IPA typed decisions. Runs in a document context.
  * @see https://github.com/explainers-by-googlers/decisions-api
  */
+import { DECISION_LIMITS } from "./providers/decision-limits.js";
 import { normalizeDecisionResponse, validateDecideRequest } from "./decisions.js";
 import { ON_DEVICE_MODEL_ID, throwInference } from "./prompt-api-core.js";
 import { normalizeProviderError } from "./providers/provider-error.js";
@@ -14,7 +15,7 @@ export const DECISION_API_INSTALL_QUESTIONS = Object.freeze({
 });
 
 // Chromium currently accepts at most 16 questions per native schema.
-export const ON_DEVICE_DECISION_MAX_QUESTIONS = 16;
+export const ON_DEVICE_DECISION_MAX_QUESTIONS = DECISION_LIMITS["on-device"].maxQuestions;
 
 export function decisionApiSchema(questions) {
   // Reject explicitly rather than dropping questions or changing batch semantics.
@@ -107,10 +108,11 @@ function nativeError(cause, signal) {
   throw normalizeProviderError(cause, { signal });
 }
 
-export async function decideWithDecisionModel({ DecisionModel, state, questions, signal }) {
+export async function decideWithDecisionModel({ DecisionModel, state, questions, attachments, signal }) {
   let session;
   try {
     checkAbort(signal);
+    if (attachments?.length) throwInference("unavailable", "On-device decisions do not support native image attachments.");
     const validated = validateDecideRequest({ method: "decide", state, questions });
     if (!validated.ok) throwInference("invalid_request", validated.message);
     ({ state, questions } = validated.value);

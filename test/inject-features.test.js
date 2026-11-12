@@ -51,6 +51,7 @@ describe("window.inference.getFeatures", () => {
     const inference = loadInference();
     expect(inference.getFeatures()).toEqual({
       methods: optionalMethods,
+      decisionMedia: { imageMediaTypes: ["image/jpeg", "image/png", "image/webp"] },
       toolCalling: true,
       webSearch: true,
       imageInput: true,
@@ -79,6 +80,9 @@ describe("window.inference.getFeatures", () => {
     snapshot.methods.transcribe.acceptedMedia.length = 0;
     snapshot.methods.synthesize.outputMediaTypes.length = 0;
     snapshot.methods.decide = false;
+    snapshot.decisionMedia.imageMediaTypes.length = 0;
+    expect(inference.getFeatures().decisionMedia.imageMediaTypes).toEqual(["image/jpeg", "image/png", "image/webp"]);
+    expect(inference.experimental.getFeatures().decisionMedia).toEqual(inference.getFeatures().decisionMedia);
     expect(inference.getFeatures().methods).toEqual(optionalMethods);
     const alias = inference.experimental.getFeatures();
     alias.methods.transcribe.acceptedMedia[0].mediaType = "video/*";

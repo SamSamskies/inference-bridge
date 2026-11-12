@@ -22,6 +22,7 @@ import {
   geminiSynthesize,
 } from "./gemini-speech.js";
 import { geminiCallState } from "./gemini-call-state.js";
+import { geminiDecisions, decideGemini, preflightGeminiDecide } from "./gemini-decisions.js";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 
@@ -208,6 +209,9 @@ export const geminiProvider = {
     return geminiModelCapabilities(model);
   },
   hostedTools: Object.freeze(["web_search"]),
+  decisions: geminiDecisions,
+  decide: decideGemini,
+  preflightDecide: preflightGeminiDecide,
   transcription: geminiTranscription,
   transcribe: geminiTranscribe,
   synthesis: geminiSynthesis,
