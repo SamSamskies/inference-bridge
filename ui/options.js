@@ -1928,6 +1928,8 @@ async function loadDecisionModels(providerId, preferredModel) {
           ? "Uses your saved PayPerQ API key and its separate System One Decisions API."
           : providerId === "ollama-cloud"
             ? "Uses your saved Ollama Cloud API key. Cloud decisions require a paid plan or usage credits; no local server needed."
+          : providerId === "gemini"
+            ? "Uses your saved Google Gemini API key and the Decisions API with gemini-decision-1."
           : "Uses installed local decision models on Ollama 0.35+ (Clef: 0.35.1+; MLX: 0.40+)."
     : response?.error?.message ||
       (providerId === "openai"
@@ -1938,6 +1940,8 @@ async function loadDecisionModels(providerId, preferredModel) {
             ? "No decision models are currently listed by PayPerQ. Retry discovery."
             : providerId === "ollama-cloud"
               ? "No decision models are currently listed by Ollama Cloud. Retry discovery."
+            : providerId === "gemini"
+              ? "No Gemini decision models are available."
             : "No installed decision models. Run ollama pull nimble. GGUF requires Ollama 0.35+ (Clef: 0.35.1+); MLX requires 0.40+.");
 }
 
