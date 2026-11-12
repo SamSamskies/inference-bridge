@@ -118,7 +118,12 @@ export async function decideGemini(args) {
     request.entries.map(([id, question], index) => {
       const key = `q${index}`;
       const answer = own(result.answers, key) ? result.answers[key] : null;
-      if (!record(answer) || answer.type !== question.type) invalid();
+      if (!record(answer)) invalid();
+      if (answer.type === "refusal") {
+        if (Object.keys(answer).some((key) => key !== "type")) invalid();
+        return [id, { type: "refusal" }];
+      }
+      if (answer.type !== question.type) invalid();
       if (question.type === "noul") {
         if (
           typeof answer.confidence !== "number" ||

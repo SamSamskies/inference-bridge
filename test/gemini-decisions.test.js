@@ -105,6 +105,20 @@ describe("Gemini Decisions", () => {
     await expect(geminiProvider.decide(args())).rejects.toMatchObject({ code: "provider_error" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("maps per-question refusals to typed IPA refusals", async () => {
+    const body = structuredClone(fixture);
+    body.answers.q1 = { type: "refusal" };
+    fetch.mockResolvedValue(Response.json(body));
+    const result = await geminiProvider.decide(args());
+    expect(result.answers.team).toEqual({ type: "refusal" });
+    expect(result.answers.is_bug).toEqual(systemOne.answers.is_bug);
+  });
+  it("rejects refusals carrying extra fields", async () => {
+    const body = structuredClone(fixture);
+    body.answers.q1 = { type: "refusal", choice: "option_0" };
+    fetch.mockResolvedValue(Response.json(body));
+    await expect(geminiProvider.decide(args())).rejects.toMatchObject({ code: "provider_error" });
+  });
   it.each([[400, "invalid_request"], [413, "invalid_request"], [422, "invalid_request"], [401, "provider_error"], [403, "provider_error"], [429, "provider_error"], [404, "unavailable"], [503, "unavailable"]])
     ("maps HTTP %s with sanitized detail", async (status, code) => {
       fetch.mockResolvedValue(Response.json({ error: { code: "safety", message: "Blocked stored-key" } }, { status }));

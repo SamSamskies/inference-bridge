@@ -515,6 +515,19 @@ export async function ensureOperationPermission(args) {
     };
   }
   if (existing?.providerId && existing.model && (args.method !== "decide" || coversDecisionMedia(existing, args.imageMediaTypes))) {
+    if (args.method === "decide") {
+      // Saved grants must honor the same provider question limit as manual approval.
+      const provider = await getProviderAsync(existing.providerId);
+      const limitMessage = decisionQuestionLimitMessage(
+        provider?.label || existing.providerId,
+        provider?.decisions?.maxQuestions ?? DECISION_LIMITS[existing.providerId]?.maxQuestions,
+        args.questionSummaries?.length ?? 0
+      );
+      if (limitMessage) return {
+        allowed: false, providerId: existing.providerId, model: existing.model,
+        once: false, code: "invalid_request", message: limitMessage,
+      };
+    }
     return {
       allowed: true,
       providerId: existing.providerId,
