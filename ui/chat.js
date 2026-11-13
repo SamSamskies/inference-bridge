@@ -330,7 +330,6 @@ $("toggleHistory").addEventListener("click", () => {
 $("closeHistory").addEventListener("click", closeHistory);
 $("history").addEventListener("close", () => $("toggleHistory").setAttribute("aria-expanded", "false"));
 $("historySearch").addEventListener("input", renderHistory);
-$("providerSettings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 let deleting;
 function confirmDeletion(id) {
   deleting = id;

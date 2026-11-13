@@ -65,7 +65,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 
 Right-click the toolbar icon and choose **Open Chat**, or click **Open Chat** in Options. Left-clicking the toolbar icon continues to open Options. Chrome 116+ opens one shared panel per window; Firefox uses its native sidebar. The browser controls the panel width, and chat fills the available space when resized.
 
-Choose a configured provider and model, then send a message. **Provider Settings** in the collapsible history sidebar opens the existing Options page. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
+Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
 
 - **History:** conversations, partial responses, and attached images are saved locally in IndexedDB and survive closing the panel or restarting the browser. Search conversation titles, reopen a chat, export the current conversation as JSON, or delete individual chats/all history from the sidebar. History is confined to this browser profile and is removed when the extension is uninstalled; it is not synced or encrypted by Bridge.
 - **Images:** attach, paste, or drop PNG, JPEG, WebP, or GIF images (up to 20 MiB per image). The selected provider/model must support image input; provider limits may be smaller. Images remain in the conversation and are sent as context on later turns. They are never silently resized or discarded.
