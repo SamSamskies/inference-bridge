@@ -99,4 +99,15 @@ describe("chat interface", () => {
     expect($("send").disabled).toBe(true);
     expect($("configuration").hidden).toBe(false);
   });
+  it("does not recreate a conversation deleted from another panel", async () => {
+    await type("Delete elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    await history.deleteChat(id);
+    await type("Another turn");
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("deleted in another panel"));
+    expect(await history.getChat(id)).toBeUndefined();
+  });
 });

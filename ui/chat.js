@@ -175,8 +175,10 @@ function startNewChat() {
 }
 
 async function storeCurrent(chat) {
+  const wasSaved = current.messages.length > 0;
   await withChatLock(chat.id, async () => {
     const saved = await getChat(chat.id);
+    if (!saved && wasSaved) throw new Error("This chat was deleted in another panel. Start a new chat.");
     if (saved && saved.updatedAt !== chat.updatedAt) throw new Error("This chat changed in another panel. Reopen it from history before sending.");
     chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
     await saveChat(chat);
