@@ -63,6 +63,8 @@ import {
 import { isFirefoxBuild } from "../src/runtime-browser.js";
 import { hasBuiltInHostPermission } from "../src/host-permissions.js";
 import { ensureTrustedStorageAccess } from "../src/storage-access.js";
+import { connectChat, isChatSender } from "./chat.js";
+import { openChat } from "../src/open-chat.js";
 
 // Reapply on every worker/event-page start, including browser restart. Keep
 // event registration synchronous; settings operations await the same promise.
@@ -121,6 +123,10 @@ function throwInference(code, message) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "bridge-chat") {
+    connectChat(port);
+    return;
+  }
   // Approval popup pings this port so Chrome resets the SW idle timer while the
   // user decides (connect alone is not enough in current Chrome).
   if (port.name === "ipa-approval") {
@@ -210,6 +216,12 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "chat-config") {
+    if (!isChatSender(_sender)) return false;
+    void getSettings().then((settings) => sendResponse({ defaultProviderId: settings.defaultProviderId }))
+      .catch(() => sendResponse({ defaultProviderId: "" }));
+    return true;
+  }
   // Offscreen Prompt API host + progress fan-out — not handled here.
   if (
     message?.target === "prompt-api-offscreen" ||
@@ -567,6 +579,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.action.onClicked.addListener(() => {
   chrome.runtime.openOptionsPage();
+});
+
+chrome.runtime.onInstalled?.addListener(() => {
+  void chrome.contextMenus.removeAll().then(() => {
+    chrome.contextMenus.create({ id: "open-chat", title: "Open Chat", contexts: ["action"] });
+  }).catch((error) => console.warn("Could not create chat menu", error));
+});
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "open-chat") {
+    void openChat(tab?.windowId).catch((error) => console.warn("Could not open chat", error));
+  }
 });
 
 /**

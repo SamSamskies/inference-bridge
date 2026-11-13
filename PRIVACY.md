@@ -1,6 +1,6 @@
 # Privacy Policy — Inference Bridge
 
-**Last updated:** 2026-11-11
+**Last updated:** 2026-11-13
 
 Inference Bridge is a browser extension that implements the experimental [Inference Provider API](https://github.com/SamSamskies/inference-provider-api). This policy describes what data the extension handles in Chrome and Firefox.
 
@@ -12,6 +12,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 - Experimental decisions are available by default and require separate per-site approval. Once approved, JSON state and typed questions are sent to OpenAI Decisions, OpenRouter Decisions, PayPerQ Decisions, or local or cloud Ollama System One. Typed answers are returned directly to the page; state, questions, and answers are held in memory for the active request and are not persisted.
 - The extension does not operate a backend that collects or sells user data.
 - Permission grants are stored per website origin on the user's device.
+- Optional first-party side-panel chat saves conversations, reasoning text, attached images, and interrupted responses locally in the extension's IndexedDB. It does not sync history or use an Inference Bridge server. Sending a chat sends its saved message/image context to the selected provider; enabling Search permits the provider's hosted search service. This does not grant any website access.
 - Gemini function-call continuation retains complete native responses for
   tool-call turns, including thought summaries, opaque signatures, model text,
   and any search results, in extension-worker memory for up to 30 minutes.
@@ -35,10 +36,15 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 | Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | Local extension storage |
 | Decisions default provider/model and per-origin decisions grants/last-used choices | Keep decisions authorization separate from chat and speech | Local extension storage |
 | Per-origin speech grants and provider/model/voice choices | Keep transcription and synthesis authorization separate from chat and from each other | Local extension storage |
+| First-party chat messages, reasoning, image attachments, titles, provider/model/search choices, partial responses, and active-chat preference | Reopen and continue saved conversations | Extension-origin IndexedDB, confined to this browser profile |
 
 Settings and grants stay on the device unless the user clears extension storage or uninstalls the extension. API keys are sent to their selected provider when needed to authenticate a request. Local extension storage is not encrypted by Inference Bridge or Firefox.
 
+First-party chat history is also unencrypted by Bridge. Delete a chat or all chat history from its history sidebar, or export the current conversation as JSON. Uninstalling removes local history. Browser storage quotas apply; Bridge requests persistent storage when a chat is saved, but the browser may decline. Storage failures are reported, and an abrupt shutdown may lose the latest unsaved response checkpoint. The extension does not save website IPA conversations in chat history.
+
 ## Data sent to third parties
+
+The provider details below describe website IPA requests. First-party chat uses the same provider endpoints and credentials, sends the saved conversation and attached images when you press Send, and stores its replies locally as described above. It never reads the current webpage. Hosted search can send queries and fetch URLs through the provider/search service and may incur provider charges. Model catalogs and capability discovery use the existing provider configuration.
 
 When the user allows a site to use inference:
 
@@ -62,6 +68,8 @@ The extension does not receive or relay responses through any Inference Bridge s
 | Permission / host | Why it is needed |
 | --- | --- |
 | `storage` | Save settings, API keys, and origin grants |
+| `contextMenus` | Add Open Chat to the extension toolbar icon's context menu |
+| `sidePanel` (Chrome only) | Display optional first-party chat beside the current webpage; Firefox uses `sidebar_action` |
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject extension origins |
 | `offscreen` (Chrome only) | Host the browser Prompt API for the On-device provider (not available in the service worker) |
 | `https://api.openai.com/*` | Call OpenAI chat, image, transcription, speech-synthesis, and separately approved Decisions APIs selected by the user |
