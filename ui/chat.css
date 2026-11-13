@@ -97,6 +97,8 @@ dialog::backdrop { background: rgb(0 0 0 / 28%); }
 .chat-actions { flex: 0 0 auto; padding: 6px; min-inline-size: 32px; }
 .chat-actions svg { fill: currentColor; stroke: none; }
 .chat-actions:is(:hover, [aria-expanded="true"]) { background: transparent; }
+/* History scrolls, so keep keyboard outlines inside each button's bounds. */
+#chatList :is(.chat-title, .chat-actions):focus-visible { outline-offset: -2px; }
 @media (hover: hover) and (pointer: fine) {
   .chat-actions { opacity: 0; pointer-events: none; }
   #chatList li:is(:hover, :focus-within) .chat-actions, .chat-actions[aria-expanded="true"] { opacity: 1; pointer-events: auto; }

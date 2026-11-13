@@ -225,6 +225,7 @@ describe("chat interface", () => {
     $("chatName").value = "My project"; $("renameForm").dispatchEvent(new Event("submit", { cancelable: true }));
     await vi.waitFor(() => expect($("renameChat").open).toBe(false));
     expect((await history.getChat(id)).title).toBe("My project");
+    expect(document.activeElement).toBe($("chatList").querySelector(".chat-title"));
     for (const pinned of [true, false]) {
       $("chatList").querySelector(".chat-actions").click();
       await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));

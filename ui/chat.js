@@ -136,7 +136,7 @@ function renderHistory() {
   $("chatList").replaceChildren();
   for (const chat of summaries.filter((c) => c.title.toLocaleLowerCase().includes(query))) {
     const li = document.createElement("li"); li.classList.toggle("active", chat.id === current.id);
-    const button = document.createElement("button"); button.type = "button"; button.className = "chat-title";
+    const button = document.createElement("button"); button.type = "button"; button.className = "chat-title"; button.id = `chat-title-${chat.id}`;
     if (chat.pinned) {
       const pin = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       pin.setAttribute("viewBox", "0 0 24 24"); pin.setAttribute("aria-hidden", "true"); pin.classList.add("chat-pin");
@@ -180,7 +180,7 @@ function historyNotice(message) {
   $("historyStatus").textContent = message;
   $("historyStatus").hidden = false;
 }
-async function editChatMetadata(id, patch, { fromPointer = false } = {}) {
+async function editChatMetadata(id, patch, { fromPointer = false, restoreFocus = true } = {}) {
   const { chat, previousUpdatedAt } = await updateChatMetadata(id, patch);
   if (current.id === id) {
     if (current.updatedAt === previousUpdatedAt) {
@@ -192,7 +192,7 @@ async function editChatMetadata(id, patch, { fromPointer = false } = {}) {
     }
   }
   await refreshHistory();
-  focusHistoryAction(id, fromPointer);
+  if (restoreFocus) focusHistoryAction(id, fromPointer);
 }
 function closeHistory() { $("history").close(); $("toggleHistory").setAttribute("aria-expanded", "false"); }
 
@@ -439,10 +439,11 @@ $("renameForm").addEventListener("submit", (event) => {
   if (renamingBusy || !renamingId) return;
   renamingBusy = true; $("saveChatName").disabled = true; $("cancelRename").disabled = true;
   $("renameError").hidden = true;
-  void editChatMetadata(renamingId, { title: $("chatName").value }).then(() => {
+  void editChatMetadata(renamingId, { title: $("chatName").value }, { restoreFocus: false }).then(() => {
     $("renameChat").close(); historyNotice("Chat renamed.");
-    // The original menu trigger was replaced when the list refreshed.
-    focusHistoryAction(renamingId);
+    // Refreshing replaced the dialog's invoker. Continue at the renamed chat,
+    // letting the browser decide whether keyboard focus needs a visible ring.
+    (document.getElementById(`chat-title-${renamingId}`) || $("historySearch")).focus({ preventScroll: true });
   }).catch((error) => {
     $("renameError").textContent = error.message; $("renameError").hidden = false;
   }).finally(() => {
