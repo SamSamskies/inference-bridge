@@ -202,6 +202,7 @@ async function chooseRoute({ keepModel = false } = {}) {
   const request = ++routeRequest;
   const chat = current;
   const provider = providers.find((p) => p.id === chat.providerId);
+  $("configuration").hidden = Boolean(provider);
   $("provider").value = chat.providerId;
   if (!keepModel) chat.model = provider?.defaultModel || "";
   populateChatModelControl(chat.providerId, [], chat.model);

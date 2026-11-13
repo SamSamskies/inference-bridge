@@ -58,6 +58,24 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("chat interface", () => {
+  it("clears a failed provider's configuration notice when switching or recovering", async () => {
+    await loadProviderCatalog("openrouter", [], { fail: true });
+    expect($("configuration").hidden).toBe(false);
+    expect($("modelStatus").textContent).toBe("Discovery failed");
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("");
+    await type("Continue with a configured provider"); expect($("send").disabled).toBe(false);
+    $("provider").value = "openrouter"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(false);
+    // Settings changes can also repair the currently selected provider.
+    await loadProviderCatalog("openrouter", [{ id: "working-model" }]);
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("");
+    expect($("send").disabled).toBe(false);
+  });
   it("hides the on-device model field while preserving its route, including after reopening history", async () => {
     await loadProviderCatalog("on-device", [{ id: "on-device", label: "Browser-chosen model" }]);
     expect($("modelField").hidden).toBe(true); expect($("model").disabled).toBe(true);
