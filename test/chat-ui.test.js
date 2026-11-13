@@ -71,6 +71,7 @@ describe("chat interface", () => {
     expect([...$("provider").options].map((option) => [option.value, option.disabled])).toEqual([["openai", false], ["anthropic", false]]);
     expect($("configuration").textContent).toContain("Add an API key for Anthropic");
     expect($("configuration").hidden).toBe(false);
+    expect($("modelField").hidden).toBe(true);
     expect(chrome.runtime.sendMessage.mock.calls.some(([message]) => message.type === "list-models")).toBe(false);
     await type("A draft before setup"); expect($("send").disabled).toBe(true);
     $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
@@ -79,6 +80,7 @@ describe("chat interface", () => {
     $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect($("provider").disabled).toBe(false));
     expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+    expect($("modelField").hidden).toBe(false);
     expect($("error").hidden).toBe(true);
   });
   it("updates setup requirements when keys change and keeps key-optional servers usable", async () => {
@@ -94,14 +96,17 @@ describe("chat interface", () => {
     cloud.hasApiKey = true; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
     await vi.waitFor(() => expect($("send").disabled).toBe(false));
     expect($("configuration").hidden).toBe(true); expect($("prompt").value).toBe("Keep this draft");
+    expect($("modelField").hidden).toBe(false);
     cloud.hasApiKey = false; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
     await vi.waitFor(() => expect($("configuration").hidden).toBe(false));
     expect($("provider").value).toBe("anthropic"); expect($("send").disabled).toBe(true);
+    expect($("modelField").hidden).toBe(true);
     expect([...$("provider").options].some((option) => option.value === "anthropic")).toBe(true);
     for (const id of ["ollama", "compat:server"]) {
       $("provider").value = id; $("provider").dispatchEvent(new Event("change"));
       await vi.waitFor(() => expect($("provider").disabled).toBe(false));
       expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+      expect($("modelField").hidden).toBe(false);
     }
   });
   it("clears a failed provider's configuration notice when switching or recovering", async () => {

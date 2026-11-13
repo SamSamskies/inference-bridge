@@ -46,7 +46,7 @@ function selectedModelIsValid() {
   return isModelValid(readModelValue(), currentModels, { allowUnknown: allowsUnknownChatModel(current.providerId) });
 }
 function populateChatModelControl(providerId, models, selected) {
-  $("modelField").hidden = providerId === ON_DEVICE_PROVIDER_ID;
+  $("modelField").hidden = providerId === ON_DEVICE_PROVIDER_ID || !providerIsConfigured(providers.find((p) => p.id === providerId));
   currentModels = models;
   modelAutosuggest = usesModelAutosuggest(providerId, models);
   $("model").hidden = modelAutosuggest;

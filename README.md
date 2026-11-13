@@ -67,7 +67,7 @@ Right-click the toolbar icon and choose **Open Side Panel** in Chrome or **Open 
 
 Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
 
-All built-in providers supported by your browser are listed, including providers without a saved API key. Select one to see its setup instructions; model discovery and sending stay disabled until its required key is saved in Provider Settings. Local Ollama and saved compatible servers can be used without a key when their server allows it.
+All built-in providers supported by your browser are listed, including providers without a saved API key. Select one to see its setup instructions; the model picker stays hidden, and model discovery and sending stay disabled, until its required key is saved in Provider Settings. Local Ollama and saved compatible servers can be used without a key when their server allows it.
 
 The model picker follows the approval popup: small catalogs use a native dropdown; OpenRouter, PayPerQ, and compatible servers with more than 20 models use searchable input. Compatible servers also allow manual model IDs when discovery is empty or unavailable. Local Ollama, Ollama Cloud, Gemini, and on-device models must come from their available catalogs.
 
