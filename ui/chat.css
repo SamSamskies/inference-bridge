@@ -87,9 +87,19 @@ dialog::backdrop { background: rgb(0 0 0 / 28%); }
 #history nav { flex: 1; min-block-size: 0; overflow: auto; overscroll-behavior: contain; }
 #chatList { list-style: none; padding: 0; margin: 0; }
 #chatList li { display: flex; align-items: center; gap: 2px; border-radius: 8px; margin-block: 2px; }
+#chatList li:is(:hover, :focus-within) { background: var(--surface); }
 #chatList li.active { background: var(--line); }
 .chat-title { flex: 1; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; padding: 9px 8px; }
+.chat-title:hover { background: transparent; }
 .chat-delete { flex: 0 0 auto; font-size: 17px; padding: 6px; }
+.chat-delete:hover { color: var(--danger); }
+@media (hover: hover) and (pointer: fine) {
+  .chat-delete { opacity: 0; pointer-events: none; }
+  #chatList li:is(:hover, :focus-within) .chat-delete { opacity: 1; pointer-events: auto; }
+}
+@media (any-pointer: coarse) {
+  .chat-delete { opacity: 1; pointer-events: auto; }
+}
 .history-footer { display: flex; flex-direction: column; gap: 2px; padding-block-start: 8px; border-block-start: 1px solid var(--line); }
 .history-footer button { text-align: start; font-size: 12px; }
 .history-hint { font-size: 11px; color: var(--muted); margin: 8px; }
