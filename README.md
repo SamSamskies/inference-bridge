@@ -67,6 +67,8 @@ Right-click the toolbar icon and choose **Open Side Panel** in Chrome or **Open 
 
 Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
 
+All built-in providers supported by your browser are listed, including providers without a saved API key. Select one to see its setup instructions; model discovery and sending stay disabled until its required key is saved in Provider Settings. Local Ollama and saved compatible servers can be used without a key when their server allows it.
+
 The model picker follows the approval popup: small catalogs use a native dropdown; OpenRouter, PayPerQ, and compatible servers with more than 20 models use searchable input. Compatible servers also allow manual model IDs when discovery is empty or unavailable. Local Ollama, Ollama Cloud, Gemini, and on-device models must come from their available catalogs.
 
 - **History:** conversations, partial responses, and attached images are saved locally in IndexedDB and survive closing the panel or restarting the browser. Search conversation titles and use each row's three-dot menu to rename, pin/unpin, or delete a chat. Pinned chats appear first and keep their pin after reopening. The menu button appears on hover or keyboard focus and stays visible on touch devices. Finish the affected response before renaming, pinning, or deleting its chat. History is confined to this browser profile and is removed when the extension is uninstalled; it is not synced or encrypted by Bridge.

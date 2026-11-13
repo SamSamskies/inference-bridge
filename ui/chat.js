@@ -32,6 +32,15 @@ function report(error) {
 }
 function clearError() { $("error").hidden = true; $("error").textContent = ""; }
 function busy() { return run?.chatId === current.id; }
+function providerIsConfigured(provider = providers.find((p) => p.id === current.providerId)) {
+  return Boolean(provider) && (!provider.requiresApiKey || Boolean(provider.hasApiKey));
+}
+function updateConfigurationNotice(provider) {
+  $("configuration").hidden = providerIsConfigured(provider);
+  $("configurationMessage").textContent = provider?.requiresApiKey && !provider.hasApiKey
+    ? `Add an API key for ${provider.label} in`
+    : "Add an API key or configure a local provider in";
+}
 function readModelValue() { return (modelAutosuggest ? $("modelInput").value : $("model").value).trim(); }
 function selectedModelIsValid() {
   return isModelValid(readModelValue(), currentModels, { allowUnknown: allowsUnknownChatModel(current.providerId) });
@@ -51,12 +60,13 @@ function populateChatModelControl(providerId, models, selected) {
 }
 function updateControls() {
   const pending = busy() || submitting || readingFiles || loading;
-  const configured = providers.some((p) => p.id === current.providerId) && selectedModelIsValid();
+  const providerReady = providerIsConfigured();
+  const configured = providerReady && selectedModelIsValid();
   for (const id of ["newChat", "historyNew", "toggleHistory"]) $(id).disabled = submitting;
   $("provider").disabled = pending;
-  $("model").disabled = pending || modelAutosuggest || current.providerId === ON_DEVICE_PROVIDER_ID || $("model").options.length === 0;
-  $("modelInput").disabled = pending || !modelAutosuggest;
-  $("clearModel").hidden = pending || !modelAutosuggest || !$("modelInput").value;
+  $("model").disabled = pending || !providerReady || modelAutosuggest || current.providerId === ON_DEVICE_PROVIDER_ID || $("model").options.length === 0;
+  $("modelInput").disabled = pending || !providerReady || !modelAutosuggest;
+  $("clearModel").hidden = pending || !providerReady || !modelAutosuggest || !$("modelInput").value;
   $("webSearch").disabled = pending || !providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search");
   $("attach").disabled = pending;
   $("send").hidden = busy();
@@ -202,10 +212,15 @@ async function chooseRoute({ keepModel = false } = {}) {
   const request = ++routeRequest;
   const chat = current;
   const provider = providers.find((p) => p.id === chat.providerId);
-  $("configuration").hidden = Boolean(provider);
+  updateConfigurationNotice(provider);
   $("provider").value = chat.providerId;
   if (!keepModel) chat.model = provider?.defaultModel || "";
   populateChatModelControl(chat.providerId, [], chat.model);
+  if (!providerIsConfigured(provider)) {
+    $("modelStatus").textContent = "";
+    loading = false; applySearch(); updateControls();
+    return;
+  }
   $("modelStatus").textContent = "Loading models…";
   loading = true; applySearch(); updateControls();
   try {
@@ -321,7 +336,7 @@ $("composer").addEventListener("submit", (event) => {
   void (async () => {
     if (busy() || submitting || readingFiles || loading) return;
     if (run) throw new Error("Wait for the response in your other chat to finish before sending.");
-    if (!providers.some((p) => p.id === current.providerId) || !selectedModelIsValid()) throw new Error("Choose an available provider and model before sending.");
+    if (!providerIsConfigured() || !selectedModelIsValid()) throw new Error("Choose an available provider and model before sending.");
     const text = $("prompt").value.trim();
     if (!text && !attachments.length) return;
     clearError(); submitting = true; updateControls();
@@ -349,7 +364,7 @@ $("composer").addEventListener("submit", (event) => {
 $("retry").addEventListener("click", () => {
   void (async () => {
     if (run || submitting) throw new Error("Wait for the current response to finish.");
-    if (!providers.some((p) => p.id === current.providerId) || !selectedModelIsValid()) throw new Error("Choose an available provider and model before retrying.");
+    if (!providerIsConfigured() || !selectedModelIsValid()) throw new Error("Choose an available provider and model before retrying.");
     clearError(); submitting = true; updateControls();
     try {
       const chat = structuredClone(current);
@@ -366,6 +381,7 @@ $("prompt").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("composer").requestSubmit(); }
 });
 $("provider").addEventListener("change", () => {
+  clearError();
   current.providerId = $("provider").value;
   if (!providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search")) current.webSearch = false;
   void chooseRoute();
@@ -480,13 +496,13 @@ function populateProviders() {
     const missing = document.createElement("option"); missing.value = current.providerId; missing.textContent = `${current.providerId} (unavailable)`; missing.disabled = true; $("provider").append(missing);
   }
   $("provider").value = current.providerId;
-  $("configuration").hidden = providers.some((p) => p.id === current.providerId);
+  updateConfigurationNotice(providers.find((p) => p.id === current.providerId));
 }
 
 async function refreshProviders() {
   if (run || submitting) { refreshPending = true; return; }
   const catalog = await sendMessage({ type: "list-providers", method: "chat" });
-  providers = (catalog?.providers || []).filter((p) => !p.requiresApiKey || p.hasApiKey);
+  providers = catalog?.providers || [];
   populateProviders();
   await chooseRoute({ keepModel: true });
 }
@@ -501,7 +517,7 @@ async function initialize() {
   const [catalog, config, activeId] = await Promise.all([
     sendMessage({ type: "list-providers", method: "chat" }), sendMessage({ type: "chat-config" }), getChatPreference("activeChatId"),
   ]);
-  providers = (catalog?.providers || []).filter((p) => !p.requiresApiKey || p.hasApiKey);
+  providers = catalog?.providers || [];
   current = (activeId && await getChat(activeId)) || newChat(config?.defaultProviderId, "");
   if (!current.messages.length && !providers.some((p) => p.id === current.providerId)) {
     current.providerId = providers[0]?.id || ""; current.model = "";

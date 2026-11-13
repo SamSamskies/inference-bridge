@@ -58,6 +58,52 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("chat interface", () => {
+  it("lists unconfigured providers at startup and blocks sending until a configured provider is selected", async () => {
+    const choices = [
+      { id: "openai", label: "OpenAI", defaultModel: "model", requiresApiKey: true, hasApiKey: true },
+      { id: "anthropic", label: "Anthropic", defaultModel: "model", requiresApiKey: true, hasApiKey: false },
+    ];
+    chrome.runtime.sendMessage.mockClear().mockImplementation(async (message) => message.type === "list-providers" ? { providers: choices }
+      : message.type === "chat-config" ? { defaultProviderId: "anthropic" } : { ok: true, models: [{ id: "model" }] });
+    document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
+    vi.resetModules(); await import("../ui/chat.js");
+    await vi.waitFor(() => expect($("provider").value).toBe("anthropic"));
+    expect([...$("provider").options].map((option) => [option.value, option.disabled])).toEqual([["openai", false], ["anthropic", false]]);
+    expect($("configuration").textContent).toContain("Add an API key for Anthropic");
+    expect($("configuration").hidden).toBe(false);
+    expect(chrome.runtime.sendMessage.mock.calls.some(([message]) => message.type === "list-models")).toBe(false);
+    await type("A draft before setup"); expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").hidden).toBe(false));
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+    expect($("error").hidden).toBe(true);
+  });
+  it("updates setup requirements when keys change and keeps key-optional servers usable", async () => {
+    const cloud = { id: "anthropic", label: "Anthropic", defaultModel: "model", requiresApiKey: true, hasApiKey: false };
+    const choices = [{ id: "openai", label: "OpenAI", defaultModel: "model", requiresApiKey: true, hasApiKey: true }, cloud,
+      ...["ollama", "compat:server"].map((id) => ({ id, label: id, defaultModel: "model", requiresApiKey: false, optionalApiKey: true, hasApiKey: false }))];
+    chrome.runtime.sendMessage.mockImplementation(async (message) => message.type === "list-providers" ? { providers: choices } : { ok: true, models: [{ id: "model" }] });
+    chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("provider").options).toHaveLength(4));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    $("provider").value = "anthropic"; $("provider").dispatchEvent(new Event("change"));
+    await type("Keep this draft"); expect($("send").disabled).toBe(true);
+    cloud.hasApiKey = true; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("send").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true); expect($("prompt").value).toBe("Keep this draft");
+    cloud.hasApiKey = false; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("configuration").hidden).toBe(false));
+    expect($("provider").value).toBe("anthropic"); expect($("send").disabled).toBe(true);
+    expect([...$("provider").options].some((option) => option.value === "anthropic")).toBe(true);
+    for (const id of ["ollama", "compat:server"]) {
+      $("provider").value = id; $("provider").dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+    }
+  });
   it("clears a failed provider's configuration notice when switching or recovering", async () => {
     await loadProviderCatalog("openrouter", [], { fail: true });
     expect($("configuration").hidden).toBe(false);
