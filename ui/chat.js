@@ -40,6 +40,7 @@ function populateChatModelControl(providerId, models, selected) {
   modelAutosuggest = usesModelAutosuggest(providerId, models);
   $("model").hidden = modelAutosuggest;
   $("modelInput").hidden = !modelAutosuggest;
+  $("modelInputRow").hidden = !modelAutosuggest;
   $("modelLabel").htmlFor = modelAutosuggest ? "modelInput" : "model";
   $("model").replaceChildren(); $("modelInput").value = ""; $("models").replaceChildren();
   const options = { allowUnknown: allowsUnknownChatModel(providerId) };
@@ -53,6 +54,7 @@ function updateControls() {
   $("provider").disabled = pending;
   $("model").disabled = pending || modelAutosuggest || $("model").options.length === 0;
   $("modelInput").disabled = pending || !modelAutosuggest;
+  $("clearModel").hidden = pending || !modelAutosuggest || !$("modelInput").value;
   $("webSearch").disabled = pending || !providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search");
   $("attach").disabled = pending;
   $("send").hidden = busy();
@@ -367,6 +369,12 @@ $("provider").addEventListener("change", () => {
 });
 $("model").addEventListener("change", () => { current.model = readModelValue(); updateControls(); });
 $("modelInput").addEventListener("input", () => { current.model = readModelValue(); updateControls(); });
+$("clearModel").addEventListener("click", () => {
+  if ($("modelInput").disabled) return;
+  $("modelInput").value = "";
+  $("modelInput").dispatchEvent(new Event("input"));
+  $("modelInput").focus();
+});
 $("webSearch").addEventListener("click", () => { current.webSearch = !current.webSearch; applySearch(); });
 $("attach").addEventListener("click", () => $("files").click());
 

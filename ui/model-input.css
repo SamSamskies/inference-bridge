@@ -1,0 +1,10 @@
+/* Keep the native datalist picker and its keyboard behavior. Blink's default
+   indicator padding can place the caret below the text in compact inputs. */
+input[list]::-webkit-calendar-picker-indicator {
+  align-self: center;
+  inline-size: 1em;
+  block-size: 1em;
+  margin: 0;
+  padding: 0;
+  transform: translateY(-.25em);
+}

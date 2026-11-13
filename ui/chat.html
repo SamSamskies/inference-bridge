@@ -6,6 +6,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>Inference Bridge Chat</title>
     <link rel="stylesheet" href="chat.css" />
+    <link rel="stylesheet" href="model-input.css" />
   </head>
   <body>
     <header class="topbar">
@@ -20,7 +21,17 @@
     <main>
       <div class="route-bar">
         <label for="provider">Provider<select id="provider"></select></label>
-        <label id="modelLabel" for="model">Model<select id="model"></select><input id="modelInput" list="models" placeholder="Type to search models…" autocomplete="off" spellcheck="false" hidden /><datalist id="models"></datalist></label>
+        <div class="route-model">
+          <label id="modelLabel" for="model">Model</label>
+          <select id="model"></select>
+          <div id="modelInputRow" class="model-input-row" hidden>
+            <input id="modelInput" list="models" placeholder="Type to search models…" autocomplete="off" spellcheck="false" hidden />
+            <button type="button" id="clearModel" aria-label="Clear model" title="Clear model" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+          </div>
+          <datalist id="models"></datalist>
+        </div>
       </div>
       <p id="configuration" class="notice" hidden>Add an API key or configure a local provider in <a href="options.html" target="_blank" rel="noopener">Provider Settings</a>.</p>
       <p id="modelStatus" class="route-hint" role="status"></p>

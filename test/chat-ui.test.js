@@ -62,6 +62,7 @@ describe("chat interface", () => {
     await loadProviderCatalog("openai", [{ id: "a", label: "Model A" }, { id: "b", label: "Model B" }]);
     expect($("model").tagName).toBe("SELECT"); expect($("model").hidden).toBe(false);
     expect($("modelInput").hidden).toBe(true); expect($("modelInput").disabled).toBe(true);
+    expect($("modelInputRow").hidden).toBe(true); expect($("clearModel").hidden).toBe(true);
     expect([...$("model").options].map((option) => option.textContent)).toContain("Model B");
     // Unknown saved models remain selectable for providers that allow them.
     expect($("model").value).toBe("saved-model");
@@ -75,8 +76,15 @@ describe("chat interface", () => {
     await loadProviderCatalog(id, Array.from({ length: 30 }, (_, i) => ({ id: `model-${i}` })));
     expect($("model").hidden).toBe(true); expect($("model").disabled).toBe(true);
     expect($("modelInput").hidden).toBe(false); expect($("modelLabel").htmlFor).toBe("modelInput");
+    await type("Searchable model"); expect($("send").disabled).toBe(false);
+    expect($("clearModel").hidden).toBe(false); $("clearModel").click();
+    expect($("modelInput").value).toBe(""); expect(document.activeElement).toBe($("modelInput"));
+    expect($("clearModel").hidden).toBe(true); expect($("send").disabled).toBe(true);
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
     $("modelInput").value = "custom/provider-model"; $("modelInput").dispatchEvent(new Event("input"));
+    expect($("clearModel").hidden).toBe(false);
     await type("Searchable model"); await submit();
+    expect($("clearModel").hidden).toBe(true);
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     expect((await history.getChat((await history.listChats())[0].id)).model).toBe("custom/provider-model");
     await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
