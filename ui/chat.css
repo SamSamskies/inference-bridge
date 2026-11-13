@@ -57,8 +57,10 @@ select option { background: var(--bg); color: var(--ink); }
 .composer-area { padding: 8px 12px 12px; max-inline-size: 800px; inline-size: 100%; margin-inline: auto; }
 #composer { border: 1px solid var(--line); background: var(--bg); border-radius: 22px; padding: 12px 10px 8px; }
 #composer:focus-within { border-color: var(--accent); }
+#composer:has(#prompt:focus-visible) { outline: 2px solid var(--accent); outline-offset: -1px; }
 textarea { inline-size: 100%; display: block; border: 0; background: transparent; padding: 0 6px; resize: none; min-block-size: 54px; max-block-size: 180px; overflow-y: auto; }
-textarea:focus-visible { outline-offset: 5px; border-radius: 2px; }
+/* The composer supplies the textarea's focus ring; toolbar buttons keep theirs. */
+#prompt:focus-visible { outline: none; }
 textarea::placeholder { color: var(--muted); }
 .composer-tools { display: flex; align-items: center; gap: 4px; margin-block-start: 8px; }
 .search-button { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 24px; font-size: 12px; padding: 6px 10px; }

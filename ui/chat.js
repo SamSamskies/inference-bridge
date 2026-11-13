@@ -35,9 +35,10 @@ function updateControls() {
   $("send").hidden = busy();
   $("stop").hidden = !busy();
   $("send").disabled = pending || Boolean(run) || !configured || (!$("prompt").value.trim() && !attachments.length);
+  $("composerHint").hidden = !(run && !busy());
   $("composerHint").textContent = run && !busy()
     ? "A response is running in another chat. Open it from history to stop."
-    : "Saved on this device. Sent to your selected provider.";
+    : "";
   const last = current.messages.at(-1);
   $("retry").hidden = pending || Boolean(run) || !configured || !(last?.role === "user" || (last?.role === "assistant" && last.status !== "complete"));
 }
