@@ -3,6 +3,7 @@ import {
   getChatPreference, setChatPreference, withChatLock, withClearHistoryLock, updateChatMetadata,
 } from "../src/chat-history.js";
 import { IMAGE_MEDIA_TYPES, rawImageBase64 } from "../src/image-parts.js";
+import { ON_DEVICE_PROVIDER_ID } from "../src/prompt-api-core.js";
 import { renderMarkdown } from "./chat-markdown.js";
 import { createChatActionsMenu } from "./chat-actions-menu.js";
 import { allowsUnknownChatModel, isModelValid, populateModelInput, populateModelSelect, usesModelAutosuggest } from "./model-input.js";
@@ -36,6 +37,7 @@ function selectedModelIsValid() {
   return isModelValid(readModelValue(), currentModels, { allowUnknown: allowsUnknownChatModel(current.providerId) });
 }
 function populateChatModelControl(providerId, models, selected) {
+  $("modelField").hidden = providerId === ON_DEVICE_PROVIDER_ID;
   currentModels = models;
   modelAutosuggest = usesModelAutosuggest(providerId, models);
   $("model").hidden = modelAutosuggest;
@@ -52,7 +54,7 @@ function updateControls() {
   const configured = providers.some((p) => p.id === current.providerId) && selectedModelIsValid();
   for (const id of ["newChat", "historyNew", "toggleHistory"]) $(id).disabled = submitting;
   $("provider").disabled = pending;
-  $("model").disabled = pending || modelAutosuggest || $("model").options.length === 0;
+  $("model").disabled = pending || modelAutosuggest || current.providerId === ON_DEVICE_PROVIDER_ID || $("model").options.length === 0;
   $("modelInput").disabled = pending || !modelAutosuggest;
   $("clearModel").hidden = pending || !modelAutosuggest || !$("modelInput").value;
   $("webSearch").disabled = pending || !providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search");

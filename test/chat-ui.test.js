@@ -58,6 +58,25 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("chat interface", () => {
+  it("hides the on-device model field while preserving its route, including after reopening history", async () => {
+    await loadProviderCatalog("on-device", [{ id: "on-device", label: "Browser-chosen model" }]);
+    expect($("modelField").hidden).toBe(true); expect($("model").disabled).toBe(true);
+    await type("Use the browser model"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("on-device");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("newChat").click();
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("model").disabled).toBe(false));
+    expect($("modelField").hidden).toBe(false);
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+    $("chatList").querySelector(".chat-title").click();
+    await vi.waitFor(() => expect($("provider").value).toBe("on-device"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("modelField").hidden).toBe(true); expect($("model").value).toBe("on-device");
+  });
   it("uses a native model select for small catalogs and sends its selected model", async () => {
     await loadProviderCatalog("openai", [{ id: "a", label: "Model A" }, { id: "b", label: "Model B" }]);
     expect($("model").tagName).toBe("SELECT"); expect($("model").hidden).toBe(false);
