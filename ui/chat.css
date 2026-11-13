@@ -58,7 +58,7 @@ select option { background: var(--bg); color: var(--ink); }
 #composer { border: 1px solid var(--line); background: var(--bg); border-radius: 22px; padding: 12px 10px 8px; }
 #composer:focus-within { border-color: var(--accent); }
 #composer:has(#prompt:focus-visible) { outline: 2px solid var(--accent); outline-offset: -1px; }
-textarea { inline-size: 100%; display: block; border: 0; background: transparent; padding: 0 6px; resize: none; min-block-size: 54px; max-block-size: 180px; overflow-y: auto; }
+textarea { inline-size: 100%; display: block; border: 0; background: transparent; padding: 0 6px; font-size: 1.15rem; line-height: 1.5; resize: none; min-block-size: 54px; max-block-size: 180px; overflow-y: auto; }
 /* The composer supplies the textarea's focus ring; toolbar buttons keep theirs. */
 #prompt:focus-visible { outline: none; }
 textarea::placeholder { color: var(--muted); }
