@@ -4,12 +4,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import { createWebLocksMock } from "./helpers/web-locks-mock.js";
 import { installPopoverMock } from "./helpers/popover-mock.js";
+import { COMPAT_MODEL_AUTOSUGGEST_THRESHOLD } from "../ui/model-input.js";
 
 let history, port, finish;
 const $ = (id) => document.getElementById(id);
 function event() { const fns = []; return { addListener: (fn) => fns.push(fn), emit: (...args) => fns.forEach((fn) => fn(...args)) }; }
 async function type(text) { $("prompt").value = text; $("prompt").dispatchEvent(new Event("input")); }
 async function submit() { $("composer").dispatchEvent(new Event("submit", { cancelable: true })); await vi.waitFor(() => expect(port).toBeDefined()); }
+async function loadProviderCatalog(id, models, { fail = false, defaultModel = models[0]?.id || "" } = {}) {
+  const choices = [{ id: "openai", label: "OpenAI", defaultModel: "saved-model", hostedTools: [] }];
+  if (id !== "openai") choices.push({ id, label: id, defaultModel, hostedTools: [] });
+  chrome.runtime.sendMessage.mockImplementation(async (message) => {
+    if (message.type === "list-providers") return { providers: choices };
+    if (message.providerId === id) return fail ? { ok: false, error: { message: "Discovery failed" } } : { ok: true, models, defaultModel };
+    return { ok: true, models: [{ id: "saved-model" }], defaultModel: "saved-model" };
+  });
+  chrome.storage.onChanged.emit({ compatEndpoints: {} }, "local");
+  await vi.waitFor(() => expect([...$("provider").options].some((option) => option.value === id)).toBe(true));
+  await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+  $("provider").value = id; $("provider").dispatchEvent(new Event("change"));
+  await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+}
 beforeEach(async () => {
   vi.resetModules(); port = undefined; finish = undefined;
   document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
@@ -43,6 +58,60 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("chat interface", () => {
+  it("uses a native model select for small catalogs and sends its selected model", async () => {
+    await loadProviderCatalog("openai", [{ id: "a", label: "Model A" }, { id: "b", label: "Model B" }]);
+    expect($("model").tagName).toBe("SELECT"); expect($("model").hidden).toBe(false);
+    expect($("modelInput").hidden).toBe(true); expect($("modelInput").disabled).toBe(true);
+    expect([...$("model").options].map((option) => option.textContent)).toContain("Model B");
+    // Unknown saved models remain selectable for providers that allow them.
+    expect($("model").value).toBe("saved-model");
+    $("model").value = "b"; $("model").dispatchEvent(new Event("change"));
+    await type("Use this model"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("b");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+  });
+  it.each(["openrouter", "ppq"])("keeps %s searchable and sends a manually entered slug", async (id) => {
+    await loadProviderCatalog(id, Array.from({ length: 30 }, (_, i) => ({ id: `model-${i}` })));
+    expect($("model").hidden).toBe(true); expect($("model").disabled).toBe(true);
+    expect($("modelInput").hidden).toBe(false); expect($("modelLabel").htmlFor).toBe("modelInput");
+    $("modelInput").value = "custom/provider-model"; $("modelInput").dispatchEvent(new Event("input"));
+    await type("Searchable model"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("custom/provider-model");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    if (id === "openrouter") {
+      $("newChat").click();
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      expect($("model").hidden).toBe(false); expect($("model").value).toBe("saved-model");
+      $("toggleHistory").click();
+      await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+      $("chatList").querySelector(".chat-title").click();
+      await vi.waitFor(() => expect($("modelInput").value).toBe("custom/provider-model"));
+      expect($("modelInput").hidden).toBe(false);
+    }
+  });
+  it.each([0, COMPAT_MODEL_AUTOSUGGEST_THRESHOLD, COMPAT_MODEL_AUTOSUGGEST_THRESHOLD + 1])("matches the shared compatible-server picker for %s models", async (count) => {
+    await loadProviderCatalog("compat:server", Array.from({ length: count }, (_, i) => ({ id: `model-${i}` })));
+    const searchable = count === 0 || count > COMPAT_MODEL_AUTOSUGGEST_THRESHOLD;
+    expect($("modelInput").hidden).toBe(!searchable);
+    expect($("model").hidden).toBe(searchable);
+    if (!count) {
+      $("modelInput").value = "manually-configured-model"; $("modelInput").dispatchEvent(new Event("input"));
+      await type("Manual fallback"); expect($("send").disabled).toBe(false);
+    }
+  });
+  it.each([false, true])("blocks unavailable strict-provider models without offering manual input (failure: %s)", async (fail) => {
+    await loadProviderCatalog("ollama", [], { fail, defaultModel: "removed-model" });
+    expect($("model").hidden).toBe(false); expect($("model").disabled).toBe(true);
+    expect($("modelInput").hidden).toBe(true);
+    await type("Do not send"); expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("Choose an available provider and model"));
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
+  });
   it("saves a user message before generation and reloads the completed response", async () => {
     await type("Hello world"); $("webSearch").click(); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));

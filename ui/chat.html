@@ -20,7 +20,7 @@
     <main>
       <div class="route-bar">
         <label for="provider">Provider<select id="provider"></select></label>
-        <label for="model">Model<input id="model" list="models" placeholder="Choose a model" autocomplete="off" spellcheck="false" /><datalist id="models"></datalist></label>
+        <label id="modelLabel" for="model">Model<select id="model"></select><input id="modelInput" list="models" placeholder="Type to search models…" autocomplete="off" spellcheck="false" hidden /><datalist id="models"></datalist></label>
       </div>
       <p id="configuration" class="notice" hidden>Add an API key or configure a local provider in <a href="options.html" target="_blank" rel="noopener">Provider Settings</a>.</p>
       <p id="modelStatus" class="route-hint" role="status"></p>

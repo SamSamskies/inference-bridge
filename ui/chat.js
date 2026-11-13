@@ -5,6 +5,7 @@ import {
 import { IMAGE_MEDIA_TYPES, rawImageBase64 } from "../src/image-parts.js";
 import { renderMarkdown } from "./chat-markdown.js";
 import { createChatActionsMenu } from "./chat-actions-menu.js";
+import { allowsUnknownChatModel, isModelValid, populateModelInput, populateModelSelect, usesModelAutosuggest } from "./model-input.js";
 
 const $ = (id) => document.getElementById(id);
 let current = newChat();
@@ -17,6 +18,8 @@ let loading = true;
 let submitting = false;
 let readingFiles = false;
 let refreshPending = false;
+let currentModels = [];
+let modelAutosuggest = false;
 const sendMessage = (message) => chrome.runtime.sendMessage(message);
 let historyMenus = [];
 let renamingId = null;
@@ -28,12 +31,28 @@ function report(error) {
 }
 function clearError() { $("error").hidden = true; $("error").textContent = ""; }
 function busy() { return run?.chatId === current.id; }
+function readModelValue() { return (modelAutosuggest ? $("modelInput").value : $("model").value).trim(); }
+function selectedModelIsValid() {
+  return isModelValid(readModelValue(), currentModels, { allowUnknown: allowsUnknownChatModel(current.providerId) });
+}
+function populateChatModelControl(providerId, models, selected) {
+  currentModels = models;
+  modelAutosuggest = usesModelAutosuggest(providerId, models);
+  $("model").hidden = modelAutosuggest;
+  $("modelInput").hidden = !modelAutosuggest;
+  $("modelLabel").htmlFor = modelAutosuggest ? "modelInput" : "model";
+  $("model").replaceChildren(); $("modelInput").value = ""; $("models").replaceChildren();
+  const options = { allowUnknown: allowsUnknownChatModel(providerId) };
+  if (modelAutosuggest) populateModelInput($("modelInput"), $("models"), models, selected, options);
+  else populateModelSelect($("model"), models, selected, options);
+}
 function updateControls() {
   const pending = busy() || submitting || readingFiles || loading;
-  const configured = providers.some((p) => p.id === current.providerId) && Boolean($("model").value.trim());
+  const configured = providers.some((p) => p.id === current.providerId) && selectedModelIsValid();
   for (const id of ["newChat", "historyNew", "toggleHistory"]) $(id).disabled = submitting;
   $("provider").disabled = pending;
-  $("model").disabled = pending;
+  $("model").disabled = pending || modelAutosuggest || $("model").options.length === 0;
+  $("modelInput").disabled = pending || !modelAutosuggest;
   $("webSearch").disabled = pending || !providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search");
   $("attach").disabled = pending;
   $("send").hidden = busy();
@@ -181,22 +200,22 @@ async function chooseRoute({ keepModel = false } = {}) {
   const provider = providers.find((p) => p.id === chat.providerId);
   $("provider").value = chat.providerId;
   if (!keepModel) chat.model = provider?.defaultModel || "";
-  $("model").value = chat.model;
-  $("models").replaceChildren();
+  populateChatModelControl(chat.providerId, [], chat.model);
   $("modelStatus").textContent = "Loading models…";
   loading = true; applySearch(); updateControls();
   try {
     const response = await sendMessage({ type: "list-models", providerId: chat.providerId });
     if (request !== routeRequest) return;
-    if (!response?.ok) throw new Error(response?.error?.message || "Models unavailable. Enter a model ID or check Provider Settings.");
-    for (const model of response.models || []) {
-      const option = document.createElement("option"); option.value = model.id; option.label = model.label || model.id;
-      $("models").append(option);
-    }
-    if (!chat.model) { chat.model = response.defaultModel || response.models?.[0]?.id || ""; $("model").value = chat.model; }
-    $("modelStatus").textContent = response.models?.length ? "" : "No models found. Enter a model ID or check Provider Settings.";
+    if (!response?.ok) throw new Error(response?.error?.message || "Models unavailable. Check Provider Settings.");
+    const models = Array.isArray(response.models) ? response.models.filter((model) => model && typeof model.id === "string" && model.id) : [];
+    populateChatModelControl(chat.providerId, models, chat.model || response.defaultModel || models[0]?.id || "");
+    chat.model = readModelValue();
+    $("modelStatus").textContent = models.length ? "" : modelAutosuggest
+      ? "No models found. Enter a model ID or check Provider Settings."
+      : "No models found. Check Provider Settings.";
   } catch (error) {
     if (request === routeRequest) {
+      chat.model = readModelValue();
       $("modelStatus").textContent = error.message;
       $("configuration").hidden = false;
     }
@@ -297,11 +316,12 @@ $("composer").addEventListener("submit", (event) => {
   void (async () => {
     if (busy() || submitting || readingFiles || loading) return;
     if (run) throw new Error("Wait for the response in your other chat to finish before sending.");
+    if (!providers.some((p) => p.id === current.providerId) || !selectedModelIsValid()) throw new Error("Choose an available provider and model before sending.");
     const text = $("prompt").value.trim();
     if (!text && !attachments.length) return;
     clearError(); submitting = true; updateControls();
     const chat = structuredClone(current);
-    chat.model = $("model").value.trim();
+    chat.model = readModelValue();
     const content = attachments.length ? [
       ...(text ? [{ type: "text", text }] : []),
       ...attachments.map(({ mediaType, data }) => ({ type: "image", mediaType, data })),
@@ -324,11 +344,12 @@ $("composer").addEventListener("submit", (event) => {
 $("retry").addEventListener("click", () => {
   void (async () => {
     if (run || submitting) throw new Error("Wait for the current response to finish.");
+    if (!providers.some((p) => p.id === current.providerId) || !selectedModelIsValid()) throw new Error("Choose an available provider and model before retrying.");
     clearError(); submitting = true; updateControls();
     try {
       const chat = structuredClone(current);
       if (chat.messages.at(-1)?.role === "assistant") chat.messages.pop();
-      chat.model = $("model").value.trim();
+      chat.model = readModelValue();
       await storeCurrent(chat); current = chat;
       submitting = false; await beginResponse(chat);
     } finally { submitting = false; updateControls(); }
@@ -344,7 +365,8 @@ $("provider").addEventListener("change", () => {
   if (!providers.find((p) => p.id === current.providerId)?.hostedTools?.includes("web_search")) current.webSearch = false;
   void chooseRoute();
 });
-$("model").addEventListener("input", () => { current.model = $("model").value; updateControls(); });
+$("model").addEventListener("change", () => { current.model = readModelValue(); updateControls(); });
+$("modelInput").addEventListener("input", () => { current.model = readModelValue(); updateControls(); });
 $("webSearch").addEventListener("click", () => { current.webSearch = !current.webSearch; applySearch(); });
 $("attach").addEventListener("click", () => $("files").click());
 

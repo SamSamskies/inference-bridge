@@ -1,5 +1,5 @@
 /**
- * Shared model picker helpers for Options and the approval dialog.
+ * Shared model picker helpers for Options, approval, and first-party chat.
  *
  * Short catalogs (OpenAI curated list, local Ollama tags, small discovered
  * OpenAI-compatible catalogs) use a <select>. Large live catalogs (OpenRouter,
@@ -43,6 +43,11 @@ export function usesModelAutosuggest(providerId, models) {
     );
   }
   return false;
+}
+
+/** Whether chat can use a model ID absent from the provider's catalog. */
+export function allowsUnknownChatModel(providerId) {
+  return !["gemini", "ollama", "ollama-cloud", "on-device"].includes(providerId);
 }
 
 /**
