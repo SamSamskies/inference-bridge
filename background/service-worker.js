@@ -583,7 +583,9 @@ chrome.action.onClicked.addListener(() => {
 
 chrome.runtime.onInstalled?.addListener(() => {
   void chrome.contextMenus.removeAll().then(() => {
-    chrome.contextMenus.create({ id: "open-chat", title: "Open Chat", contexts: ["action"] });
+    // Chrome already supplies Open Side Panel. Clear our earlier duplicate on
+    // update/reload; Firefox still needs an explicit sidebar menu entry.
+    if (isFirefoxBuild()) chrome.contextMenus.create({ id: "open-chat", title: "Open Chat", contexts: ["action"] });
   }).catch((error) => console.warn("Could not create chat menu", error));
 });
 chrome.contextMenus?.onClicked.addListener((info, tab) => {

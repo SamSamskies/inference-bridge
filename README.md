@@ -63,7 +63,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 
 ## Side-panel chat
 
-Right-click the toolbar icon and choose **Open Chat**, or click **Open Chat** in Options. Left-clicking the toolbar icon continues to open Options. Chrome 116+ opens one shared panel per window; Firefox uses its native sidebar. The browser controls the panel width, and chat fills the available space when resized.
+Right-click the toolbar icon and choose **Open Side Panel** in Chrome or **Open Chat** in Firefox, or click **Open Chat** in Options. Left-clicking the toolbar icon continues to open Options. Chrome 116+ opens one shared panel per window; Firefox uses its native sidebar. The browser controls the panel width, and chat fills the available space when resized.
 
 Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
 
@@ -1139,7 +1139,7 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 
 #### Side-panel chat
 
-- [ ] Chrome: left-click the toolbar icon opens Options; **Open Chat** in Options and the action's context menu open the same global panel without changing the toolbar action. Navigate/switch tabs while the panel stays open. Firefox: both entry points open the native sidebar; Options stays available from the toolbar.
+- [ ] Chrome: left-click the toolbar icon opens Options; **Open Chat** in Options and the built-in **Open Side Panel** context-menu item open the same global panel. Reload/update from an earlier build and confirm the duplicate **Open Chat** menu item is removed. Navigate/switch tabs while the panel stays open. Firefox: **Open Chat** in Options and the action's context menu open the native sidebar; Options stays available from the toolbar.
 - [ ] Use a configured provider/model for streaming chat, hosted search, and an attached/pasted image with a vision model. Verify unsupported models/search and missing credentials/host access show useful errors. Change providers in Options and reopen chat.
 - [ ] Check native dropdowns for small model catalogs, searchable OpenRouter/PayPerQ catalogs, the 20-model compatible-server boundary, and manual entry when a compatible server's discovery is empty or fails. Verify selection survives reopening a chat and that unavailable local models cannot be sent using Enter.
 - [ ] Stop, retry, close/reopen the panel, and restart the browser. Confirm saved history, images, reasoning, and partial responses restore. New Chat and saved-chat navigation work during generation; another send waits until the active response finishes.

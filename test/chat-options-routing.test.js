@@ -30,6 +30,8 @@ async function setup(firefox) {
   if (!firefox) chrome.storage.local.setAccessLevel = vi.fn(async () => {});
   chrome.runtime.onConnect = event();
   chrome.runtime.onMessage = event();
+  chrome.runtime.onInstalled = event();
+  chrome.contextMenus = { removeAll: vi.fn(async () => {}), create: vi.fn(), onClicked: event() };
   chrome.permissions = { contains: vi.fn(async () => true), onRemoved: event() };
   chrome.windows.onRemoved = event();
   chrome.tabs = { onRemoved: event(), onUpdated: event() };
@@ -99,6 +101,16 @@ afterEach(() => {
 
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   beforeEach(() => setup(firefox));
+
+  it("clears old toolbar menus on install/update and adds Open Chat only in Firefox", async () => {
+    chrome.runtime.onInstalled.emit({ reason: "update" });
+    await vi.waitFor(() => expect(chrome.contextMenus.removeAll).toHaveBeenCalledOnce());
+    // Menu creation must follow cleanup, including when upgrading a Chrome build
+    // that had the duplicate Open Chat entry stored by the browser.
+    await Promise.resolve();
+    if (firefox) expect(chrome.contextMenus.create).toHaveBeenCalledWith({ id: "open-chat", title: "Open Chat", contexts: ["action"] });
+    else expect(chrome.contextMenus.create).not.toHaveBeenCalled();
+  });
 
   it("routes approved cloud chat with its own key and remembers it independently of local defaults", async () => {
     const cloudRoute = { providerId: "ollama-cloud", model: "gpt-oss:120b" };

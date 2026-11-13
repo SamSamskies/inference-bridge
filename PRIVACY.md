@@ -68,7 +68,7 @@ The extension does not receive or relay responses through any Inference Bridge s
 | Permission / host | Why it is needed |
 | --- | --- |
 | `storage` | Save settings, API keys, and origin grants |
-| `contextMenus` | Add Open Chat to the extension toolbar icon's context menu |
+| `contextMenus` | Manage toolbar menu entries: Firefox adds Open Chat; Chrome clears the earlier duplicate and uses its built-in Open Side Panel |
 | `sidePanel` (Chrome only) | Display optional first-party chat beside the current webpage; Firefox uses `sidebar_action` |
 | `declarativeNetRequestWithHostAccess` | Strip `Origin` / `Referer` on loopback inference requests so local servers do not reject extension origins |
 | `offscreen` (Chrome only) | Host the browser Prompt API for the On-device provider (not available in the service worker) |
