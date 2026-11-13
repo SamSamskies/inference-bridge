@@ -347,12 +347,6 @@ $("confirmDelete").addEventListener("close", () => {
     await refreshHistory();
   })().catch((error) => { closeHistory(); report(error); });
 });
-$("exportChat").addEventListener("click", () => {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(current, null, 2)], { type: "application/json" }));
-  const link = document.createElement("a"); link.href = url; link.download = `inference-bridge-chat-${current.id}.json`; link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
-
 function populateProviders() {
   $("provider").replaceChildren();
   for (const provider of providers) {

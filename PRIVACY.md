@@ -40,7 +40,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 
 Settings and grants stay on the device unless the user clears extension storage or uninstalls the extension. API keys are sent to their selected provider when needed to authenticate a request. Local extension storage is not encrypted by Inference Bridge or Firefox.
 
-First-party chat history is also unencrypted by Bridge. Delete a chat or all chat history from its history sidebar, or export the current conversation as JSON. Uninstalling removes local history. Browser storage quotas apply; Bridge requests persistent storage when a chat is saved, but the browser may decline. Storage failures are reported, and an abrupt shutdown may lose the latest unsaved response checkpoint. The extension does not save website IPA conversations in chat history.
+First-party chat history is also unencrypted by Bridge. Delete a chat or all chat history from its history sidebar. Uninstalling removes local history. Browser storage quotas apply; Bridge requests persistent storage when a chat is saved, but the browser may decline. Storage failures are reported, and an abrupt shutdown may lose the latest unsaved response checkpoint. The extension does not save website IPA conversations in chat history.
 
 ## Data sent to third parties
 
