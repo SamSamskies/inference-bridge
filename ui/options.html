@@ -9,15 +9,21 @@
   </head>
   <body>
     <main class="stack">
-      <header>
+      <header class="settings-header">
         <div class="eyebrow">Inference Provider API</div>
         <h1>Extension settings</h1>
-        <button type="button" id="openChat">Open Chat</button>
-        <p id="openChatStatus" class="hint" role="status"></p>
-        <p class="hint">
+        <p class="hint settings-intro">
           API keys stay in this extension. Pages that call
           <code>window.inference</code> never see them.
         </p>
+        <button type="button" id="openChat" class="open-chat-button">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z" />
+            <path d="M7 10h8M7 14h5" />
+          </svg>
+          Open Chat
+        </button>
+        <p id="openChatStatus" class="hint" role="status"></p>
       </header>
 
       <div class="settings-tabs" role="tablist" aria-label="Settings sections">
