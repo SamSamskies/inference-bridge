@@ -382,6 +382,25 @@ $("toggleHistory").addEventListener("click", () => {
 });
 $("closeHistory").addEventListener("click", closeHistory);
 $("history").addEventListener("close", () => $("toggleHistory").setAttribute("aria-expanded", "false"));
+// Chrome 116–133 and Firefox 140 lack native dialog light-dismiss. Require
+// both ends of the click on the backdrop so dragging out of the drawer stays safe.
+if (!("closedBy" in HTMLDialogElement.prototype)) {
+  const history = $("history");
+  let pressedBackdrop = false;
+  const outside = (event) => {
+    if (event.target !== history) return false;
+    const rect = history.getBoundingClientRect();
+    return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+  };
+  history.addEventListener("pointerdown", (event) => { pressedBackdrop = event.button === 0 && outside(event); });
+  history.addEventListener("pointercancel", () => { pressedBackdrop = false; });
+  history.addEventListener("close", () => { pressedBackdrop = false; });
+  history.addEventListener("click", (event) => {
+    const dismiss = pressedBackdrop && outside(event);
+    pressedBackdrop = false;
+    if (dismiss) closeHistory();
+  });
+}
 $("historySearch").addEventListener("input", renderHistory);
 $("cancelRename").addEventListener("click", () => { if (!renamingBusy) $("renameChat").close(); });
 $("renameChat").addEventListener("cancel", (event) => { if (renamingBusy) event.preventDefault(); });

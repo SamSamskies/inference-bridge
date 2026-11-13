@@ -87,6 +87,27 @@ describe("chat interface", () => {
     $("confirmDelete").close();
     expect($("empty").hidden).toBe(false);
   });
+  it("closes history on a backdrop click in the fallback and resets the toggle state", () => {
+    $("toggleHistory").click();
+    expect($("history").getAttribute("closedby")).toBe("any");
+    vi.spyOn($("history"), "getBoundingClientRect").mockReturnValue({ left: 0, right: 280, top: 0, bottom: 700 });
+    for (const type of ["pointerdown", "click"]) $("history").dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: 320, clientY: 100 }));
+    expect($("history").open).toBe(false);
+    expect($("toggleHistory").getAttribute("aria-expanded")).toBe("false");
+  });
+  it("keeps history open for padding/child clicks, cancelled pointers, and drags starting inside", () => {
+    $("toggleHistory").click();
+    vi.spyOn($("history"), "getBoundingClientRect").mockReturnValue({ left: 0, right: 280, top: 0, bottom: 700 });
+    const dispatch = (target, type, x) => target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: 100 }));
+    for (const type of ["pointerdown", "click"]) dispatch($("history"), type, 16);
+    expect($("history").open).toBe(true);
+    for (const type of ["pointerdown", "click"]) dispatch($("historySearch"), type, 320);
+    expect($("history").open).toBe(true);
+    dispatch($("historySearch"), "pointerdown", 16); dispatch($("history"), "click", 320);
+    expect($("history").open).toBe(true);
+    dispatch($("history"), "pointerdown", 320); dispatch($("history"), "pointercancel", 320); dispatch($("history"), "click", 320);
+    expect($("history").open).toBe(true);
+  });
   it("refreshes configured providers without silently rerouting an existing chat", async () => {
     await type("Keep my route"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
