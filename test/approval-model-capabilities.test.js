@@ -45,6 +45,8 @@ const cases = [
   ["OpenAI image output", "openai", "gpt-6-luna", { imageOutput: true }, false],
   ["OpenAI unknown image output", "openai", "unverified-model", { imageOutput: true }, true],
   ["Gemini verified model", "gemini", "gemini-3.8-flash", { imageInput: true }, false],
+  ["Gemini Hydrogen image input", "gemini", "gemini-4-hydrogen", { imageInput: true }, false],
+  ["Gemini Hydrogen image output", "gemini", "gemini-4-hydrogen", { imageOutput: true }, true],
   ["Gemini unknown model", "gemini", "gemini-unverified", { imageInput: true }, true],
   ["Gemini native output restriction", "gemini", "gemini-3.8-flash", { imageOutput: true }, true],
 ];
