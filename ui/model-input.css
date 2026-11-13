@@ -1,10 +1,48 @@
-/* Keep the native datalist picker and its keyboard behavior. Blink's default
-   indicator padding can place the caret below the text in compact inputs. */
+/* Suggestions remain native; only the redundant dropdown indicator is hidden. */
 input[list]::-webkit-calendar-picker-indicator {
-  align-self: center;
-  inline-size: 1em;
-  block-size: 1em;
-  margin: 0;
-  padding: 0;
-  transform: translateY(-.25em);
+  display: none !important;
+}
+
+.model-input-row {
+  position: relative;
+  display: block;
+}
+
+.model-input-row input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding-inline-end: 36px;
+}
+
+.model-input-row .model-clear {
+  position: absolute;
+  inset-inline-end: 4px;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  min-inline-size: 0;
+  min-block-size: 28px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.model-clear:hover {
+  color: var(--ink);
+  background: var(--surface, var(--bg-elevated));
+}
+
+.model-clear svg {
+  display: block;
+  inline-size: 15px;
+  block-size: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
 }
