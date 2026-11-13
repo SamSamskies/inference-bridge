@@ -95,6 +95,7 @@ describe("Gemini curated models and capability boundaries", () => {
       model,
       "gemini-4-carbon",
       "gemini-4-argon",
+      "gemini-4-hydrogen",
     ]);
     expect(models.map((entry) => entry.label)).toEqual([
       "Gemma 4 26B A4B IT",
@@ -103,6 +104,7 @@ describe("Gemini curated models and capability boundaries", () => {
       "Gemini 3.8 Flash",
       "Gemini 4 Carbon",
       "Gemini 4 Argon",
+      "Gemini 4 Hydrogen",
     ]);
     expect(models.every((entry) => entry.inputModalities.includes("image"))).toBe(true);
     expect(models.every((entry) => entry.outputModalities.join() === "text")).toBe(true);
@@ -152,6 +154,7 @@ describe("Gemini curated models and capability boundaries", () => {
     expect(mapGeminiReasoningEffort(model, "none")).toBe("low");
     expect(mapGeminiReasoningEffort("gemini-4-carbon", "none")).toBe("low");
     expect(mapGeminiReasoningEffort("gemini-4-argon", "none")).toBe("low");
+    expect(mapGeminiReasoningEffort("gemini-4-hydrogen", "none")).toBe("low");
     expect(mapGeminiReasoningEffort("gemini-3.6-flash", "none")).toBe(
       "minimal"
     );
@@ -172,6 +175,34 @@ describe("Gemini curated models and capability boundaries", () => {
     expect(typeof geminiProvider.decide).toBe("function");
     expect(geminiProvider.synthesis.outputMediaTypes).toEqual(["audio/wav"]);
     expect(typeof geminiProvider.synthesize).toBe("function");
+  });
+  it.each([
+    [undefined, undefined],
+    ["auto", undefined],
+    ["none", "low"],
+    ["low", "low"],
+    ["medium", "medium"],
+    ["high", "high"],
+  ])("supports Hydrogen image input and reasoning preference %s", async (reasoningEffort, thinkingLevel) => {
+    const hydrogen = "gemini-4-hydrogen";
+    const messages = [{ role: "user", content: [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+    ] }];
+    const request = { model: hydrogen, messages, options: { reasoningEffort } };
+    await expect(geminiProvider.preflightChat(request)).resolves.toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
+    installStream([start(), delta("An image."), end({ model: hydrogen })]);
+    const result = await chat(request);
+    expect(result).toMatchObject({ model: hydrogen, message: { content: "An image." } });
+    expect(fetch.mock.calls[0][0]).toContain(`/v1beta/models/${hydrogen}`);
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body.model).toBe(hydrogen);
+    expect(body.input[0].content[1]).toEqual({ type: "image", mime_type: "image/png", data: "aW1hZ2U=" });
+    if (thinkingLevel) expect(body.generation_config.thinking_level).toBe(thinkingLevel);
+    else expect(body.generation_config).not.toHaveProperty("thinking_level");
+    expect(body.store).toBe(false);
+    expect(geminiRequestWarning(hydrogen, { imageOutput: true })).toContain("not supported");
   });
 });
 
@@ -682,7 +713,7 @@ describe("Gemini native chat", () => {
       JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config.tool_choice
     ).toEqual({ allowed_tools: { mode: "any", tools: ["weather"] } });
   });
-  it.each(["gemini-4-carbon", "gemini-4-argon"])(
+  it.each(["gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen"])(
     "supports mixed native search and functions on %s",
     async (mixedModel) => {
       await chat({ model: mixedModel, tools: [search, fn] });
