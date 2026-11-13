@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import { createWebLocksMock } from "./helpers/web-locks-mock.js";
+import { installPopoverMock } from "./helpers/popover-mock.js";
 
 let history, port, finish;
 const $ = (id) => document.getElementById(id);
@@ -14,6 +15,7 @@ beforeEach(async () => {
   document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event("close")); };
+  installPopoverMock();
   vi.stubGlobal("indexedDB", new IDBFactory());
   Object.defineProperty(navigator, "locks", { configurable: true, value: createWebLocksMock() });
   history = await import("../src/chat-history.js");
@@ -38,6 +40,7 @@ beforeEach(async () => {
   await import("../ui/chat.js");
   await vi.waitFor(() => expect($("model").disabled).toBe(false));
 });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("chat interface", () => {
   it("saves a user message before generation and reloads the completed response", async () => {
@@ -109,5 +112,34 @@ describe("chat interface", () => {
     $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
     await vi.waitFor(() => expect($("error").textContent).toContain("deleted in another panel"));
     expect(await history.getChat(id)).toBeUndefined();
+  });
+  it("renames, pins/unpins, and deletes a conversation through its options menu", async () => {
+    await type("Original name"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    const id = (await history.listChats())[0].id;
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    $("chatList").querySelector('[data-action="rename"]').click();
+    expect($("renameChat").open).toBe(true);
+    $("chatName").value = "My project"; $("renameForm").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("renameChat").open).toBe(false));
+    expect((await history.getChat(id)).title).toBe("My project");
+    for (const pinned of [true, false]) {
+      $("chatList").querySelector(".chat-actions").click();
+      await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+      expect($("chatList").querySelector('[data-action="pin"]').textContent).toBe(pinned ? "Pin" : "Unpin");
+      $("chatList").querySelector('[data-action="pin"]').click();
+      await vi.waitFor(async () => expect((await history.getChat(id)).pinned).toBe(pinned));
+      await vi.waitFor(() => expect(Boolean($("chatList").querySelector(".chat-pin"))).toBe(pinned));
+    }
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    $("chatList").querySelector('[data-action="delete"]').click();
+    expect($("confirmDelete").open).toBe(true);
+    $("confirmDelete").returnValue = "delete"; $("confirmDelete").close();
+    await vi.waitFor(async () => expect(await history.getChat(id)).toBeUndefined());
   });
 });

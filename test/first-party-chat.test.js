@@ -72,4 +72,13 @@ describe("first-party chat channel", () => {
     expect(service).toHaveBeenCalledOnce(); release();
     await vi.waitFor(() => expect(first.messages.at(-1)?.type).toBe("done"));
   });
+  it("preserves a manual name and pin when a later response is saved", async () => {
+    const chat = history.newChat("openai", "vision-model");
+    chat.messages.push({ role: "user", content: "Hello" });
+    await history.saveChat(chat);
+    await history.updateChatMetadata(chat.id, { title: "New chat", pinned: true });
+    const p = port(); p.onMessage.emit({ type: "start", chatId: chat.id });
+    await vi.waitFor(() => expect(p.messages.at(-1)?.type).toBe("done"));
+    expect(await history.getChat(chat.id)).toMatchObject({ title: "New chat", titleEdited: true, pinned: true });
+  });
 });

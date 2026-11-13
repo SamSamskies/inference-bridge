@@ -36,7 +36,7 @@ Inference Bridge is a browser extension that implements the experimental [Infere
 | Per-origin last-used provider and model | Pre-fill the approval UI without skipping permission prompts | Local extension storage |
 | Decisions default provider/model and per-origin decisions grants/last-used choices | Keep decisions authorization separate from chat and speech | Local extension storage |
 | Per-origin speech grants and provider/model/voice choices | Keep transcription and synthesis authorization separate from chat and from each other | Local extension storage |
-| First-party chat messages, reasoning, image attachments, titles, provider/model/search choices, partial responses, and active-chat preference | Reopen and continue saved conversations | Extension-origin IndexedDB, confined to this browser profile |
+| First-party chat messages, reasoning, image attachments, titles, pin status, provider/model/search choices, partial responses, and active-chat preference | Reopen, organize, and continue saved conversations | Extension-origin IndexedDB, confined to this browser profile |
 
 Settings and grants stay on the device unless the user clears extension storage or uninstalls the extension. API keys are sent to their selected provider when needed to authenticate a request. Local extension storage is not encrypted by Inference Bridge or Firefox.
 

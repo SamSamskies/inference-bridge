@@ -65,11 +65,21 @@
       <button type="button" id="historyNew" class="new-chat-button">＋ New chat</button>
       <label for="historySearch" class="visually-hidden">Search chat titles</label>
       <input type="search" id="historySearch" placeholder="Search chats" />
+      <p id="historyStatus" class="history-hint" role="status" hidden></p>
       <nav aria-label="Saved chats"><ul id="chatList"></ul><p id="historyEmpty" class="history-hint">Your conversations will appear here.</p></nav>
       <footer class="history-footer">
         <button type="button" id="clearHistory" class="danger">Delete all chats</button>
         <p class="history-hint">Chats are saved on this device. Uninstalling the extension removes this history.</p>
       </footer>
+    </dialog>
+    <dialog id="renameChat" class="chat-dialog" aria-labelledby="renameTitle">
+      <form id="renameForm">
+        <h2 id="renameTitle">Rename chat</h2>
+        <label for="chatName">Chat name</label>
+        <input id="chatName" type="text" maxlength="80" required autocomplete="off" />
+        <p id="renameError" class="error" role="alert" hidden></p>
+        <div class="dialog-actions"><button type="button" id="cancelRename">Cancel</button><button type="submit" id="saveChatName">Save</button></div>
+      </form>
     </dialog>
     <dialog id="confirmDelete" aria-labelledby="deleteTitle">
       <form method="dialog"><h2 id="deleteTitle">Delete chat?</h2><p id="deleteDescription">This also removes its saved images from this device.</p><div class="dialog-actions"><button value="cancel" autofocus>Cancel</button><button value="delete" class="danger">Delete</button></div></form>

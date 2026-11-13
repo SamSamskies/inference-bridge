@@ -34,7 +34,7 @@ async function transaction(stores, mode, operation) {
 }
 
 export function newChat(providerId = "", model = "") {
-  return { id: crypto.randomUUID(), title: "New chat", providerId, model, webSearch: false, messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+  return { id: crypto.randomUUID(), title: "New chat", pinned: false, providerId, model, webSearch: false, messages: [], createdAt: Date.now(), updatedAt: Date.now() };
 }
 
 export function chatTitle(content) {
@@ -47,7 +47,7 @@ export function saveChat(chat) {
     tx.objectStore("chats").put(chat);
     // The sidebar reads only small summaries, never every saved image.
     const { id, title, providerId, model, createdAt, updatedAt } = chat;
-    return tx.objectStore("summaries").put({ id, title, providerId, model, createdAt, updatedAt });
+    return tx.objectStore("summaries").put({ id, title, pinned: chat.pinned === true, providerId, model, createdAt, updatedAt });
   });
 }
 
@@ -57,7 +57,30 @@ export function getChat(id) {
 
 export async function listChats() {
   const chats = await transaction(["summaries"], "readonly", (tx) => tx.objectStore("summaries").getAll());
-  return chats.sort((a, b) => b.updatedAt - a.updatedAt);
+  return chats.sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || b.updatedAt - a.updatedAt);
+}
+
+/** Edit only metadata after reading the latest conversation under its lock. */
+export function updateChatMetadata(id, patch) {
+  return withChatLock(id, async () => {
+    const chat = await getChat(id);
+    if (!chat) throw new Error("This chat was deleted in another panel.");
+    const previousUpdatedAt = chat.updatedAt;
+    if (Object.hasOwn(patch, "title")) {
+      if (typeof patch.title !== "string" || !patch.title.trim() || patch.title.trim().length > 80) {
+        throw new Error("Enter a chat name between 1 and 80 characters.");
+      }
+      chat.title = patch.title.trim();
+      chat.titleEdited = true;
+    }
+    if (Object.hasOwn(patch, "pinned")) {
+      if (typeof patch.pinned !== "boolean") throw new Error("Invalid pin state.");
+      chat.pinned = patch.pinned;
+    }
+    chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
+    await saveChat(chat);
+    return { chat, previousUpdatedAt };
+  });
 }
 
 export function deleteChat(id) {

@@ -59,4 +59,33 @@ describe("local chat history", () => {
     expect(history.chatTitle([{ type: "image", data: "secret" }])).toBe("Image chat");
     expect(history.chatTitle("x".repeat(100))).toHaveLength(80);
   });
+  it("persists names and pins, ordering pinned chats before newer unpinned ones", async () => {
+    const older = history.newChat("openai", "vision-model"), newer = history.newChat();
+    older.updatedAt = 1; newer.updatedAt = 2;
+    older.messages = [{ role: "user", content: [{ type: "image", mediaType: "image/png", data: "aGVsbG8=" }] }];
+    await history.saveChat(older); await history.saveChat(newer);
+    const result = await history.updateChatMetadata(older.id, { title: "  My project  ", pinned: true });
+    expect(result.previousUpdatedAt).toBe(1);
+    expect(result.chat).toMatchObject({ title: "My project", titleEdited: true, pinned: true, messages: older.messages, providerId: "openai", model: "vision-model" });
+    // A later ordinary conversation never overtakes a pinned one.
+    newer.updatedAt = result.chat.updatedAt + 10; await history.saveChat(newer);
+    vi.resetModules(); const reopened = await import("../src/chat-history.js");
+    expect((await reopened.listChats()).map((chat) => chat.id)).toEqual([older.id, newer.id]);
+    expect(await reopened.getChat(older.id)).toMatchObject({ title: "My project", pinned: true });
+    await reopened.updateChatMetadata(older.id, { pinned: false });
+    expect((await reopened.listChats()).every((chat) => !chat.pinned)).toBe(true);
+  });
+  it("rejects invalid names and metadata edits during generation without losing content", async () => {
+    const chat = history.newChat(); await history.saveChat(chat);
+    for (const title of [" ", "x".repeat(81)]) await expect(history.updateChatMetadata(chat.id, { title })).rejects.toThrow("chat name");
+    expect(await history.getChat(chat.id)).toEqual(chat);
+    let release;
+    const hold = history.withChatLock(chat.id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await expect(history.updateChatMetadata(chat.id, { pinned: true })).rejects.toThrow("generating");
+    release(); await hold;
+    await history.deleteChat(chat.id);
+    await expect(history.updateChatMetadata(chat.id, { title: "Restored" })).rejects.toThrow("deleted");
+    expect(await history.getChat(chat.id)).toBeUndefined();
+  });
 });

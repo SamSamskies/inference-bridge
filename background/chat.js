@@ -39,7 +39,7 @@ export function connectChat(port) {
         .filter((m) => !(m.role === "assistant" && !m.content && m.status !== "complete"))
         .map(({ role, content, reasoning }) => ({ role, content, ...(reasoning ? { reasoning } : {}) }));
       chat.messages.push(assistant);
-      chat.title = chat.title === "New chat" ? chatTitle(messages[0].content) : chat.title;
+      if (chat.title === "New chat" && !chat.titleEdited) chat.title = chatTitle(messages[0].content);
       let lastCheckpoint = 0;
       let writes = Promise.resolve();
       // Save snapshots in order so a slower checkpoint cannot replace the final answer.

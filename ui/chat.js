@@ -1,9 +1,10 @@
 import {
   newChat, chatTitle, getChat, saveChat, listChats, deleteChat, clearChats,
-  getChatPreference, setChatPreference, withChatLock, withClearHistoryLock,
+  getChatPreference, setChatPreference, withChatLock, withClearHistoryLock, updateChatMetadata,
 } from "../src/chat-history.js";
 import { IMAGE_MEDIA_TYPES, rawImageBase64 } from "../src/image-parts.js";
 import { renderMarkdown } from "./chat-markdown.js";
+import { createChatActionsMenu } from "./chat-actions-menu.js";
 
 const $ = (id) => document.getElementById(id);
 let current = newChat();
@@ -17,6 +18,9 @@ let submitting = false;
 let readingFiles = false;
 let refreshPending = false;
 const sendMessage = (message) => chrome.runtime.sendMessage(message);
+let historyMenus = [];
+let renamingId = null;
+let renamingBusy = false;
 
 function report(error) {
   $("error").textContent = error instanceof Error ? error.message : String(error);
@@ -106,21 +110,69 @@ function renderAttachments() {
 
 function renderHistory() {
   const query = $("historySearch").value.toLocaleLowerCase();
+  for (const menu of historyMenus) menu.dispose();
+  historyMenus = [];
   $("chatList").replaceChildren();
   for (const chat of summaries.filter((c) => c.title.toLocaleLowerCase().includes(query))) {
     const li = document.createElement("li"); li.classList.toggle("active", chat.id === current.id);
-    const button = document.createElement("button"); button.type = "button"; button.className = "chat-title"; button.textContent = chat.title;
+    const button = document.createElement("button"); button.type = "button"; button.className = "chat-title";
+    if (chat.pinned) {
+      const pin = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      pin.setAttribute("viewBox", "0 0 24 24"); pin.setAttribute("aria-hidden", "true"); pin.classList.add("chat-pin");
+      const path = document.createElementNS(pin.namespaceURI, "path");
+      path.setAttribute("d", "m16 3 5 5-3 1-4 4v3l-2 2-6-6 2-2h3l4-4 1-3ZM9 15l-6 6");
+      pin.append(path); button.append(pin);
+      button.setAttribute("aria-label", `${chat.title}, pinned`);
+    }
+    const label = document.createElement("span"); label.textContent = chat.title; button.append(label);
     if (chat.id === current.id) button.setAttribute("aria-current", "true");
     button.addEventListener("click", () => { void selectChat(chat.id).catch(report); });
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "chat-delete"; remove.textContent = "×";
-    remove.setAttribute("aria-label", `Delete ${chat.title}`);
-    remove.addEventListener("click", () => confirmDeletion(chat.id));
-    li.append(button, remove); $("chatList").append(li);
+    const options = createChatActionsMenu({
+      ...chat,
+      onAction(action, focus) {
+        if (action === "delete") confirmDeletion(chat.id);
+        if (action === "rename") {
+          renamingId = chat.id;
+          $("chatName").value = chat.title;
+          $("renameError").hidden = true;
+          $("renameChat").showModal(); $("chatName").select();
+        }
+        if (action === "pin") {
+          void editChatMetadata(chat.id, { pinned: !chat.pinned }, focus)
+            .then(() => historyNotice(chat.pinned ? "Chat unpinned." : "Chat pinned."))
+            .catch((error) => historyNotice(error.message));
+        }
+      },
+    });
+    historyMenus.push(options);
+    li.append(button, options.trigger, options.menu); $("chatList").append(li);
   }
   $("historyEmpty").hidden = $("chatList").children.length > 0;
   $("historyEmpty").textContent = query ? "No matching chats." : "Your conversations will appear here.";
 }
 async function refreshHistory() { summaries = await listChats(); renderHistory(); }
+function focusHistoryAction(id, fromPointer = false) {
+  if ($("history").open) (document.getElementById(`chat-options-${id}`) || $("historySearch"))
+    .focus({ preventScroll: true, focusVisible: !fromPointer });
+}
+function historyNotice(message) {
+  $("historyStatus").textContent = message;
+  $("historyStatus").hidden = false;
+}
+async function editChatMetadata(id, patch, { fromPointer = false } = {}) {
+  const { chat, previousUpdatedAt } = await updateChatMetadata(id, patch);
+  if (current.id === id) {
+    if (current.updatedAt === previousUpdatedAt) {
+      for (const key of ["title", "titleEdited", "pinned", "updatedAt"]) current[key] = chat[key];
+    } else {
+      // Another panel changed the conversation. Do not give stale messages a
+      // fresh revision that could overwrite that newer saved conversation.
+      current = chat; renderMessages(); await chooseRoute({ keepModel: true });
+    }
+  }
+  await refreshHistory();
+  focusHistoryAction(id, fromPointer);
+}
 function closeHistory() { $("history").close(); $("toggleHistory").setAttribute("aria-expanded", "false"); }
 
 async function chooseRoute({ keepModel = false } = {}) {
@@ -325,11 +377,29 @@ $("composer").addEventListener("drop", (event) => { event.preventDefault(); void
 $("newChat").addEventListener("click", startNewChat);
 $("historyNew").addEventListener("click", startNewChat);
 $("toggleHistory").addEventListener("click", () => {
+  $("historyStatus").hidden = true;
   $("history").showModal(); $("toggleHistory").setAttribute("aria-expanded", "true"); void refreshHistory().catch(report);
 });
 $("closeHistory").addEventListener("click", closeHistory);
 $("history").addEventListener("close", () => $("toggleHistory").setAttribute("aria-expanded", "false"));
 $("historySearch").addEventListener("input", renderHistory);
+$("cancelRename").addEventListener("click", () => { if (!renamingBusy) $("renameChat").close(); });
+$("renameChat").addEventListener("cancel", (event) => { if (renamingBusy) event.preventDefault(); });
+$("renameForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (renamingBusy || !renamingId) return;
+  renamingBusy = true; $("saveChatName").disabled = true; $("cancelRename").disabled = true;
+  $("renameError").hidden = true;
+  void editChatMetadata(renamingId, { title: $("chatName").value }).then(() => {
+    $("renameChat").close(); historyNotice("Chat renamed.");
+    // The original menu trigger was replaced when the list refreshed.
+    focusHistoryAction(renamingId);
+  }).catch((error) => {
+    $("renameError").textContent = error.message; $("renameError").hidden = false;
+  }).finally(() => {
+    renamingBusy = false; $("saveChatName").disabled = false; $("cancelRename").disabled = false;
+  });
+});
 let deleting;
 function confirmDeletion(id) {
   deleting = id;
@@ -345,6 +415,7 @@ $("confirmDelete").addEventListener("close", () => {
     else await withChatLock(deleting, () => deleteChat(deleting));
     if (deleting === "all" || deleting === current.id) startNewChat();
     await refreshHistory();
+    if ($("history").open) ($("chatList").querySelector(".chat-title") || $("historySearch")).focus();
   })().catch((error) => { closeHistory(); report(error); });
 });
 function populateProviders() {

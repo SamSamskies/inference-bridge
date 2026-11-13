@@ -87,24 +87,39 @@ dialog::backdrop { background: rgb(0 0 0 / 28%); }
 #history nav { flex: 1; min-block-size: 0; overflow: auto; overscroll-behavior: contain; }
 #chatList { list-style: none; padding: 0; margin: 0; }
 #chatList li { display: flex; align-items: center; gap: 2px; border-radius: 8px; margin-block: 2px; }
-#chatList li:is(:hover, :focus-within) { background: var(--surface); }
-#chatList li.active { background: var(--line); }
-.chat-title { flex: 1; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; padding: 9px 8px; }
+#chatList li.active { background: color-mix(in srgb, var(--ink) 7%, var(--sidebar)); }
+#chatList li:is(:hover, :focus-within) { background: color-mix(in srgb, var(--ink) 11%, var(--sidebar)); }
+.chat-title { flex: 1; min-inline-size: 0; display: flex; align-items: center; gap: 6px; text-align: start; overflow-wrap: anywhere; padding: 9px 8px; }
+.chat-title span { min-inline-size: 0; }
+.chat-pin { inline-size: 14px; block-size: 14px; color: var(--muted); }
 .chat-title:hover { background: transparent; }
-.chat-delete { flex: 0 0 auto; font-size: 17px; padding: 6px; }
-.chat-delete:hover { color: var(--danger); }
+.chat-actions { flex: 0 0 auto; padding: 6px; min-inline-size: 32px; }
+.chat-actions svg { fill: currentColor; stroke: none; }
+.chat-actions:is(:hover, [aria-expanded="true"]) { background: transparent; }
 @media (hover: hover) and (pointer: fine) {
-  .chat-delete { opacity: 0; pointer-events: none; }
-  #chatList li:is(:hover, :focus-within) .chat-delete { opacity: 1; pointer-events: auto; }
+  .chat-actions { opacity: 0; pointer-events: none; }
+  #chatList li:is(:hover, :focus-within) .chat-actions, .chat-actions[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
 }
 @media (any-pointer: coarse) {
-  .chat-delete { opacity: 1; pointer-events: auto; }
+  .chat-actions { opacity: 1; pointer-events: auto; }
+}
+.chat-actions-popover { color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px; min-inline-size: 160px; max-inline-size: calc(100% - 16px); max-block-size: calc(100% - 16px); overflow: auto; font-size: 1rem; box-shadow: 0 6px 24px rgb(0 0 0 / 20%); }
+.chat-actions-popover [focusgroup] { display: flex; flex-direction: column; gap: 2px; }
+.chat-actions-popover button { inline-size: 100%; text-align: start; border-radius: 6px; padding: 8px 12px; }
+.chat-actions-popover hr { inline-size: calc(100% - 12px); border: 0; border-block-start: 1px solid var(--line); margin: 4px 6px; }
+@supports (position-area: block-end) {
+  .chat-actions-popover { inset: auto; margin: 6px 0; position-area: block-end span-inline-start; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+}
+@supports not (position-area: block-end) {
+  .chat-actions-popover { position: fixed; inset: auto; margin: 0; left: var(--menu-left, 8px); top: var(--menu-top, 8px); }
 }
 .history-footer { display: flex; flex-direction: column; gap: 2px; padding-block-start: 8px; border-block-start: 1px solid var(--line); }
 .history-footer button { text-align: start; font-size: 12px; }
 .history-hint { font-size: 11px; color: var(--muted); margin: 8px; }
-#confirmDelete { border-radius: 14px; inline-size: min(340px, calc(100% - 32px)); padding: 20px; }
-#confirmDelete h2 { font-size: 18px; margin-block-start: 0; }
+#confirmDelete, .chat-dialog { border-radius: 14px; inline-size: min(340px, calc(100% - 32px)); padding: 20px; }
+#confirmDelete h2, .chat-dialog h2 { font-size: 18px; margin-block-start: 0; }
+.chat-dialog label { display: block; font-size: 1rem; margin-block-end: 6px; }
+.chat-dialog input { inline-size: 100%; padding: 8px 10px; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; font-size: 1rem; margin-block-end: 16px; }
 #confirmDelete p { font-size: 13px; color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions button { border-color: var(--line); }
