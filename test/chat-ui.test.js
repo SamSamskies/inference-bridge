@@ -219,6 +219,31 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("prompt").value).toBe("");
   });
+  it("streams reasoning into an open details block before the response finishes", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        port.onMessage.emit({ type: "reasoning_delta", content: "Plan step one" });
+        finish = async () => {
+          assistant.reasoning = "Plan step one"; assistant.content = "Done"; assistant.status = "complete";
+          chat.updatedAt++; await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+        };
+      }) }; return port;
+    };
+    await type("Reason aloud"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await vi.waitFor(() => {
+      const details = $("messages").querySelector("details");
+      expect(details?.open).toBe(true);
+      expect(details?.querySelector("pre")?.textContent).toBe("Plan step one");
+    });
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("messages").querySelector("details pre")?.textContent).toBe("Plan step one");
+  });
   it("can browse history during a stream and return to the live conversation", async () => {
     await type("First chat"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));

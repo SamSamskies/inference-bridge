@@ -294,10 +294,22 @@ async function beginResponse(chat) {
       if (current.id !== chat.id) return;
       const scroller = $("conversation");
       const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100;
-      // Update only the streaming body: keep selection and open reasoning intact.
+      // Update only the streaming body and reasoning: keep selection and open details intact.
       const article = $("messages").lastElementChild;
       if (article) {
-        renderMarkdown(article.querySelector(".message-body"), assistant.content || "Thinking…");
+        const body = article.querySelector(".message-body");
+        if (assistant.reasoning) {
+          let details = article.querySelector("details");
+          if (!details) {
+            details = document.createElement("details");
+            details.open = true;
+            const summary = document.createElement("summary"); summary.textContent = "Reasoning";
+            details.append(summary, document.createElement("pre"));
+            article.insertBefore(details, body);
+          }
+          details.querySelector("pre").textContent = assistant.reasoning;
+        }
+        renderMarkdown(body, assistant.content || "Thinking…");
       }
       if (atBottom) scroller.scrollTop = scroller.scrollHeight;
     });
@@ -320,7 +332,7 @@ async function beginResponse(chat) {
   };
   port.onMessage.addListener((message) => {
     if (message.type === "delta") { assistant.content += message.content; redraw(); }
-    if (message.type === "reasoning_delta") { assistant.reasoning = (assistant.reasoning || "") + message.content; }
+    if (message.type === "reasoning_delta") { assistant.reasoning = (assistant.reasoning || "") + message.content; redraw(); }
     if (message.type === "done") void finish();
     if (message.type === "error") void finish(message.error);
   });
