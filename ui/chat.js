@@ -10,6 +10,7 @@ import { createChatActionsMenu } from "./chat-actions-menu.js";
 import { allowsUnknownChatModel, isModelValid, populateModelInput, populateModelSelect, usesModelAutosuggest } from "./model-input.js";
 
 const $ = (id) => document.getElementById(id);
+const retryButton = $("retry");
 let current = newChat();
 let providers = [];
 let summaries = [];
@@ -76,7 +77,7 @@ function updateControls() {
   const remoteStreaming = last?.role === "assistant" && last.status === "streaming" && !busy();
   // Trailing user = start failed before accept; error/stopped assistant = failed turn. Live remote streams are not retries.
   const needsRetry = last?.role === "user" || (last?.role === "assistant" && last.status !== "complete" && last.status !== "streaming");
-  $("send").disabled = pending || Boolean(run) || !configured || needsRetry || remoteStreaming || (!$("prompt").value.trim() && !attachments.length);
+  $("send").disabled = pending || Boolean(run) || !configured || remoteStreaming || (!$("prompt").value.trim() && !attachments.length);
   const elsewhere = (run && !busy()) || remoteStreaming;
   $("composerHint").hidden = !elsewhere;
   $("composerHint").textContent = remoteStreaming
@@ -84,7 +85,7 @@ function updateControls() {
     : run && !busy()
       ? "A response is running in another chat. Open it from history to stop."
       : "";
-  $("retry").hidden = pending || Boolean(run) || !configured || !needsRetry;
+  retryButton.hidden = pending || Boolean(run) || !configured || !needsRetry;
 }
 function applySearch() {
   $("webSearch").setAttribute("aria-pressed", String(current.webSearch));
@@ -132,11 +133,14 @@ function renderMessages() {
     // Live streams saved by another panel use status "streaming"; do not treat them as failed.
     if (message.status && message.status !== "complete" && message.status !== "streaming" && !(busy() && index === current.messages.length - 1)) {
       const note = document.createElement("p"); note.className = "message-note";
-      note.textContent = message.error || "Response interrupted. Retry to generate it again.";
+      if (message.status === "error") note.classList.add("danger");
+      note.textContent = `${message.status === "error" ? "Error: " : ""}${message.error || "Response interrupted. Retry to generate it again."}`;
       article.append(note);
     }
     $("messages").append(article);
   }
+  // Keep the action next to the latest failed turn, including a user message whose response never started.
+  ($("messages").lastElementChild || $("conversation")).append(retryButton);
 }
 
 function renderAttachments() {
@@ -540,9 +544,15 @@ async function beginResponse(chat) {
           }
           current = saved;
           renderMessages(); updateControls();
-          if (error) report(error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorShownInChat = error && tip?.role === "assistant"
+            && tip.status !== "complete" && tip.status !== "streaming" && tip.error === errorMessage;
+          // Saved turn errors already appear in the conversation; keep the banner for other failures.
+          if (error && !errorShownInChat) report(error);
           else clearError();
-          $("status").textContent = error ? "Response interrupted." : "Response finished.";
+          $("status").textContent = error
+            ? `Response interrupted.${errorShownInChat ? ` ${errorMessage}` : ""}`
+            : "Response finished.";
         }
       } catch (storageError) { report(storageError); }
     } else {
@@ -588,9 +598,6 @@ $("composer").addEventListener("submit", (event) => {
     if (last?.role === "assistant" && last.status === "streaming") {
       throw new Error("A response is generating in another panel. Wait for it to finish before sending.");
     }
-    if (last?.role === "user" || (last?.role === "assistant" && last.status !== "complete")) {
-      throw new Error("Retry the incomplete response before sending another message.");
-    }
     const text = $("prompt").value.trim();
     if (!text && !attachments.length) return;
     clearError(); submitting = true; updateControls();
@@ -615,9 +622,12 @@ $("composer").addEventListener("submit", (event) => {
   })().catch(report);
 });
 
-$("retry").addEventListener("click", () => {
+retryButton.addEventListener("click", () => {
   void (async () => {
     if (run || submitting) throw new Error("Wait for the current response to finish.");
+    if (loading || readingFiles) return;
+    const last = current.messages.at(-1);
+    if (!last || (last.role === "assistant" && ["complete", "streaming"].includes(last.status))) return;
     if (!providerIsConfigured() || !selectedModelIsValid()) throw new Error("Choose an available provider and model before retrying.");
     clearError(); submitting = true; updateControls();
     try {
@@ -625,7 +635,7 @@ $("retry").addEventListener("click", () => {
       if (chat.messages.at(-1)?.role === "assistant") chat.messages.pop();
       chat.model = readModelValue();
       await storeCurrent(chat); current = chat;
-      submitting = false; await beginResponse(chat);
+      submitting = false; await beginResponse(chat); $("prompt").focus();
     } finally { submitting = false; updateControls(); }
   })().catch(report);
 });

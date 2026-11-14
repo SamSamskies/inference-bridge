@@ -241,41 +241,66 @@ describe("chat interface", () => {
     await type("Fail first"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     await finish(false);
-    await vi.waitFor(() => expect($("error").textContent).toContain("First attempt failed."));
+    await vi.waitFor(() => expect($("messages").querySelector(".message-note")?.textContent).toContain("First attempt failed."));
+    expect($("error").hidden).toBe(true);
     finish = undefined;
+    await type("Keep this draft");
+    expect($("send").disabled).toBe(false);
     $("retry").click();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect($("prompt").value).toBe("Keep this draft");
+    expect(document.activeElement).toBe($("prompt"));
+    expect($("send").disabled).toBe(true);
+    const retried = await history.getChat((await history.listChats())[0].id);
+    expect(retried.messages.filter((m) => m.role === "user").map((m) => m.content)).toEqual(["Fail first"]);
     await finish(true);
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("error").hidden).toBe(true);
     expect($("status").textContent).toBe("Response finished.");
+    expect($("messages").querySelector(".message-note")).toBeNull();
+    expect($("send").disabled).toBe(false);
   });
-  it("requires retry when starting a response fails before the worker accepts", async () => {
-    chrome.runtime.connect = () => {
+  it.each(["retry", "send"])("allows %s when starting a response fails before the worker accepts", async (action) => {
+    chrome.runtime.connect = vi.fn(() => {
       port = {
         onMessage: event(), onDisconnect: event(), disconnect: vi.fn(),
         postMessage: vi.fn(() => { throw new Error("Extension context invalidated."); }),
       };
       return port;
-    };
+    });
     await type("Never starts"); await submit();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("error").textContent).toContain("Extension context invalidated.");
     await type("Another message");
     expect($("retry").hidden).toBe(false);
-    expect($("send").disabled).toBe(true);
-    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(1);
+    expect($("retry").closest("article")).toBe($("messages").lastElementChild);
+    expect($("retry").closest("article").classList.contains("user")).toBe(true);
+    expect($("send").disabled).toBe(false);
+    if (action === "retry") $("retry").click();
+    else $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect(chrome.runtime.connect).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat((await history.listChats())[0].id);
+    expect(saved.messages.map((m) => m.content)).toEqual(action === "retry" ? ["Never starts"] : ["Never starts", "Another message"]);
   });
-  it("requires retry instead of send after a failed assistant turn", async () => {
+  it.each([
+    { content: "", status: "error" },
+    { content: "Partial response", status: "error" },
+    { content: "Partial response", status: "stopped" },
+  ])("shows a $status turn once and allows a new message (partial content: $content)", async ({ content, status }) => {
+    const error = status === "error" ? "Provider failed." : "Response stopped.";
+    const note = `${status === "error" ? "Error: " : ""}${error}`;
     chrome.runtime.connect = () => {
       port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
         if (m.type !== "start") return;
         const chat = await history.getChat(m.chatId);
-        const assistant = { role: "assistant", content: "", status: "streaming" };
+        const assistant = { role: "assistant", content, status: "streaming" };
         chat.messages.push(assistant); await history.saveChat(chat);
-        finish = async () => {
-          assistant.status = "error"; assistant.error = "Provider failed."; chat.updatedAt++;
-          await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+        finish = async (ok = false) => {
+          if (ok) { assistant.status = "complete"; assistant.content = "Recovered"; }
+          else { assistant.status = status; assistant.error = error; }
+          chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit(ok ? { type: "done" } : { type: "error", error });
         };
       }) }; return port;
     };
@@ -283,14 +308,40 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
-    expect($("status").textContent).toBe("Response interrupted.");
-    expect($("error").textContent).toContain("Provider failed.");
+    expect($("status").textContent).toBe(`Response interrupted. ${error}`);
+    expect($("error").hidden).toBe(true);
+    expect($("error").textContent).toBe("");
+    const assistant = $("messages").lastElementChild;
+    expect(assistant.querySelector(".message-body").textContent.trim()).toBe(content);
+    expect(assistant.querySelectorAll(".message-note")).toHaveLength(1);
+    expect(assistant.querySelector(".message-note").textContent).toBe(note);
+    expect(assistant.querySelector(".message-note").classList.contains("danger")).toBe(status === "error");
+    expect($("retry").closest("article")).toBe(assistant);
+    expect($("retry").closest(".composer-area")).toBeNull();
+    // Reopening the failed turn keeps the saved error without restoring the banner.
+    $("newChat").click();
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+    $("chatList").querySelector(".chat-title").click();
+    await vi.waitFor(() => expect($("messages").querySelector(".message-note")?.textContent).toBe(note));
+    expect($("error").hidden).toBe(true);
     await type("Another try without retry");
     expect($("retry").hidden).toBe(false);
-    expect($("send").disabled).toBe(true);
-    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
-    await vi.waitFor(() => expect($("error").textContent).toContain("Retry the incomplete response"));
-    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(2);
+    expect($("retry").closest("article")).toBe($("messages").lastElementChild);
+    expect($("send").disabled).toBe(false);
+    finish = undefined;
+    await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect($("retry").hidden).toBe(true);
+    const saved = await history.getChat((await history.listChats())[0].id);
+    expect(saved.messages).toHaveLength(4);
+    expect(saved.messages[1]).toMatchObject({ status, content, error });
+    expect(saved.messages[2]).toMatchObject({ role: "user", content: "Another try without retry" });
+    await finish(true);
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("messages").lastElementChild.textContent).toContain("Recovered");
+    expect($("retry").hidden).toBe(true);
+    expect($("error").hidden).toBe(true);
   });
   it("streams reasoning into an open details block before the response finishes", async () => {
     chrome.runtime.connect = () => {
@@ -352,7 +403,8 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect(release).toBeTypeOf("function"));
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
-    expect($("error").textContent).toContain("Connection interrupted");
+    expect($("error").hidden).toBe(true);
+    expect($("status").textContent).toContain("Connection interrupted");
     expect($("composerHint").textContent).not.toContain("another panel");
     expect($("retry").hidden).toBe(false);
     expect($("messages").querySelector(".message-note")?.textContent).toMatch(/interrupted|Connection/i);

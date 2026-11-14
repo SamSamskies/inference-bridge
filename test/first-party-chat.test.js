@@ -62,6 +62,27 @@ describe("first-party chat channel", () => {
     await vi.waitFor(() => expect(p.messages.at(-1)).toMatchObject({ type: "error", error: "Model unavailable" }));
     expect((await history.getChat(chat.id)).messages).toMatchObject([{ role: "user" }, { role: "assistant", status: "error", error: "Model unavailable" }]);
   });
+  it.each(["", "Partial reply"])("continues after a failed turn without sending error text to the provider (partial: %s)", async (content) => {
+    service.mockImplementationOnce(async ({ onDelta }) => {
+      if (content) onDelta(content);
+      throw new Error("Model unavailable");
+    });
+    const first = port(); const chat = await start(first);
+    await vi.waitFor(() => expect(first.messages.at(-1)?.type).toBe("error"));
+    const saved = await history.getChat(chat.id);
+    saved.messages.push({ role: "user", content: "Try a different question" });
+    await history.saveChat(saved);
+    const next = port(); next.onMessage.emit({ type: "start", chatId: chat.id });
+    await vi.waitFor(() => expect(next.messages.at(-1)?.type).toBe("done"));
+    expect(service.mock.calls[1][0].messages).toEqual([
+      { role: "user", content: "Find recent news" },
+      ...(content ? [{ role: "assistant", content }] : []),
+      { role: "user", content: "Try a different question" },
+    ]);
+    const continued = await history.getChat(chat.id);
+    expect(continued.messages[1]).toMatchObject({ status: "error", content, error: "Model unavailable" });
+    expect(continued.messages.at(-1)).toMatchObject({ status: "complete", content: "Hello" });
+  });
   it("signals a stopped turn with an error port message after abort", async () => {
     service.mockImplementationOnce(({ signal, onDelta }) => new Promise((_, reject) => {
       onDelta("Partial"); signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
