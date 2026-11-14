@@ -171,8 +171,8 @@ function renderHistory() {
           $("renameChat").showModal(); $("chatName").select();
         }
         if (action === "pin") {
-          void editChatMetadata(chat.id, { pinned: !chat.pinned }, focus)
-            .then(() => historyNotice(chat.pinned ? "Chat unpinned." : "Chat pinned."))
+          void editChatMetadata(chat.id, { pinned: "toggle" }, focus)
+            .then((updated) => historyNotice(updated.pinned ? "Chat pinned." : "Chat unpinned."))
             .catch((error) => historyNotice(error.message));
         }
       },
@@ -205,6 +205,7 @@ async function editChatMetadata(id, patch, { fromPointer = false, restoreFocus =
   }
   await refreshHistory();
   if (restoreFocus) focusHistoryAction(id, fromPointer);
+  return chat;
 }
 function closeHistory() { $("history").close(); $("toggleHistory").setAttribute("aria-expanded", "false"); }
 

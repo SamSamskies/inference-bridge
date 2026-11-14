@@ -339,6 +339,21 @@ describe("chat interface", () => {
     expect(await history.getChat(id)).toBeUndefined();
     expect($("messages").children).toHaveLength(0);
   });
+  it("toggles pin from stored state when the history list is stale", async () => {
+    await type("Stale pin"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    const id = (await history.listChats())[0].id;
+    await history.updateChatMetadata(id, { pinned: true });
+    expect($("chatList").querySelector(".chat-pin")).toBeNull();
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector('[data-action="pin"]').textContent).toBe("Pin"));
+    $("chatList").querySelector('[data-action="pin"]').click();
+    await vi.waitFor(async () => expect((await history.getChat(id)).pinned).toBe(false));
+    expect($("historyStatus").textContent).toBe("Chat unpinned.");
+  });
   it("renames, pins/unpins, and deletes a conversation through its options menu", async () => {
     await type("Original name"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();

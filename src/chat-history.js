@@ -74,8 +74,9 @@ export function updateChatMetadata(id, patch) {
       chat.titleEdited = true;
     }
     if (Object.hasOwn(patch, "pinned")) {
-      if (typeof patch.pinned !== "boolean") throw new Error("Invalid pin state.");
-      chat.pinned = patch.pinned;
+      if (patch.pinned === "toggle") chat.pinned = !chat.pinned;
+      else if (typeof patch.pinned !== "boolean") throw new Error("Invalid pin state.");
+      else chat.pinned = patch.pinned;
     }
     chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
     await saveChat(chat);

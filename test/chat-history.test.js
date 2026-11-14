@@ -74,6 +74,10 @@ describe("local chat history", () => {
     expect(await reopened.getChat(older.id)).toMatchObject({ title: "My project", pinned: true });
     await reopened.updateChatMetadata(older.id, { pinned: false });
     expect((await reopened.listChats()).every((chat) => !chat.pinned)).toBe(true);
+    await reopened.updateChatMetadata(older.id, { pinned: "toggle" });
+    expect((await reopened.getChat(older.id)).pinned).toBe(true);
+    await reopened.updateChatMetadata(older.id, { pinned: "toggle" });
+    expect((await reopened.getChat(older.id)).pinned).toBe(false);
   });
   it("rejects invalid names and metadata edits during generation without losing content", async () => {
     const chat = history.newChat(); await history.saveChat(chat);
