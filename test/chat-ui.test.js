@@ -220,6 +220,30 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("prompt").value).toBe("");
   });
+  it("requires retry instead of send after a failed assistant turn", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          assistant.status = "error"; assistant.error = "Provider failed."; chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+        };
+      }) }; return port;
+    };
+    await type("Please fail"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    await type("Another try without retry");
+    expect($("retry").hidden).toBe(false);
+    expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("Retry the incomplete response"));
+    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(2);
+  });
   it("streams reasoning into an open details block before the response finishes", async () => {
     chrome.runtime.connect = () => {
       port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
