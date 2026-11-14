@@ -1,0 +1,761 @@
+// @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
+import { createWebLocksMock } from "./helpers/web-locks-mock.js";
+import { installPopoverMock } from "./helpers/popover-mock.js";
+import { COMPAT_MODEL_AUTOSUGGEST_THRESHOLD } from "../ui/model-input.js";
+
+let history, port, finish;
+const $ = (id) => document.getElementById(id);
+function event() { const fns = []; return { addListener: (fn) => fns.push(fn), emit: (...args) => fns.forEach((fn) => fn(...args)) }; }
+async function type(text) { $("prompt").value = text; $("prompt").dispatchEvent(new Event("input")); }
+async function submit() { $("composer").dispatchEvent(new Event("submit", { cancelable: true })); await vi.waitFor(() => expect(port).toBeDefined()); }
+async function loadProviderCatalog(id, models, { fail = false, defaultModel = models[0]?.id || "" } = {}) {
+  const choices = [{ id: "openai", label: "OpenAI", defaultModel: "saved-model", hostedTools: [] }];
+  if (id !== "openai") choices.push({ id, label: id, defaultModel, hostedTools: [] });
+  chrome.runtime.sendMessage.mockImplementation(async (message) => {
+    if (message.type === "list-providers") return { providers: choices };
+    if (message.providerId === id) return fail ? { ok: false, error: { message: "Discovery failed" } } : { ok: true, models, defaultModel };
+    return { ok: true, models: [{ id: "saved-model" }], defaultModel: "saved-model" };
+  });
+  chrome.storage.onChanged.emit({ compatEndpoints: {} }, "local");
+  await vi.waitFor(() => expect([...$("provider").options].some((option) => option.value === id)).toBe(true));
+  await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+  $("provider").value = id; $("provider").dispatchEvent(new Event("change"));
+  await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+}
+beforeEach(async () => {
+  vi.resetModules(); port = undefined; finish = undefined;
+  document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event("close")); };
+  installPopoverMock();
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  Object.defineProperty(navigator, "locks", { configurable: true, value: createWebLocksMock() });
+  history = await import("../src/chat-history.js");
+  vi.stubGlobal("chrome", { storage: { onChanged: event() }, runtime: {
+    sendMessage: vi.fn(async (m) => m.type === "list-providers" ? { providers: [{ id: "openai", label: "OpenAI", requiresApiKey: true, hasApiKey: true, defaultModel: "saved-model", hostedTools: ["web_search"] }] }
+      : m.type === "chat-config" ? { defaultProviderId: "openai" } : { ok: true, models: [{ id: "saved-model" }] }),
+    openOptionsPage: vi.fn(),
+    connect: () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        port.onMessage.emit({ type: "delta", content: "Streamed **answer**" });
+        finish = async () => {
+          assistant.content = "Streamed **answer**"; assistant.status = "complete"; chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+        };
+      }) }; return port;
+    },
+  } });
+  await import("../ui/chat.js");
+  await vi.waitFor(() => expect($("model").disabled).toBe(false));
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("chat interface", () => {
+  it("lists unconfigured providers at startup and blocks sending until a configured provider is selected", async () => {
+    const choices = [
+      { id: "openai", label: "OpenAI", defaultModel: "model", requiresApiKey: true, hasApiKey: true },
+      { id: "anthropic", label: "Anthropic", defaultModel: "model", requiresApiKey: true, hasApiKey: false },
+    ];
+    chrome.runtime.sendMessage.mockClear().mockImplementation(async (message) => message.type === "list-providers" ? { providers: choices }
+      : message.type === "chat-config" ? { defaultProviderId: "anthropic" } : { ok: true, models: [{ id: "model" }] });
+    document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
+    vi.resetModules(); await import("../ui/chat.js");
+    await vi.waitFor(() => expect($("provider").value).toBe("anthropic"));
+    expect([...$("provider").options].map((option) => [option.value, option.disabled])).toEqual([["openai", false], ["anthropic", false]]);
+    expect($("configuration").textContent).toContain("Add an API key for Anthropic");
+    expect($("configuration").hidden).toBe(false);
+    expect($("modelField").hidden).toBe(true);
+    expect(chrome.runtime.sendMessage.mock.calls.some(([message]) => message.type === "list-models")).toBe(false);
+    await type("A draft before setup"); expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").hidden).toBe(false));
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+    expect($("modelField").hidden).toBe(false);
+    expect($("error").hidden).toBe(true);
+  });
+  it("updates setup requirements when keys change and keeps key-optional servers usable", async () => {
+    const cloud = { id: "anthropic", label: "Anthropic", defaultModel: "model", requiresApiKey: true, hasApiKey: false };
+    const choices = [{ id: "openai", label: "OpenAI", defaultModel: "model", requiresApiKey: true, hasApiKey: true }, cloud,
+      ...["ollama", "compat:server"].map((id) => ({ id, label: id, defaultModel: "model", requiresApiKey: false, optionalApiKey: true, hasApiKey: false }))];
+    chrome.runtime.sendMessage.mockImplementation(async (message) => message.type === "list-providers" ? { providers: choices } : { ok: true, models: [{ id: "model" }] });
+    chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("provider").options).toHaveLength(4));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    $("provider").value = "anthropic"; $("provider").dispatchEvent(new Event("change"));
+    await type("Keep this draft"); expect($("send").disabled).toBe(true);
+    cloud.hasApiKey = true; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("send").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true); expect($("prompt").value).toBe("Keep this draft");
+    expect($("modelField").hidden).toBe(false);
+    cloud.hasApiKey = false; chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("configuration").hidden).toBe(false));
+    expect($("provider").value).toBe("anthropic"); expect($("send").disabled).toBe(true);
+    expect($("modelField").hidden).toBe(true);
+    expect([...$("provider").options].some((option) => option.value === "anthropic")).toBe(true);
+    for (const id of ["ollama", "compat:server"]) {
+      $("provider").value = id; $("provider").dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      expect($("configuration").hidden).toBe(true); expect($("send").disabled).toBe(false);
+      expect($("modelField").hidden).toBe(false);
+    }
+  });
+  it("keeps discovery failures in the model status without implying missing setup", async () => {
+    await loadProviderCatalog("openrouter", [], { fail: true });
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("Discovery failed");
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("");
+    await type("Continue with a configured provider"); expect($("send").disabled).toBe(false);
+    $("provider").value = "openrouter"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("Discovery failed");
+    // Settings changes can also repair the currently selected provider.
+    await loadProviderCatalog("openrouter", [{ id: "working-model" }]);
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("");
+    expect($("send").disabled).toBe(false);
+  });
+  it("hides the on-device model field while preserving its route, including after reopening history", async () => {
+    await loadProviderCatalog("on-device", [{ id: "on-device", label: "Browser-chosen model" }]);
+    expect($("modelField").hidden).toBe(true); expect($("model").disabled).toBe(true);
+    await type("Use the browser model"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("on-device");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("newChat").click();
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect($("model").disabled).toBe(false));
+    expect($("modelField").hidden).toBe(false);
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+    $("chatList").querySelector(".chat-title").click();
+    await vi.waitFor(() => expect($("provider").value).toBe("on-device"));
+    await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+    expect($("modelField").hidden).toBe(true); expect($("model").value).toBe("on-device");
+  });
+  it("uses a native model select for small catalogs and sends its selected model", async () => {
+    await loadProviderCatalog("openai", [{ id: "a", label: "Model A" }, { id: "b", label: "Model B" }]);
+    expect($("model").tagName).toBe("SELECT"); expect($("model").hidden).toBe(false);
+    expect($("modelInput").hidden).toBe(true); expect($("modelInput").disabled).toBe(true);
+    expect($("modelInputRow").hidden).toBe(true); expect($("clearModel").hidden).toBe(true);
+    expect([...$("model").options].map((option) => option.textContent)).toContain("Model B");
+    // Unknown saved models remain selectable for providers that allow them.
+    expect($("model").value).toBe("saved-model");
+    $("model").value = "b"; $("model").dispatchEvent(new Event("change"));
+    await type("Use this model"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("b");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+  });
+  it.each(["openrouter", "ppq"])("keeps %s searchable and sends a manually entered slug", async (id) => {
+    await loadProviderCatalog(id, Array.from({ length: 30 }, (_, i) => ({ id: `model-${i}` })));
+    expect($("model").hidden).toBe(true); expect($("model").disabled).toBe(true);
+    expect($("modelInput").hidden).toBe(false); expect($("modelLabel").htmlFor).toBe("modelInput");
+    await type("Searchable model"); expect($("send").disabled).toBe(false);
+    expect($("clearModel").hidden).toBe(false); $("clearModel").click();
+    expect($("modelInput").value).toBe(""); expect(document.activeElement).toBe($("modelInput"));
+    expect($("clearModel").hidden).toBe(true); expect($("send").disabled).toBe(true);
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
+    $("modelInput").value = "custom/provider-model"; $("modelInput").dispatchEvent(new Event("input"));
+    expect($("clearModel").hidden).toBe(false);
+    await type("Searchable model"); await submit();
+    expect($("clearModel").hidden).toBe(true);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect((await history.getChat((await history.listChats())[0].id)).model).toBe("custom/provider-model");
+    await finish(); await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    if (id === "openrouter") {
+      $("newChat").click();
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect($("provider").disabled).toBe(false));
+      expect($("model").hidden).toBe(false); expect($("model").value).toBe("saved-model");
+      $("toggleHistory").click();
+      await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+      $("chatList").querySelector(".chat-title").click();
+      await vi.waitFor(() => expect($("modelInput").value).toBe("custom/provider-model"));
+      expect($("modelInput").hidden).toBe(false);
+    }
+  });
+  it.each([0, COMPAT_MODEL_AUTOSUGGEST_THRESHOLD, COMPAT_MODEL_AUTOSUGGEST_THRESHOLD + 1])("matches the shared compatible-server picker for %s models", async (count) => {
+    await loadProviderCatalog("compat:server", Array.from({ length: count }, (_, i) => ({ id: `model-${i}` })));
+    const searchable = count === 0 || count > COMPAT_MODEL_AUTOSUGGEST_THRESHOLD;
+    expect($("modelInput").hidden).toBe(!searchable);
+    expect($("model").hidden).toBe(searchable);
+    if (!count) {
+      $("modelInput").value = "manually-configured-model"; $("modelInput").dispatchEvent(new Event("input"));
+      await type("Manual fallback"); expect($("send").disabled).toBe(false);
+    }
+  });
+  it.each([false, true])("blocks unavailable strict-provider models without offering manual input (failure: %s)", async (fail) => {
+    await loadProviderCatalog("ollama", [], { fail, defaultModel: "removed-model" });
+    expect($("model").hidden).toBe(false); expect($("model").disabled).toBe(true);
+    expect($("modelInput").hidden).toBe(true);
+    await type("Do not send"); expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("Choose an available provider and model"));
+    expect(port).toBeUndefined(); expect(await history.listChats()).toEqual([]);
+  });
+  it("saves a user message before generation and reloads the completed response", async () => {
+    await type("Hello world"); $("webSearch").click(); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const saved = await history.listChats();
+    expect(saved[0].title).toBe("Hello world");
+    expect((await history.getChat(saved[0].id)).webSearch).toBe(true);
+    await finish();
+    await vi.waitFor(() => expect($("messages").querySelector("strong")?.textContent).toBe("answer"));
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("prompt").value).toBe("");
+  });
+  it("clears a previous error after a later successful response", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async (ok = true) => {
+          if (ok) {
+            assistant.content = "Recovered"; assistant.status = "complete"; chat.updatedAt++;
+            await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+          } else {
+            assistant.status = "error"; assistant.error = "First attempt failed."; chat.updatedAt++;
+            await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+          }
+        };
+      }) }; return port;
+    };
+    await type("Fail first"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish(false);
+    await vi.waitFor(() => expect($("error").textContent).toContain("First attempt failed."));
+    finish = undefined;
+    $("retry").click();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish(true);
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").hidden).toBe(true);
+    expect($("status").textContent).toBe("Response finished.");
+  });
+  it("requires retry when starting a response fails before the worker accepts", async () => {
+    chrome.runtime.connect = () => {
+      port = {
+        onMessage: event(), onDisconnect: event(), disconnect: vi.fn(),
+        postMessage: vi.fn(() => { throw new Error("Extension context invalidated."); }),
+      };
+      return port;
+    };
+    await type("Never starts"); await submit();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").textContent).toContain("Extension context invalidated.");
+    await type("Another message");
+    expect($("retry").hidden).toBe(false);
+    expect($("send").disabled).toBe(true);
+    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(1);
+  });
+  it("requires retry instead of send after a failed assistant turn", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          assistant.status = "error"; assistant.error = "Provider failed."; chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+        };
+      }) }; return port;
+    };
+    await type("Please fail"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("status").textContent).toBe("Response interrupted.");
+    expect($("error").textContent).toContain("Provider failed.");
+    await type("Another try without retry");
+    expect($("retry").hidden).toBe(false);
+    expect($("send").disabled).toBe(true);
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("Retry the incomplete response"));
+    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(2);
+  });
+  it("streams reasoning into an open details block before the response finishes", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        port.onMessage.emit({ type: "reasoning_delta", content: "Plan step one" });
+        finish = async () => {
+          assistant.reasoning = "Plan step one"; assistant.content = "Done"; assistant.status = "complete";
+          chat.updatedAt++; await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+        };
+      }) }; return port;
+    };
+    await type("Reason aloud"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await vi.waitFor(() => {
+      const details = $("messages").querySelector("details");
+      expect(details?.open).toBe(true);
+      expect(details?.querySelector("pre")?.textContent).toBe("Plan step one");
+    });
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("messages").querySelector("details pre")?.textContent).toBe("Plan step one");
+  });
+  it("can browse history during a stream and return to the live conversation", async () => {
+    await type("First chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("newChat").click();
+    expect($("empty").hidden).toBe(false);
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").children.length).toBe(1));
+    $("chatList").querySelector(".chat-title").click();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(false));
+    expect($("messages").querySelectorAll("article")).toHaveLength(2);
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+  });
+  it("does not treat a local disconnect checkpoint as a remote stream", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "Partial", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          // Leave the checkpoint as streaming (as after a hard disconnect before final persist).
+          port.onMessage.emit({ type: "error", error: "Connection interrupted. The saved partial response is available in history." });
+        };
+      }) }; return port;
+    };
+    await type("Disconnect mid-stream"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    // Hold the lock so finish can only coerce in memory (worker still "owns" the stream).
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").textContent).toContain("Connection interrupted");
+    expect($("composerHint").textContent).not.toContain("another panel");
+    expect($("retry").hidden).toBe(false);
+    expect($("messages").querySelector(".message-note")?.textContent).toMatch(/interrupted|Connection/i);
+    // A racing worker checkpoint must not revive the remote-streaming composer.
+    const raced = await history.getChat(id);
+    raced.messages.at(-1).status = "streaming";
+    delete raced.messages.at(-1).error;
+    raced.updatedAt += 50;
+    await history.saveChat(raced);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect($("composerHint").textContent).not.toContain("another panel");
+    expect($("retry").hidden).toBe(false);
+    release(); await hold;
+  });
+  it("retries after a local disconnect even when stopped state was not persisted", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "Partial", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          port.onMessage.emit({ type: "error", error: "Connection interrupted. The saved partial response is available in history." });
+        };
+      }) }; return port;
+    };
+    await type("Retry after disconnect"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("retry").hidden).toBe(false));
+    // Wait for persistStoppedStream to give up while the worker lock is held.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect((await history.getChat(id)).messages.at(-1).status).toBe("streaming");
+    release(); await hold;
+    finish = undefined;
+    $("retry").click();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect($("error").textContent).not.toContain("another panel");
+    expect($("stop").hidden).toBe(false);
+  });
+  it("announces background stream failures while viewing another chat", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          assistant.status = "error"; assistant.error = "Background failed."; chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+        };
+      }) }; return port;
+    };
+    await type("Background fail"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("newChat").click();
+    expect($("empty").hidden).toBe(false);
+    await finish();
+    await vi.waitFor(() => expect($("error").textContent).toContain("Background failed."));
+    expect($("status").textContent).toContain("another chat");
+    expect($("composerHint").hidden).toBe(true);
+  });
+  it("restores the last saved conversation after reopening the page", async () => {
+    await type("Keep this chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    expect((await history.getChat(id)).messages.at(-1).content).toBe("Streamed **answer**");
+    $("newChat").click();
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-title")).not.toBeNull());
+    $("chatList").querySelector(".chat-title").click();
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Keep this chat"));
+    expect($("messages").textContent).toContain("Streamed answer");
+  });
+  it("clears a stale active chat preference on startup", async () => {
+    await type("Gone before reopen"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    await history.deleteChat(id);
+    expect(await history.getChatPreference("activeChatId")).toBe(id);
+    document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
+    vi.resetModules();
+    history = await import("../src/chat-history.js");
+    await import("../ui/chat.js");
+    await vi.waitFor(async () => expect(await history.getChatPreference("activeChatId")).toBeFalsy());
+    expect($("empty").hidden).toBe(false);
+    expect($("messages").children).toHaveLength(0);
+  });
+  it("resets the delete confirmation so Escape cannot reuse a previous Delete result", () => {
+    $("confirmDelete").returnValue = "delete";
+    $("clearHistory").click();
+    expect($("confirmDelete").returnValue).toBe("");
+    $("confirmDelete").close();
+    expect($("empty").hidden).toBe(false);
+  });
+  it("closes history on a backdrop click in the fallback and resets the toggle state", () => {
+    $("toggleHistory").click();
+    expect($("history").getAttribute("closedby")).toBe("any");
+    vi.spyOn($("history"), "getBoundingClientRect").mockReturnValue({ left: 0, right: 280, top: 0, bottom: 700 });
+    for (const type of ["pointerdown", "click"]) $("history").dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: 320, clientY: 100 }));
+    expect($("history").open).toBe(false);
+    expect($("toggleHistory").getAttribute("aria-expanded")).toBe("false");
+  });
+  it("keeps history open for padding/child clicks, cancelled pointers, and drags starting inside", () => {
+    $("toggleHistory").click();
+    vi.spyOn($("history"), "getBoundingClientRect").mockReturnValue({ left: 0, right: 280, top: 0, bottom: 700 });
+    const dispatch = (target, type, x) => target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: 100 }));
+    for (const type of ["pointerdown", "click"]) dispatch($("history"), type, 16);
+    expect($("history").open).toBe(true);
+    for (const type of ["pointerdown", "click"]) dispatch($("historySearch"), type, 320);
+    expect($("history").open).toBe(true);
+    dispatch($("historySearch"), "pointerdown", 16); dispatch($("history"), "click", 320);
+    expect($("history").open).toBe(true);
+    dispatch($("history"), "pointerdown", 320); dispatch($("history"), "pointercancel", 320); dispatch($("history"), "click", 320);
+    expect($("history").open).toBe(true);
+  });
+  it("refreshes configured providers without silently rerouting an existing chat", async () => {
+    await type("Keep my route"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    chrome.runtime.sendMessage.mockImplementation(async (m) => m.type === "list-providers"
+      ? { providers: [{ id: "compat:new", label: "New local provider", defaultModel: "local-model", hostedTools: [] }] }
+      : { ok: true, models: [{ id: "saved-model" }] });
+    chrome.storage.onChanged.emit({ apiKeys: {} }, "local");
+    await vi.waitFor(() => expect($("provider").textContent).toContain("New local provider"));
+    expect($("provider").value).toBe("openai");
+    expect($("provider").textContent).toContain("unavailable");
+    await type("Continue");
+    expect($("send").disabled).toBe(true);
+    expect($("configuration").hidden).toBe(false);
+  });
+  it("does not recreate a conversation deleted from another panel", async () => {
+    await type("Delete elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    await history.deleteChat(id);
+    await type("Another turn");
+    $("composer").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("error").textContent).toContain("deleted in another panel"));
+    expect(await history.getChat(id)).toBeUndefined();
+  });
+  it("resets to a new chat when the conversation is deleted during generation", async () => {
+    await type("Delete mid-stream"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    expect($("messages").querySelectorAll("article")).toHaveLength(2);
+    await history.deleteChat(id);
+    port.onMessage.emit({ type: "done", chatId: id });
+    await vi.waitFor(() => expect($("empty").hidden).toBe(false));
+    expect($("error").textContent).toContain("deleted in another panel");
+    expect($("stop").hidden).toBe(true);
+    expect($("status").textContent).toBe("Response interrupted.");
+    expect(await history.getChat(id)).toBeUndefined();
+    expect($("messages").children).toHaveLength(0);
+  });
+  it("keeps an open history action menu across streaming history checkpoints", async () => {
+    await type("Keep menu open"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    const chat = await history.getChat((await history.listChats())[0].id);
+    chat.updatedAt += 25;
+    await history.saveChat(chat);
+    await vi.waitFor(async () => expect((await history.getChat(chat.id)).updatedAt).toBe(chat.updatedAt));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true");
+    expect($("chatList").querySelector('[data-action="rename"]')).not.toBeNull();
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+  });
+  it("reorders an open history list when another chat becomes newer without closing its menu", async () => {
+    await type("Older chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("newChat").click();
+    await type("Newer chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").children.length).toBe(2));
+    const titles = () => [...$("chatList").querySelectorAll(".chat-title span")].map((el) => el.textContent);
+    expect(titles()).toEqual(["Newer chat", "Older chat"]);
+    const olderRow = $("chatList").querySelectorAll("li")[1];
+    olderRow.querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect(olderRow.querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    const older = await history.getChat((await history.listChats()).find((chat) => chat.title === "Older chat").id);
+    older.updatedAt = Math.max(...(await history.listChats()).map((chat) => chat.updatedAt)) + 10;
+    await history.saveChat(older);
+    await vi.waitFor(async () => expect((await history.listChats()).map((chat) => chat.title)).toEqual(["Older chat", "Newer chat"]));
+    await vi.waitFor(() => expect(titles()).toEqual(["Older chat", "Newer chat"]));
+    expect($("chatList").querySelector(".chat-actions[aria-expanded='true']")).not.toBeNull();
+  });
+  it("refreshes an open history drawer when another panel changes chats", async () => {
+    await type("Panel A"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").children.length).toBe(1));
+    const other = history.newChat("openai", "saved-model");
+    other.title = "From another panel";
+    other.messages = [{ role: "user", content: "hi" }];
+    await history.saveChat(other);
+    await vi.waitFor(() => expect($("chatList").textContent).toContain("From another panel"));
+  });
+  it("resets the visible chat when another panel deletes it", async () => {
+    await type("Gone elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    expect($("messages").textContent).toContain("Gone elsewhere");
+    await history.deleteChat(id);
+    await vi.waitFor(() => expect($("empty").hidden).toBe(false));
+    expect($("error").textContent).toContain("deleted in another panel");
+    expect($("messages").children).toHaveLength(0);
+    expect(await history.getChat(id)).toBeUndefined();
+  });
+  it("reloads the visible chat when another panel updates it", async () => {
+    await type("Shared chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    saved.messages.push({ role: "user", content: "From another panel" });
+    saved.messages.push({ role: "assistant", content: "Remote reply", status: "complete" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("From another panel"));
+    expect($("messages").textContent).toContain("Remote reply");
+  });
+  it("applies remote rename and pin while a response is still streaming", async () => {
+    await type("Live metadata"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Streamed"));
+    const id = (await history.listChats())[0].id;
+    await history.updateChatMetadata(id, { title: "Renamed live", pinned: true });
+    await vi.waitFor(() => expect($("chatList").textContent).toContain("Renamed live"));
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-pin")).not.toBeNull());
+    port.onMessage.emit({ type: "delta", content: " more" });
+    await vi.waitFor(() => expect($("messages").textContent).toContain("more"));
+    expect($("stop").hidden).toBe(false);
+    expect((await history.getChat(id)).title).toBe("Renamed live");
+  });
+  it("blocks history actions on the chat this panel is generating", async () => {
+    await type("Lock me"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector('[data-action="pin"]')).not.toBeNull());
+    $("chatList").querySelector('[data-action="pin"]').click();
+    await vi.waitFor(() => expect($("historyStatus").textContent).toContain("Stop the response"));
+    expect((await history.getChat((await history.listChats())[0].id)).pinned).toBeFalsy();
+    expect($("stop").hidden).toBe(false);
+  });
+  it("does not mark a remotely streaming turn as interrupted", async () => {
+    await type("Watch elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const saved = await history.getChat(id);
+    saved.messages.push({ role: "user", content: "Remote prompt" });
+    saved.messages.push({ role: "assistant", content: "Partial…", status: "streaming" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Partial…"));
+    expect($("messages").querySelector(".message-note")).toBeNull();
+    expect($("messages").textContent).not.toContain("Response interrupted");
+    expect($("retry").hidden).toBe(true);
+    await type("Should not send");
+    expect($("send").disabled).toBe(true);
+    expect($("composerHint").textContent).toContain("another panel");
+    release(); await hold;
+  });
+  it("keeps remote streaming reasoning open across checkpoints", async () => {
+    await type("Watch reasoning"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const saved = await history.getChat(id);
+    saved.messages.push({ role: "user", content: "Remote prompt" });
+    saved.messages.push({ role: "assistant", content: "Hi", reasoning: "Step one", status: "streaming" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").querySelector("details")).not.toBeNull());
+    const article = $("messages").lastElementChild;
+    const details = article.querySelector("details");
+    details.open = true;
+    saved.messages.at(-1).content = "Hi there";
+    saved.messages.at(-1).reasoning = "Step one\nStep two";
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Hi there"));
+    expect($("messages").lastElementChild).toBe(article);
+    expect($("messages").querySelector("details")?.open).toBe(true);
+    expect($("messages").querySelector("details pre")?.textContent).toContain("Step two");
+    release(); await hold;
+  });
+  it("keeps remote streaming reasoning open when earlier turns include images", async () => {
+    await type("Watch with image"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const saved = await history.getChat(id);
+    saved.messages[0].content = [
+      { type: "text", text: "Watch with image" },
+      { type: "image", mediaType: "image/png", data: "aaaa" },
+    ];
+    saved.messages.push({ role: "user", content: "Remote prompt" });
+    saved.messages.push({ role: "assistant", content: "Hi", reasoning: "Step one", status: "streaming" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").querySelector("details")).not.toBeNull());
+    const article = $("messages").lastElementChild;
+    article.querySelector("details").open = true;
+    // Fresh getChat() clones make array content !== by reference; patch must still apply.
+    const checkpoint = await history.getChat(id);
+    checkpoint.messages.at(-1).content = "Hi there";
+    checkpoint.messages.at(-1).reasoning = "Step one\nStep two";
+    checkpoint.updatedAt += 10;
+    await history.saveChat(checkpoint);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Hi there"));
+    expect($("messages").lastElementChild).toBe(article);
+    expect($("messages").querySelector("details")?.open).toBe(true);
+    expect($("messages").querySelector("details pre")?.textContent).toContain("Step two");
+    release(); await hold;
+  });
+  it("reclaims an orphaned streaming turn when no generator holds the lock", async () => {
+    await type("Orphan me"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    saved.messages.at(-1).status = "streaming";
+    delete saved.messages.at(-1).error;
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(async () => expect((await history.getChat(saved.id)).messages.at(-1).status).toBe("stopped"));
+    expect($("retry").hidden).toBe(false);
+    expect($("composerHint").hidden).toBe(true);
+    expect($("messages").querySelector(".message-note")?.textContent).toContain("interrupted");
+  });
+  it("toggles pin from stored state when the history list is stale", async () => {
+    await type("Stale pin"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    const id = (await history.listChats())[0].id;
+    // Suppress sync so this panel keeps a stale "Pin" label after another writer pins.
+    const mute = vi.spyOn(BroadcastChannel.prototype, "postMessage").mockImplementation(() => {});
+    await history.updateChatMetadata(id, { pinned: true });
+    mute.mockRestore();
+    expect($("chatList").querySelector(".chat-pin")).toBeNull();
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector('[data-action="pin"]').textContent).toBe("Pin"));
+    $("chatList").querySelector('[data-action="pin"]').click();
+    await vi.waitFor(async () => expect((await history.getChat(id)).pinned).toBe(false));
+    expect($("historyStatus").textContent).toBe("Chat unpinned.");
+  });
+  it("renames, pins/unpins, and deletes a conversation through its options menu", async () => {
+    await type("Original name"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    const id = (await history.listChats())[0].id;
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    $("chatList").querySelector('[data-action="rename"]').click();
+    expect($("renameChat").open).toBe(true);
+    $("chatName").value = "My project"; $("renameForm").dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect($("renameChat").open).toBe(false));
+    expect((await history.getChat(id)).title).toBe("My project");
+    expect(document.activeElement).toBe($("chatList").querySelector(".chat-title"));
+    for (const pinned of [true, false]) {
+      $("chatList").querySelector(".chat-actions").click();
+      await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+      expect($("chatList").querySelector('[data-action="pin"]').textContent).toBe(pinned ? "Pin" : "Unpin");
+      $("chatList").querySelector('[data-action="pin"]').click();
+      await vi.waitFor(async () => expect((await history.getChat(id)).pinned).toBe(pinned));
+      await vi.waitFor(() => expect(Boolean($("chatList").querySelector(".chat-pin"))).toBe(pinned));
+    }
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    $("chatList").querySelector('[data-action="delete"]').click();
+    expect($("confirmDelete").open).toBe(true);
+    $("confirmDelete").returnValue = "delete"; $("confirmDelete").close();
+    await vi.waitFor(async () => expect(await history.getChat(id)).toBeUndefined());
+  });
+});

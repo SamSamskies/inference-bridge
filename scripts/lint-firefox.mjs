@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Run web-ext with warnings as errors, allowing one known desktop-only false positive. */
+/** Run web-ext with warnings as errors; allow narrowly checked false positives. */
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -42,18 +42,27 @@ const desktopOnlyAndroidWarning = (warning) =>
   manifest.browser_specific_settings?.gecko?.strict_min_version === "140.0" &&
   !Object.hasOwn(manifest.browser_specific_settings, "gecko_android");
 
+// DOMPurify must parse untrusted markup inside its inert document to sanitize
+// it. web-ext flags the sanitizer's own innerHTML assignment. Only allow the
+// pinned, unmodified upstream library, never application innerHTML writes.
+const sanitizerSource = readFileSync(join(root, "node_modules/dompurify/dist/purify.es.mjs"));
+const sanitizerUnmodified = sanitizerSource.equals(readFileSync(join(root, "build/firefox/ui/vendor/purify.js")));
+const sanitizerWarning = (warning) => sanitizerUnmodified &&
+  warning.code === "UNSAFE_VAR_ASSIGNMENT" && warning.file === "ui/vendor/purify.js" &&
+  warning.line === 1845;
+
 const unexpectedWarnings = report.warnings.filter(
-  (warning) => !desktopOnlyAndroidWarning(warning)
+  (warning) => !desktopOnlyAndroidWarning(warning) && !sanitizerWarning(warning)
 );
 if (report.errors.length || unexpectedWarnings.length || report.notices.length) {
   process.stderr.write(`${JSON.stringify(report, null, 2)}\n`);
   process.exit(1);
 }
-if (result.status !== 0 && report.warnings.length !== 1) {
+if (result.status !== 0 && report.warnings.length === 0) {
   process.stderr.write(`${JSON.stringify(report, null, 2)}\n`);
   process.exit(result.status || 1);
 }
 console.log(
   `Firefox staged artifact: ${report.summary.errors} errors, ${unexpectedWarnings.length} actionable warnings` +
-    (report.warnings.length ? " (known desktop-only Android linter warning ignored)" : "")
+    (report.warnings.length ? " (known Android and verified upstream sanitizer warnings ignored)" : "")
 );

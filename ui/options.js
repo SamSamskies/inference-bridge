@@ -40,6 +40,24 @@ import { isFirefoxBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 import { groupAllowedSites } from "./allowed-sites.js";
 import { isPPQCompatEndpoint, ppqTransferPreview } from "../src/ppq-transfer.js";
+import { openChat } from "../src/open-chat.js";
+
+const openChatButton = document.getElementById("openChat");
+let chatWindowId;
+// Resolve before the user clicks so sidePanel.open runs synchronously within
+// the gesture, with an actual window id rather than the windows API sentinel.
+openChatButton.disabled = true;
+void chrome.windows.getCurrent().then((window) => {
+  chatWindowId = window.id;
+  openChatButton.disabled = false;
+}).catch(() => {
+  document.getElementById("openChatStatus").textContent = "Could not find this browser window. Reopen settings to try again.";
+});
+openChatButton.addEventListener("click", () => {
+  void openChat(chatWindowId).catch((error) => {
+    document.getElementById("openChatStatus").textContent = error.message;
+  });
+});
 
 const providerSelect = document.getElementById("provider");
 const apiKeyField = document.getElementById("apiKeyField");

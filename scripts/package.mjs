@@ -14,8 +14,10 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prepareChat } from "./prepare-chat.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+prepareChat(root);
 const chromeManifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 if (chromeManifest.version !== packageJson.version) {
@@ -40,7 +42,9 @@ mkdirSync(outDir, { recursive: true });
 
 function firefoxManifest() {
   const manifest = structuredClone(chromeManifest);
-  manifest.permissions = manifest.permissions.filter((name) => name !== "offscreen");
+  manifest.permissions = manifest.permissions.filter((name) => !["offscreen", "sidePanel"].includes(name));
+  delete manifest.side_panel;
+  manifest.sidebar_action = { default_title: "Inference Bridge Chat", default_panel: "ui/chat.html", default_icon: "icons/icon-48.png", open_at_install: false };
   manifest.host_permissions = manifest.host_permissions.map((pattern) =>
     pattern.replace(/^(https?:\/\/[^/:]+):\d+(\/.*)$/, "$1$2")
   );
@@ -105,6 +109,7 @@ function build(browser) {
       join(root, "firefox", "prompt-api-offscreen.js"),
       join(stage, "src", "prompt-api-offscreen.js")
     );
+    cpSync(join(root, "firefox", "open-chat.js"), join(stage, "src", "open-chat.js"));
   }
   writeFileSync(
     join(stage, "manifest.json"),

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "node scripts/prepare-chat.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "node scripts/package.mjs chrome",
@@ -14,7 +15,13 @@
     "lint:firefox": "npm run package:firefox && node scripts/lint-firefox.mjs"
   },
   "devDependencies": {
+    "fake-indexeddb": "6.2.8",
+    "jsdom": "26.1.0",
     "vitest": "^3.2.4",
     "web-ext": "^10.7.0"
+  },
+  "dependencies": {
+    "dompurify": "3.4.17",
+    "marked": "18.2.0"
   }
 }

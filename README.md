@@ -16,6 +16,7 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 - Synchronous capability discovery through `window.inference.getFeatures()`
 - Local loopback servers work without extra `OLLAMA_ORIGINS` configuration in the common case
 - Available on top-level secure pages (`https:` or loopback `http:`)
+- Optional side-panel chat with local history, image attachments, and provider-hosted web search
 
 ## Installation
 
@@ -42,7 +43,7 @@ This installs a temporary development build. See the [Firefox release checklist]
 
 ### Chrome development (Load unpacked)
 
-1. Clone this repository
+1. Clone this repository and run `npm ci` (prepares the chat's bundled Markdown libraries)
 2. Open `chrome://extensions`
 3. Enable **Developer mode**
 4. Click **Load unpacked**
@@ -59,6 +60,23 @@ This installs a temporary development build. See the [Firefox release checklist]
    - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
    - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
 8. Click **Save** (skip if you just used On-device **Install**, which already saves)
+
+## Side-panel chat
+
+Right-click the toolbar icon and choose **Open Side Panel** in Chrome or **Open Chat** in Firefox, or click **Open Chat** in Options. Left-clicking the toolbar icon continues to open Options. Chrome 116+ opens one shared panel per window; Firefox uses its native sidebar. The browser controls the panel width, and chat fills the available space when resized.
+
+Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
+
+All built-in providers supported by your browser are listed, including providers without a saved API key. Select one to see its setup instructions; the model picker stays hidden, and model discovery and sending stay disabled, until its required key is saved in Provider Settings. Local Ollama and saved compatible servers can be used without a key when their server allows it.
+
+The model picker follows the approval popup: small catalogs use a native dropdown; OpenRouter, PayPerQ, and compatible servers with more than 20 models use searchable input. Compatible servers also allow manual model IDs when discovery is empty or unavailable. Local Ollama, Ollama Cloud, Gemini, and on-device models must come from their available catalogs.
+
+- **History:** conversations, partial responses, and attached images are saved locally in IndexedDB and survive closing the panel or restarting the browser. Search conversation titles and use each row's three-dot menu to rename, pin/unpin, or delete a chat. Pinned chats appear first and keep their pin after reopening. The menu button appears on hover or keyboard focus and stays visible on touch devices. Finish the affected response before renaming, pinning, or deleting its chat. History is confined to this browser profile and is removed when the extension is uninstalled; it is not synced or encrypted by Bridge.
+- **Images:** attach, paste, or drop PNG, JPEG, WebP, or GIF images (up to 20 MiB per image). The selected provider/model must support image input; provider limits may be smaller. Images remain in the conversation and are sent as context on later turns. They are never silently resized or discarded.
+- **Search:** toggle **Search** to allow the provider to search the web. It is disabled for providers without hosted search; model-specific restrictions and the optional Ollama search key still apply. Search terms are sent to the provider's search service and may incur provider charges.
+- **Responses:** Markdown, tables, fenced code with copy buttons, expandable reasoning, streaming, Stop, and retry after interrupted/failed responses. Closing the panel stops its active response and retains the saved partial answer. Abrupt browser/worker shutdown can lose the last checkpoint of an in-progress response; reopen the chat and retry.
+
+Chat sends only the conversation you enter and its saved context. It does not read the current webpage. Sending a message is first-party consent to use the selected provider; website IPA approvals remain separate.
 
 ## Supported Providers
 
@@ -1085,6 +1103,8 @@ npm install
 npm test
 ```
 
+`npm install`/`npm ci` prepares pinned Marked and DOMPurify ESM files and licenses under ignored `ui/vendor/`; packaging also prepares them. No remote scripts are loaded. Firefox lint narrowly permits DOMPurify's internal inert-document `innerHTML` assignment only when the staged sanitizer exactly matches the installed pinned upstream source. Application HTML injection remains disallowed.
+
 Node tests cover validation, storage, permissions, provider adapters, tools, and binary transport. The [speech contract tests](test/speech-conformance.test.js) exercise the injector, content script, and worker together using browser and network mocks and the [shared IPA stream checker](test/helpers/speech-conformance.mjs). Fixture provenance is in [test/fixtures/README.md](test/fixtures/README.md).
 
 The [shared chat adapter contract](test/helpers/chat-adapter-contract.js) runs against every built-in adapter and a named OpenAI-compatible endpoint in [chat-adapter-contract.test.js](test/chat-adapter-contract.test.js). It checks streaming/results, cancellation, sanitized errors, immutable requests, and concurrent configuration isolation using native protocol fixtures. Provider-specific tests retain tool, reasoning, retry, and protocol coverage.
@@ -1118,6 +1138,17 @@ npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as err
 ```
 
 ### Manual checks
+
+#### Side-panel chat
+
+- [ ] Chrome: left-click the toolbar icon opens Options; **Open Chat** in Options and the built-in **Open Side Panel** context-menu item open the same global panel. Reload/update from an earlier build and confirm the duplicate **Open Chat** menu item is removed. Navigate/switch tabs while the panel stays open. Firefox: **Open Chat** in Options and the action's context menu open the native sidebar; Options stays available from the toolbar.
+- [ ] Use a configured provider/model for streaming chat, hosted search, and an attached/pasted image with a vision model. Verify unsupported models/search and missing credentials/host access show useful errors. Change providers in Options and reopen chat.
+- [ ] Check native dropdowns for small model catalogs, searchable OpenRouter/PayPerQ catalogs, the 20-model compatible-server boundary, and manual entry when a compatible server's discovery is empty or fails. Verify selection survives reopening a chat and that unavailable local models cannot be sent using Enter.
+- [ ] Stop, retry, close/reopen the panel, and restart the browser. Confirm saved history, images, reasoning, and partial responses restore. New Chat and saved-chat navigation work during generation; another send waits until the active response finishes.
+- [ ] Search chat titles, rename a chat, pin/unpin it, cancel/confirm individual deletion, and delete all history. Reopen/restart to verify names and pins persist, pinned chats appear first, and renamed titles survive later responses. Use Tab, Enter/Space, arrows, Home/End, Escape, and outside clicks with row menus; confirm menus stay beside their trigger at 320px and near the bottom of a long list. During generation in another window, edits/deletion of the same chat and deletion of all history are blocked; unrelated chats remain usable.
+- [ ] Click the history drawer's shaded backdrop to close it and return focus to the history button. Clicks inside the drawer or its action menus, and drags that start inside the drawer, must keep it open. Repeat in Firefox 140 to exercise the light-dismiss fallback.
+- [ ] At 320px and wider panel widths, long URLs, Markdown tables, and code scroll within the conversation. Use Tab, Enter, Shift+Enter, Escape, and a screen reader to check composer labels, sidebar focus restoration, status/errors, and Stop. Rendered Markdown must not load remote images, execute scripts, or navigate to extension/file URLs.
+- [ ] On an HTTPS test page, request IPA inference and confirm that the normal approval is still required after using first-party chat.
 
 #### Allowed sites
 

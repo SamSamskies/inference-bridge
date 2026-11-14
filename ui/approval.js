@@ -2,6 +2,7 @@ import { createModelCapabilityCheck } from "./model-capability-check.js";
 import { formatBytes } from "../src/format-bytes.js";
 import { UNKNOWN_MODEL_CAPABILITIES } from "../src/providers/model-capabilities.js";
 import {
+  allowsUnknownChatModel,
   isModelValid,
   populateModelInput,
   populateModelSelect,
@@ -370,13 +371,7 @@ function renderTools(tools, providerId = providerSelect.value) {
  * @returns {boolean}
  */
 function allowUnknownFor(providerId) {
-  return (
-    requestMethod === "chat" &&
-    providerId !== "gemini" &&
-    providerId !== "ollama" &&
-    providerId !== "ollama-cloud" &&
-    providerId !== ON_DEVICE_PROVIDER_ID
-  );
+  return requestMethod === "chat" && allowsUnknownChatModel(providerId);
 }
 
 /**
