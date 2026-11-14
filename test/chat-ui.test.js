@@ -351,6 +351,18 @@ describe("chat interface", () => {
     await history.saveChat(other);
     await vi.waitFor(() => expect($("chatList").textContent).toContain("From another panel"));
   });
+  it("resets the visible chat when another panel deletes it", async () => {
+    await type("Gone elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    expect($("messages").textContent).toContain("Gone elsewhere");
+    await history.deleteChat(id);
+    await vi.waitFor(() => expect($("empty").hidden).toBe(false));
+    expect($("error").textContent).toContain("deleted in another panel");
+    expect($("messages").children).toHaveLength(0);
+    expect(await history.getChat(id)).toBeUndefined();
+  });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();

@@ -185,13 +185,26 @@ function renderHistory() {
   $("historyEmpty").textContent = query ? "No matching chats." : "Your conversations will appear here.";
 }
 async function refreshHistory() { summaries = await listChats(); renderHistory(); }
+async function reconcileRemoteHistory() {
+  if ($("history").open) await refreshHistory();
+  // Unsaved drafts are local-only. An active stream finishes through beginResponse.
+  if (!current.messages.length || busy()) return;
+  if (!(await getChat(current.id))) {
+    startNewChat();
+    report("This chat was deleted in another panel. Start a new chat.");
+  }
+}
 let historySyncTimer = 0;
+const historySyncGeneration = (globalThis.__bridgeChatSyncGen = (globalThis.__bridgeChatSyncGen || 0) + 1);
 try {
   new BroadcastChannel(CHAT_HISTORY_SYNC_CHANNEL).addEventListener("message", () => {
-    if (!$("history").open) return;
-    // Streaming checkpoints can notify often; coalesce drawer redraws.
+    // Streaming checkpoints can notify often; coalesce remote reconciliation.
     clearTimeout(historySyncTimer);
-    historySyncTimer = setTimeout(() => void refreshHistory().catch(report), 200);
+    historySyncTimer = setTimeout(() => {
+      // Drop timers from a previous panel document after tests reimport this module.
+      if (historySyncGeneration !== globalThis.__bridgeChatSyncGen) return;
+      void reconcileRemoteHistory().catch(report);
+    }, 200);
   });
 } catch {
   // BroadcastChannel is unavailable in some test or runtime hosts.
