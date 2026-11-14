@@ -173,6 +173,11 @@ function renderHistory() {
     const options = createChatActionsMenu({
       ...chat,
       onAction(action, focus) {
+        // Worker holds the chat lock for the whole stream; fail fast with a local message.
+        if (run?.chatId === chat.id) {
+          historyNotice("Stop the response before changing this chat.");
+          return;
+        }
         if (action === "delete") confirmDeletion(chat.id);
         if (action === "rename") {
           renamingId = chat.id;
@@ -339,6 +344,7 @@ function historyNotice(message) {
   $("historyStatus").hidden = false;
 }
 async function editChatMetadata(id, patch, { fromPointer = false, restoreFocus = true } = {}) {
+  if (run?.chatId === id) throw new Error("Stop the response before changing this chat.");
   const { chat, previousUpdatedAt } = await updateChatMetadata(id, patch);
   if (current.id === id) {
     if (current.updatedAt === previousUpdatedAt) {
@@ -679,7 +685,10 @@ $("confirmDelete").addEventListener("close", () => {
   if ($("confirmDelete").returnValue !== "delete") return;
   void (async () => {
     if (deleting === "all") await withClearHistoryLock(clearChats);
-    else await withChatLock(deleting, () => deleteChat(deleting));
+    else {
+      if (run?.chatId === deleting) throw new Error("Stop the response before changing this chat.");
+      await withChatLock(deleting, () => deleteChat(deleting));
+    }
     if (deleting === "all" || deleting === current.id) startNewChat();
     await refreshHistory();
     if ($("history").open) ($("chatList").querySelector(".chat-title") || $("historySearch")).focus();

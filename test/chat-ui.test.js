@@ -553,18 +553,22 @@ describe("chat interface", () => {
     await history.updateChatMetadata(id, { title: "Renamed live", pinned: true });
     await vi.waitFor(() => expect($("chatList").textContent).toContain("Renamed live"));
     await vi.waitFor(() => expect($("chatList").querySelector(".chat-pin")).not.toBeNull());
-    // Unsaved delta must survive a local pin after remote metadata moved updatedAt.
     port.onMessage.emit({ type: "delta", content: " more" });
     await vi.waitFor(() => expect($("messages").textContent).toContain("more"));
+    expect($("stop").hidden).toBe(false);
+    expect((await history.getChat(id)).title).toBe("Renamed live");
+  });
+  it("blocks history actions on the chat this panel is generating", async () => {
+    await type("Lock me"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     $("toggleHistory").click();
     await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
     $("chatList").querySelector(".chat-actions").click();
     await vi.waitFor(() => expect($("chatList").querySelector('[data-action="pin"]')).not.toBeNull());
     $("chatList").querySelector('[data-action="pin"]').click();
-    await vi.waitFor(async () => expect((await history.getChat(id)).pinned).toBe(false));
-    expect($("messages").textContent).toContain("more");
+    await vi.waitFor(() => expect($("historyStatus").textContent).toContain("Stop the response"));
+    expect((await history.getChat((await history.listChats())[0].id)).pinned).toBeFalsy();
     expect($("stop").hidden).toBe(false);
-    expect((await history.getChat(id)).title).toBe("Renamed live");
   });
   it("does not mark a remotely streaming turn as interrupted", async () => {
     await type("Watch elsewhere"); await submit();
