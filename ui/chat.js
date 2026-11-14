@@ -435,6 +435,12 @@ async function beginResponse(chat) {
           $("status").textContent = error ? "Response interrupted." : "Response finished.";
         }
       } catch (storageError) { report(storageError); }
+    } else {
+      // User navigated away; still announce the background turn outcome.
+      if (error) report(error);
+      $("status").textContent = error
+        ? "Response interrupted in another chat. Open it from history for details."
+        : "Response finished in another chat.";
     }
     updateControls();
     void refreshHistory().catch(report);

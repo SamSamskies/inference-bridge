@@ -300,6 +300,28 @@ describe("chat interface", () => {
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
   });
+  it("announces background stream failures while viewing another chat", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          assistant.status = "error"; assistant.error = "Background failed."; chat.updatedAt++;
+          await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+        };
+      }) }; return port;
+    };
+    await type("Background fail"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("newChat").click();
+    expect($("empty").hidden).toBe(false);
+    await finish();
+    await vi.waitFor(() => expect($("error").textContent).toContain("Background failed."));
+    expect($("status").textContent).toContain("another chat");
+    expect($("composerHint").hidden).toBe(true);
+  });
   it("restores the last saved conversation after reopening the page", async () => {
     await type("Keep this chat"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
