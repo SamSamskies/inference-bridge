@@ -468,6 +468,10 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("messages").textContent).toContain("Partial…"));
     expect($("messages").querySelector(".message-note")).toBeNull();
     expect($("messages").textContent).not.toContain("Response interrupted");
+    expect($("retry").hidden).toBe(true);
+    await type("Should not send");
+    expect($("send").disabled).toBe(true);
+    expect($("composerHint").textContent).toContain("another panel");
   });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();

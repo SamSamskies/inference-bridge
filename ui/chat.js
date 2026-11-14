@@ -73,13 +73,17 @@ function updateControls() {
   $("send").hidden = busy();
   $("stop").hidden = !busy();
   const last = current.messages.at(-1);
-  // Trailing user = start failed before the worker saved an assistant; incomplete assistant = failed/stopped turn.
-  const needsRetry = last?.role === "user" || (last?.role === "assistant" && last.status !== "complete");
-  $("send").disabled = pending || Boolean(run) || !configured || needsRetry || (!$("prompt").value.trim() && !attachments.length);
-  $("composerHint").hidden = !(run && !busy());
-  $("composerHint").textContent = run && !busy()
-    ? "A response is running in another chat. Open it from history to stop."
-    : "";
+  const remoteStreaming = last?.role === "assistant" && last.status === "streaming" && !busy();
+  // Trailing user = start failed before accept; error/stopped assistant = failed turn. Live remote streams are not retries.
+  const needsRetry = last?.role === "user" || (last?.role === "assistant" && last.status !== "complete" && last.status !== "streaming");
+  $("send").disabled = pending || Boolean(run) || !configured || needsRetry || remoteStreaming || (!$("prompt").value.trim() && !attachments.length);
+  const elsewhere = (run && !busy()) || remoteStreaming;
+  $("composerHint").hidden = !elsewhere;
+  $("composerHint").textContent = remoteStreaming
+    ? "A response is generating in another panel. Wait for it to finish before sending."
+    : run && !busy()
+      ? "A response is running in another chat. Open it from history to stop."
+      : "";
   $("retry").hidden = pending || Boolean(run) || !configured || !needsRetry;
 }
 function applySearch() {
@@ -432,6 +436,9 @@ $("composer").addEventListener("submit", (event) => {
     if (run) throw new Error("Wait for the response in your other chat to finish before sending.");
     if (!providerIsConfigured() || !selectedModelIsValid()) throw new Error("Choose an available provider and model before sending.");
     const last = current.messages.at(-1);
+    if (last?.role === "assistant" && last.status === "streaming") {
+      throw new Error("A response is generating in another panel. Wait for it to finish before sending.");
+    }
     if (last?.role === "user" || (last?.role === "assistant" && last.status !== "complete")) {
       throw new Error("Retry the incomplete response before sending another message.");
     }
