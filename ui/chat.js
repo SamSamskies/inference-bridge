@@ -290,6 +290,36 @@ async function reclaimOrphanedStream(chat) {
     throw error;
   }
 }
+/** Patch a remote streaming tip in place so open reasoning/selection survive checkpoints. */
+function patchRemoteStreamingView(previous, next) {
+  if (previous.length !== next.length || $("messages").children.length !== next.length) return false;
+  const tip = next.at(-1);
+  const prevTip = previous.at(-1);
+  if (tip?.role !== "assistant" || tip.status !== "streaming") return false;
+  if (prevTip?.role !== "assistant" || prevTip.status !== "streaming") return false;
+  for (let i = 0; i < next.length - 1; i++) {
+    if (previous[i].role !== next[i].role) return false;
+    if ((previous[i].content || "") !== (next[i].content || "")) return false;
+  }
+  const article = $("messages").lastElementChild;
+  const body = article?.querySelector(".message-body");
+  if (!body) return false;
+  const scroller = $("conversation");
+  const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100;
+  if (tip.reasoning) {
+    let details = article.querySelector("details");
+    if (!details) {
+      details = document.createElement("details");
+      const summary = document.createElement("summary"); summary.textContent = "Reasoning";
+      details.append(summary, document.createElement("pre"));
+      article.insertBefore(details, body);
+    }
+    details.querySelector("pre").textContent = tip.reasoning;
+  }
+  renderMarkdown(body, tip.content || "Thinking…");
+  if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+  return true;
+}
 async function reconcileRemoteHistory() {
   // Always refresh summaries. Opening a row menu can clear dialog.open in some
   // hosts while the drawer is still on screen; order updates must still apply.
@@ -315,8 +345,9 @@ async function reconcileRemoteHistory() {
   if (saved.messages.at(-1)?.status !== "streaming") locallyStoppedStreams.delete(saved.id);
   if (saved.updatedAt === current.updatedAt) return;
   const routeChanged = saved.providerId !== current.providerId || saved.model !== current.model;
+  const previous = current.messages;
   current = saved;
-  renderMessages();
+  if (!patchRemoteStreamingView(previous, saved.messages)) renderMessages();
   updateControls();
   if (routeChanged) await chooseRoute({ keepModel: true });
 }
