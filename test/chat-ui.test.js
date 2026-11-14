@@ -300,6 +300,28 @@ describe("chat interface", () => {
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
   });
+  it("does not treat a local disconnect checkpoint as a remote stream", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "Partial", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          // Leave the checkpoint as streaming (as after a hard disconnect before final persist).
+          port.onMessage.emit({ type: "error", error: "Connection interrupted. The saved partial response is available in history." });
+        };
+      }) }; return port;
+    };
+    await type("Disconnect mid-stream"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").textContent).toContain("Connection interrupted");
+    expect($("composerHint").textContent).not.toContain("another panel");
+    expect($("retry").hidden).toBe(false);
+    expect($("messages").querySelector(".message-note")?.textContent).toMatch(/interrupted|Connection/i);
+  });
   it("announces background stream failures while viewing another chat", async () => {
     chrome.runtime.connect = () => {
       port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {

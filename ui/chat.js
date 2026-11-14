@@ -422,13 +422,20 @@ async function beginResponse(chat) {
     port.disconnect();
     if (current.id === chat.id) {
       try {
-        const saved = await getChat(chat.id);
-        if (!saved) {
+        const loaded = await getChat(chat.id);
+        if (!loaded) {
           // Another panel deleted this conversation during generation.
           startNewChat();
           report("This chat was deleted in another panel. Start a new chat.");
           $("status").textContent = "Response interrupted.";
         } else {
+          // Clear run first so reclaim can take the lock; coerce if a checkpoint is still "streaming".
+          let saved = await reclaimOrphanedStream(loaded);
+          const tip = saved.messages.at(-1);
+          if (error && tip?.role === "assistant" && tip.status === "streaming") {
+            tip.status = "stopped";
+            tip.error = tip.error || (typeof error === "string" ? error : error?.message) || "Response interrupted.";
+          }
           current = saved;
           renderMessages(); updateControls();
           if (error) report(error);
@@ -441,6 +448,7 @@ async function beginResponse(chat) {
       $("status").textContent = error
         ? "Response interrupted in another chat. Open it from history for details."
         : "Response finished in another chat.";
+      void getChat(chat.id).then((loaded) => loaded && reclaimOrphanedStream(loaded)).catch(report);
     }
     updateControls();
     void refreshHistory().catch(report);
