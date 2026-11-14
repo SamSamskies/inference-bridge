@@ -295,6 +295,12 @@ async function reclaimOrphanedStream(chat) {
     throw error;
   }
 }
+/** True when two message contents match, including multimodal part arrays from fresh getChat() clones. */
+function sameMessageContent(a, b) {
+  if (a === b) return true;
+  if (typeof a === "string" || typeof b === "string" || a == null || b == null) return (a || "") === (b || "");
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 /** Patch a remote streaming tip in place so open reasoning/selection survive checkpoints. */
 function patchRemoteStreamingView(previous, next) {
   if (previous.length !== next.length || $("messages").children.length !== next.length) return false;
@@ -304,7 +310,7 @@ function patchRemoteStreamingView(previous, next) {
   if (prevTip?.role !== "assistant" || prevTip.status !== "streaming") return false;
   for (let i = 0; i < next.length - 1; i++) {
     if (previous[i].role !== next[i].role) return false;
-    if ((previous[i].content || "") !== (next[i].content || "")) return false;
+    if (!sameMessageContent(previous[i].content, next[i].content)) return false;
   }
   const article = $("messages").lastElementChild;
   const body = article?.querySelector(".message-body");

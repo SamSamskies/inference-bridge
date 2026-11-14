@@ -664,6 +664,38 @@ describe("chat interface", () => {
     expect($("messages").querySelector("details pre")?.textContent).toContain("Step two");
     release(); await hold;
   });
+  it("keeps remote streaming reasoning open when earlier turns include images", async () => {
+    await type("Watch with image"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const saved = await history.getChat(id);
+    saved.messages[0].content = [
+      { type: "text", text: "Watch with image" },
+      { type: "image", mediaType: "image/png", data: "aaaa" },
+    ];
+    saved.messages.push({ role: "user", content: "Remote prompt" });
+    saved.messages.push({ role: "assistant", content: "Hi", reasoning: "Step one", status: "streaming" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").querySelector("details")).not.toBeNull());
+    const article = $("messages").lastElementChild;
+    article.querySelector("details").open = true;
+    // Fresh getChat() clones make array content !== by reference; patch must still apply.
+    const checkpoint = await history.getChat(id);
+    checkpoint.messages.at(-1).content = "Hi there";
+    checkpoint.messages.at(-1).reasoning = "Step one\nStep two";
+    checkpoint.updatedAt += 10;
+    await history.saveChat(checkpoint);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Hi there"));
+    expect($("messages").lastElementChild).toBe(article);
+    expect($("messages").querySelector("details")?.open).toBe(true);
+    expect($("messages").querySelector("details pre")?.textContent).toContain("Step two");
+    release(); await hold;
+  });
   it("reclaims an orphaned streaming turn when no generator holds the lock", async () => {
     await type("Orphan me"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
