@@ -1,6 +1,18 @@
 /** Extension-origin IndexedDB. History and image data never enter sync storage. */
 const DB_NAME = "inference-bridge-chat";
+/** Same-origin panels refresh open history drawers from this channel. */
+export const CHAT_HISTORY_SYNC_CHANNEL = "inference-bridge-chat-history";
 let database;
+let historySync;
+
+function notifyHistoryChanged() {
+  try {
+    historySync ??= new BroadcastChannel(CHAT_HISTORY_SYNC_CHANNEL);
+    historySync.postMessage({ type: "changed" });
+  } catch {
+    // BroadcastChannel is unavailable in some test or runtime hosts.
+  }
+}
 
 function openDatabase() {
   if (!database) database = new Promise((resolve, reject) => {
@@ -42,13 +54,14 @@ export function chatTitle(content) {
   return text.trim().replace(/\s+/g, " ").slice(0, 80) || "Image chat";
 }
 
-export function saveChat(chat) {
-  return transaction(["chats", "summaries"], "readwrite", (tx) => {
+export async function saveChat(chat) {
+  await transaction(["chats", "summaries"], "readwrite", (tx) => {
     tx.objectStore("chats").put(chat);
     // The sidebar reads only small summaries, never every saved image.
     const { id, title, providerId, model, createdAt, updatedAt } = chat;
     return tx.objectStore("summaries").put({ id, title, pinned: chat.pinned === true, providerId, model, createdAt, updatedAt });
   });
+  notifyHistoryChanged();
 }
 
 export function getChat(id) {
@@ -84,19 +97,21 @@ export function updateChatMetadata(id, patch) {
   });
 }
 
-export function deleteChat(id) {
-  return transaction(["chats", "summaries"], "readwrite", (tx) => {
+export async function deleteChat(id) {
+  await transaction(["chats", "summaries"], "readwrite", (tx) => {
     tx.objectStore("chats").delete(id);
     return tx.objectStore("summaries").delete(id);
   });
+  notifyHistoryChanged();
 }
 
-export function clearChats() {
-  return transaction(["chats", "summaries", "preferences"], "readwrite", (tx) => {
+export async function clearChats() {
+  await transaction(["chats", "summaries", "preferences"], "readwrite", (tx) => {
     tx.objectStore("chats").clear();
     tx.objectStore("summaries").clear();
     return tx.objectStore("preferences").delete("activeChatId");
   });
+  notifyHistoryChanged();
 }
 
 export function getChatPreference(key) {

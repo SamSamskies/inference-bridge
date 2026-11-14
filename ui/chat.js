@@ -1,6 +1,7 @@
 import {
   newChat, chatTitle, getChat, saveChat, listChats, deleteChat, clearChats,
   getChatPreference, setChatPreference, withChatLock, withClearHistoryLock, updateChatMetadata,
+  CHAT_HISTORY_SYNC_CHANNEL,
 } from "../src/chat-history.js";
 import { IMAGE_MEDIA_TYPES, rawImageBase64 } from "../src/image-parts.js";
 import { ON_DEVICE_PROVIDER_ID } from "../src/prompt-api-core.js";
@@ -184,6 +185,17 @@ function renderHistory() {
   $("historyEmpty").textContent = query ? "No matching chats." : "Your conversations will appear here.";
 }
 async function refreshHistory() { summaries = await listChats(); renderHistory(); }
+let historySyncTimer = 0;
+try {
+  new BroadcastChannel(CHAT_HISTORY_SYNC_CHANNEL).addEventListener("message", () => {
+    if (!$("history").open) return;
+    // Streaming checkpoints can notify often; coalesce drawer redraws.
+    clearTimeout(historySyncTimer);
+    historySyncTimer = setTimeout(() => void refreshHistory().catch(report), 200);
+  });
+} catch {
+  // BroadcastChannel is unavailable in some test or runtime hosts.
+}
 function focusHistoryAction(id, fromPointer = false) {
   if ($("history").open) (document.getElementById(`chat-options-${id}`) || $("historySearch"))
     .focus({ preventScroll: true, focusVisible: !fromPointer });

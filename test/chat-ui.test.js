@@ -339,6 +339,18 @@ describe("chat interface", () => {
     expect(await history.getChat(id)).toBeUndefined();
     expect($("messages").children).toHaveLength(0);
   });
+  it("refreshes an open history drawer when another panel changes chats", async () => {
+    await type("Panel A"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").children.length).toBe(1));
+    const other = history.newChat("openai", "saved-model");
+    other.title = "From another panel";
+    other.messages = [{ role: "user", content: "hi" }];
+    await history.saveChat(other);
+    await vi.waitFor(() => expect($("chatList").textContent).toContain("From another panel"));
+  });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
@@ -346,7 +358,10 @@ describe("chat interface", () => {
     $("toggleHistory").click();
     await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
     const id = (await history.listChats())[0].id;
+    // Suppress sync so this panel keeps a stale "Pin" label after another writer pins.
+    const mute = vi.spyOn(BroadcastChannel.prototype, "postMessage").mockImplementation(() => {});
     await history.updateChatMetadata(id, { pinned: true });
+    mute.mockRestore();
     expect($("chatList").querySelector(".chat-pin")).toBeNull();
     $("chatList").querySelector(".chat-actions").click();
     await vi.waitFor(() => expect($("chatList").querySelector('[data-action="pin"]').textContent).toBe("Pin"));
