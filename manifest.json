@@ -5,6 +5,8 @@
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
   "permissions": [
     "storage",
+    "contextMenus",
+    "sidePanel",
     "declarativeNetRequestWithHostAccess",
     "offscreen"
   ],
@@ -28,6 +30,9 @@
   "options_ui": {
     "page": "ui/options.html",
     "open_in_tab": true
+  },
+  "side_panel": {
+    "default_path": "ui/chat.html"
   },
   "icons": {
     "16": "icons/icon-16.png",

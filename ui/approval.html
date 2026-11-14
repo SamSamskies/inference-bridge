@@ -6,6 +6,7 @@
     <title>Allow inference?</title>
     <link rel="stylesheet" href="shared.css" />
     <link rel="stylesheet" href="approval.css" />
+    <link rel="stylesheet" href="model-input.css" />
   </head>
   <body class="approval-body">
     <main class="approval">
@@ -42,11 +43,12 @@
               <button
                 type="button"
                 id="clearModel"
-                class="ghost"
+                class="model-clear"
                 hidden
                 aria-label="Clear model"
+                title="Clear model"
               >
-                Clear
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
               </button>
             </div>
             <datalist id="modelList"></datalist>

@@ -142,17 +142,6 @@ textarea {
   font-size: 0.9rem;
 }
 
-.model-input-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.model-input-row input {
-  flex: 1;
-  min-width: 0;
-}
-
 button.ghost {
   flex: 0 0 auto;
   min-width: 4.5rem;

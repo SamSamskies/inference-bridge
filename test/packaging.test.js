@@ -31,6 +31,9 @@ describe("browser packages", () => {
       expect(files).toContain("manifest.json");
       expect(files).toContain("background/service-worker.js");
       expect(files).toContain("src/runtime-browser.js");
+      expect(files).toContain("ui/chat.html");
+      expect(files).toContain("ui/vendor/marked.js");
+      expect(files).toContain("ui/vendor/purify.js");
       expect(files).toEqual([...files].sort());
       expect(files.every((file) =>
         /^(manifest\.json|(?:background|content|src|ui|icons|offscreen)\/[^/].*)$/.test(file)
@@ -48,6 +51,10 @@ describe("browser packages", () => {
       }
       expect(manifest.host_permissions.some((pattern) => pattern.includes("127.0.0.1"))).toBe(false);
       if (browser === "firefox") {
+        expect(manifest.side_panel).toBeUndefined();
+        expect(manifest.permissions).not.toContain("sidePanel");
+        expect(manifest.sidebar_action.default_panel).toBe("ui/chat.html");
+        expect(command("unzip", ["-p", zip, "src/open-chat.js"])).not.toContain("sidePanel");
         expect(files.some((file) => file.startsWith("offscreen/"))).toBe(false);
         expect(manifest.permissions).not.toContain("offscreen");
         expect(manifest.background).toEqual({ scripts: ["background/service-worker.js"], type: "module" });
@@ -63,6 +70,8 @@ describe("browser packages", () => {
         expect(manifest.content_security_policy.extension_pages).not.toContain("upgrade-insecure-requests");
         expect(command("unzip", ["-p", zip, "src/prompt-api-offscreen.js"])).not.toContain("chrome.offscreen");
       } else {
+        expect(manifest.side_panel.default_path).toBe("ui/chat.html");
+        expect(manifest.permissions).toContain("sidePanel");
         expect(manifest.permissions).toContain("offscreen");
         expect(manifest.background.service_worker).toBe("background/service-worker.js");
       }

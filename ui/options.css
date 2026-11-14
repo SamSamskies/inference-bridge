@@ -1,3 +1,79 @@
+.settings-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "eyebrow eyebrow"
+    "title action"
+    "intro intro"
+    "status status";
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.settings-header .eyebrow {
+  grid-area: eyebrow;
+  margin: 0;
+}
+
+.settings-header h1 {
+  grid-area: title;
+  margin: 0;
+}
+
+.settings-intro {
+  grid-area: intro;
+}
+
+.open-chat-button {
+  grid-area: action;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-block-size: 34px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.open-chat-button svg {
+  display: block;
+  inline-size: 16px;
+  block-size: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.open-chat-button:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#openChatStatus {
+  grid-area: status;
+}
+
+#openChatStatus:empty {
+  display: none;
+}
+
+@media (max-width: 380px) {
+  .settings-header {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "eyebrow" "title" "intro" "action" "status";
+  }
+
+  .open-chat-button {
+    justify-self: start;
+  }
+}
+
 .settings-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(max-content, 1fr));
