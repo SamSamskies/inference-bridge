@@ -456,6 +456,19 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("messages").textContent).toContain("From another panel"));
     expect($("messages").textContent).toContain("Remote reply");
   });
+  it("does not mark a remotely streaming turn as interrupted", async () => {
+    await type("Watch elsewhere"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    saved.messages.push({ role: "user", content: "Remote prompt" });
+    saved.messages.push({ role: "assistant", content: "Partial…", status: "streaming" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("Partial…"));
+    expect($("messages").querySelector(".message-note")).toBeNull();
+    expect($("messages").textContent).not.toContain("Response interrupted");
+  });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();

@@ -119,11 +119,14 @@ function renderMessages() {
     const body = document.createElement("div"); body.className = "message-body";
     const parts = Array.isArray(message.content) ? message.content : [{ type: "text", text: message.content || "" }];
     const text = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
-    if (message.role === "assistant") renderMarkdown(body, text || (busy() && index === current.messages.length - 1 ? "Thinking…" : ""));
-    else body.textContent = text;
+    if (message.role === "assistant") {
+      const thinking = message.status === "streaming" || (busy() && index === current.messages.length - 1);
+      renderMarkdown(body, text || (thinking ? "Thinking…" : ""));
+    } else body.textContent = text;
     for (const part of parts.filter((p) => p.type === "image")) body.append(imageElement(part, "Attached image"));
     article.append(body);
-    if (message.status && message.status !== "complete" && !(busy() && index === current.messages.length - 1)) {
+    // Live streams saved by another panel use status "streaming"; do not treat them as failed.
+    if (message.status && message.status !== "complete" && message.status !== "streaming" && !(busy() && index === current.messages.length - 1)) {
       const note = document.createElement("p"); note.className = "message-note";
       note.textContent = message.error || "Response interrupted. Retry to generate it again.";
       article.append(note);
