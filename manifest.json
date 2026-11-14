@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inference Bridge",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Official reference implementation of the experimental Inference Provider API browser proposal.",
   "permissions": [
     "storage",
@@ -40,7 +40,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Inference Bridge \u2014 open settings",
+    "default_title": "Inference Bridge — open settings",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png"
