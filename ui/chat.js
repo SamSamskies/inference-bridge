@@ -73,13 +73,14 @@ function updateControls() {
   $("send").hidden = busy();
   $("stop").hidden = !busy();
   const last = current.messages.at(-1);
-  const needsRetry = last?.role === "assistant" && last.status !== "complete";
+  // Trailing user = start failed before the worker saved an assistant; incomplete assistant = failed/stopped turn.
+  const needsRetry = last?.role === "user" || (last?.role === "assistant" && last.status !== "complete");
   $("send").disabled = pending || Boolean(run) || !configured || needsRetry || (!$("prompt").value.trim() && !attachments.length);
   $("composerHint").hidden = !(run && !busy());
   $("composerHint").textContent = run && !busy()
     ? "A response is running in another chat. Open it from history to stop."
     : "";
-  $("retry").hidden = pending || Boolean(run) || !configured || !(last?.role === "user" || needsRetry);
+  $("retry").hidden = pending || Boolean(run) || !configured || !needsRetry;
 }
 function applySearch() {
   $("webSearch").setAttribute("aria-pressed", String(current.webSearch));
@@ -428,7 +429,7 @@ $("composer").addEventListener("submit", (event) => {
     if (run) throw new Error("Wait for the response in your other chat to finish before sending.");
     if (!providerIsConfigured() || !selectedModelIsValid()) throw new Error("Choose an available provider and model before sending.");
     const last = current.messages.at(-1);
-    if (last?.role === "assistant" && last.status !== "complete") {
+    if (last?.role === "user" || (last?.role === "assistant" && last.status !== "complete")) {
       throw new Error("Retry the incomplete response before sending another message.");
     }
     const text = $("prompt").value.trim();

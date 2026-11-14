@@ -220,6 +220,22 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("prompt").value).toBe("");
   });
+  it("requires retry when starting a response fails before the worker accepts", async () => {
+    chrome.runtime.connect = () => {
+      port = {
+        onMessage: event(), onDisconnect: event(), disconnect: vi.fn(),
+        postMessage: vi.fn(() => { throw new Error("Extension context invalidated."); }),
+      };
+      return port;
+    };
+    await type("Never starts"); await submit();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").textContent).toContain("Extension context invalidated.");
+    await type("Another message");
+    expect($("retry").hidden).toBe(false);
+    expect($("send").disabled).toBe(true);
+    expect((await history.getChat((await history.listChats())[0].id)).messages).toHaveLength(1);
+  });
   it("requires retry instead of send after a failed assistant turn", async () => {
     chrome.runtime.connect = () => {
       port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
