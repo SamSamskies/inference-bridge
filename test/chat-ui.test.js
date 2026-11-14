@@ -406,6 +406,18 @@ describe("chat interface", () => {
     expect($("messages").children).toHaveLength(0);
     expect(await history.getChat(id)).toBeUndefined();
   });
+  it("reloads the visible chat when another panel updates it", async () => {
+    await type("Shared chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    saved.messages.push({ role: "user", content: "From another panel" });
+    saved.messages.push({ role: "assistant", content: "Remote reply", status: "complete" });
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(() => expect($("messages").textContent).toContain("From another panel"));
+    expect($("messages").textContent).toContain("Remote reply");
+  });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();

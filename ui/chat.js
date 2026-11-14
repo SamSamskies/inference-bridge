@@ -199,10 +199,18 @@ async function reconcileRemoteHistory() {
   if ($("history").open) await refreshHistory();
   // Unsaved drafts are local-only. An active stream finishes through beginResponse.
   if (!current.messages.length || busy()) return;
-  if (!(await getChat(current.id))) {
+  const saved = await getChat(current.id);
+  if (!saved) {
     startNewChat();
     report("This chat was deleted in another panel. Start a new chat.");
+    return;
   }
+  if (saved.updatedAt === current.updatedAt) return;
+  const routeChanged = saved.providerId !== current.providerId || saved.model !== current.model;
+  current = saved;
+  renderMessages();
+  updateControls();
+  if (routeChanged) await chooseRoute({ keepModel: true });
 }
 let historySyncTimer = 0;
 const historySyncGeneration = (globalThis.__bridgeChatSyncGen = (globalThis.__bridgeChatSyncGen || 0) + 1);
