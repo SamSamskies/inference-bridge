@@ -185,18 +185,43 @@ function renderHistory() {
   $("historyEmpty").hidden = $("chatList").children.length > 0;
   $("historyEmpty").textContent = query ? "No matching chats." : "Your conversations will appear here.";
 }
-function historyListSignature(list) {
-  // Ignore updatedAt so streaming checkpoints do not rebuild an open action menu.
-  return list.map((chat) => `${chat.id}\0${chat.title}\0${chat.pinned ? 1 : 0}`).join("\n");
+function historyContentSignature(list) {
+  // Order-independent: title/pin/id changes rebuild rows; updatedAt-only bumps do not.
+  return list.map((chat) => `${chat.id}\0${chat.title}\0${chat.pinned ? 1 : 0}`).sort().join("\n");
+}
+function historyOrderSignature(list) {
+  return list.map((chat) => chat.id).join("\n");
+}
+function reorderHistoryList() {
+  const list = $("chatList");
+  const query = $("historySearch").value.toLocaleLowerCase();
+  const byId = new Map();
+  for (const li of list.children) {
+    const id = li.querySelector(".chat-title")?.id?.slice("chat-title-".length);
+    if (id) byId.set(id, li);
+  }
+  for (const chat of summaries.filter((c) => c.title.toLocaleLowerCase().includes(query))) {
+    const li = byId.get(chat.id);
+    if (!li) continue;
+    li.classList.toggle("active", chat.id === current.id);
+    const title = li.querySelector(".chat-title");
+    if (chat.id === current.id) title?.setAttribute("aria-current", "true");
+    else title?.removeAttribute("aria-current");
+    list.append(li);
+  }
 }
 async function refreshHistory() {
   const next = await listChats();
-  const unchanged = historyListSignature(next) === historyListSignature(summaries);
+  const contentChanged = historyContentSignature(next) !== historyContentSignature(summaries);
+  const orderChanged = historyOrderSignature(next) !== historyOrderSignature(summaries);
   summaries = next;
-  if (!unchanged) renderHistory();
+  if (contentChanged) renderHistory();
+  else if (orderChanged) reorderHistoryList();
 }
 async function reconcileRemoteHistory() {
-  if ($("history").open) await refreshHistory();
+  // Always refresh summaries. Opening a row menu can clear dialog.open in some
+  // hosts while the drawer is still on screen; order updates must still apply.
+  await refreshHistory();
   // Unsaved drafts are local-only. An active stream finishes through beginResponse.
   if (!current.messages.length || busy()) return;
   const saved = await getChat(current.id);

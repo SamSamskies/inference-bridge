@@ -382,6 +382,28 @@ describe("chat interface", () => {
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
   });
+  it("reorders an open history list when another chat becomes newer without closing its menu", async () => {
+    await type("Older chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("newChat").click();
+    await type("Newer chat"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").children.length).toBe(2));
+    const titles = () => [...$("chatList").querySelectorAll(".chat-title span")].map((el) => el.textContent);
+    expect(titles()).toEqual(["Newer chat", "Older chat"]);
+    const olderRow = $("chatList").querySelectorAll("li")[1];
+    olderRow.querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect(olderRow.querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    const older = await history.getChat((await history.listChats()).find((chat) => chat.title === "Older chat").id);
+    older.updatedAt = Math.max(...(await history.listChats()).map((chat) => chat.updatedAt)) + 10;
+    await history.saveChat(older);
+    await vi.waitFor(async () => expect((await history.listChats()).map((chat) => chat.title)).toEqual(["Older chat", "Newer chat"]));
+    await vi.waitFor(() => expect(titles()).toEqual(["Older chat", "Newer chat"]));
+    expect($("chatList").querySelector(".chat-actions[aria-expanded='true']")).not.toBeNull();
+  });
   it("refreshes an open history drawer when another panel changes chats", async () => {
     await type("Panel A"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
