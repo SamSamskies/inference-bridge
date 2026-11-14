@@ -339,6 +339,23 @@ describe("chat interface", () => {
     expect(await history.getChat(id)).toBeUndefined();
     expect($("messages").children).toHaveLength(0);
   });
+  it("keeps an open history action menu across streaming history checkpoints", async () => {
+    await type("Keep menu open"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    $("toggleHistory").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions")).not.toBeNull());
+    $("chatList").querySelector(".chat-actions").click();
+    await vi.waitFor(() => expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true"));
+    const chat = await history.getChat((await history.listChats())[0].id);
+    chat.updatedAt += 25;
+    await history.saveChat(chat);
+    await vi.waitFor(async () => expect((await history.getChat(chat.id)).updatedAt).toBe(chat.updatedAt));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect($("chatList").querySelector(".chat-actions").getAttribute("aria-expanded")).toBe("true");
+    expect($("chatList").querySelector('[data-action="rename"]')).not.toBeNull();
+    await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+  });
   it("refreshes an open history drawer when another panel changes chats", async () => {
     await type("Panel A"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();

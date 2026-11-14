@@ -184,7 +184,16 @@ function renderHistory() {
   $("historyEmpty").hidden = $("chatList").children.length > 0;
   $("historyEmpty").textContent = query ? "No matching chats." : "Your conversations will appear here.";
 }
-async function refreshHistory() { summaries = await listChats(); renderHistory(); }
+function historyListSignature(list) {
+  // Ignore updatedAt so streaming checkpoints do not rebuild an open action menu.
+  return list.map((chat) => `${chat.id}\0${chat.title}\0${chat.pinned ? 1 : 0}`).join("\n");
+}
+async function refreshHistory() {
+  const next = await listChats();
+  const unchanged = historyListSignature(next) === historyListSignature(summaries);
+  summaries = next;
+  if (!unchanged) renderHistory();
+}
 async function reconcileRemoteHistory() {
   if ($("history").open) await refreshHistory();
   // Unsaved drafts are local-only. An active stream finishes through beginResponse.
