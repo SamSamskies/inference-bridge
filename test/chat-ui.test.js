@@ -460,7 +460,11 @@ describe("chat interface", () => {
     await type("Watch elsewhere"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
-    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    const id = await history.getChatPreference("activeChatId");
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    const saved = await history.getChat(id);
     saved.messages.push({ role: "user", content: "Remote prompt" });
     saved.messages.push({ role: "assistant", content: "Partial…", status: "streaming" });
     saved.updatedAt += 10;
@@ -472,6 +476,21 @@ describe("chat interface", () => {
     await type("Should not send");
     expect($("send").disabled).toBe(true);
     expect($("composerHint").textContent).toContain("another panel");
+    release(); await hold;
+  });
+  it("reclaims an orphaned streaming turn when no generator holds the lock", async () => {
+    await type("Orphan me"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const saved = await history.getChat(await history.getChatPreference("activeChatId"));
+    saved.messages.at(-1).status = "streaming";
+    delete saved.messages.at(-1).error;
+    saved.updatedAt += 10;
+    await history.saveChat(saved);
+    await vi.waitFor(async () => expect((await history.getChat(saved.id)).messages.at(-1).status).toBe("stopped"));
+    expect($("retry").hidden).toBe(false);
+    expect($("composerHint").hidden).toBe(true);
+    expect($("messages").querySelector(".message-note")?.textContent).toContain("interrupted");
   });
   it("toggles pin from stored state when the history list is stale", async () => {
     await type("Stale pin"); await submit();

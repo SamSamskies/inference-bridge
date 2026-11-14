@@ -226,18 +226,42 @@ async function refreshHistory() {
   if (contentChanged) renderHistory();
   else if (orderChanged) reorderHistoryList();
 }
+/** If a stream died without a final write, the chat lock is free — mark it interrupted. */
+async function reclaimOrphanedStream(chat) {
+  const last = chat?.messages.at(-1);
+  if (!chat || last?.role !== "assistant" || last.status !== "streaming") return chat;
+  if (run?.chatId === chat.id) return chat;
+  try {
+    return await withChatLock(chat.id, async () => {
+      const latest = await getChat(chat.id);
+      if (!latest) return chat;
+      const tip = latest.messages.at(-1);
+      if (tip?.role !== "assistant" || tip.status !== "streaming") return latest;
+      tip.status = "stopped";
+      tip.error = tip.error || "Response interrupted.";
+      latest.updatedAt = Math.max(Date.now(), latest.updatedAt + 1);
+      await saveChat(latest);
+      return latest;
+    });
+  } catch (error) {
+    // Lock held: another panel or the worker is still generating.
+    if (String(error?.message || error).includes("generating")) return chat;
+    throw error;
+  }
+}
 async function reconcileRemoteHistory() {
   // Always refresh summaries. Opening a row menu can clear dialog.open in some
   // hosts while the drawer is still on screen; order updates must still apply.
   await refreshHistory();
   // Unsaved drafts are local-only. An active stream finishes through beginResponse.
   if (!current.messages.length || busy()) return;
-  const saved = await getChat(current.id);
-  if (!saved) {
+  const loaded = await getChat(current.id);
+  if (!loaded) {
     startNewChat();
     report("This chat was deleted in another panel. Start a new chat.");
     return;
   }
+  const saved = await reclaimOrphanedStream(loaded);
   if (saved.updatedAt === current.updatedAt) return;
   const routeChanged = saved.providerId !== current.providerId || saved.model !== current.model;
   current = saved;
@@ -324,7 +348,7 @@ async function selectChat(id) {
   if (submitting) return;
   const chat = await getChat(id);
   if (!chat) throw new Error("This chat was deleted in another panel.");
-  current = run?.chatId === id ? run.chat : chat;
+  current = run?.chatId === id ? run.chat : await reclaimOrphanedStream(chat);
   populateProviders();
   attachments = []; $("prompt").value = ""; clearError(); renderAttachments(); renderMessages();
   closeHistory();
@@ -624,6 +648,7 @@ async function initialize() {
   ]);
   providers = catalog?.providers || [];
   current = (activeId && await getChat(activeId)) || newChat(config?.defaultProviderId, "");
+  if (current.messages.length) current = await reclaimOrphanedStream(current);
   if (!current.messages.length && !providers.some((p) => p.id === current.providerId)) {
     current.providerId = providers[0]?.id || ""; current.model = "";
   }
