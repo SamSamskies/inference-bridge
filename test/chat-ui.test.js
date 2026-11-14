@@ -367,6 +367,36 @@ describe("chat interface", () => {
     expect($("retry").hidden).toBe(false);
     release(); await hold;
   });
+  it("retries after a local disconnect even when stopped state was not persisted", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "Partial", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async () => {
+          port.onMessage.emit({ type: "error", error: "Connection interrupted. The saved partial response is available in history." });
+        };
+      }) }; return port;
+    };
+    await type("Retry after disconnect"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    await finish();
+    await vi.waitFor(() => expect($("retry").hidden).toBe(false));
+    // Wait for persistStoppedStream to give up while the worker lock is held.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect((await history.getChat(id)).messages.at(-1).status).toBe("streaming");
+    release(); await hold;
+    finish = undefined;
+    $("retry").click();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect($("error").textContent).not.toContain("another panel");
+    expect($("stop").hidden).toBe(false);
+  });
   it("announces background stream failures while viewing another chat", async () => {
     chrome.runtime.connect = () => {
       port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {

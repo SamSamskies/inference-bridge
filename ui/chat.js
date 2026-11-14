@@ -239,7 +239,8 @@ function markAssistantStopped(chat, message = "Response interrupted.") {
   if (tip?.role !== "assistant" || tip.status !== "streaming") return chat;
   tip.status = "stopped";
   tip.error = tip.error || message;
-  chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
+  // Do not bump updatedAt here: Retry's storeCurrent must still match IndexedDB until
+  // persistStoppedStream (or reclaim) actually writes the stopped revision.
   locallyStoppedStreams.add(chat.id);
   return chat;
 }
@@ -255,6 +256,9 @@ async function persistStoppedStream(chat, attempts = 6) {
         tip.error = tip.error || chat.messages.at(-1)?.error || "Response interrupted.";
         latest.updatedAt = Math.max(Date.now(), latest.updatedAt + 1);
         await saveChat(latest);
+        // Keep the in-memory revision aligned so Retry's storeCurrent still matches.
+        chat.updatedAt = latest.updatedAt;
+        if (current.id === chat.id) current.updatedAt = latest.updatedAt;
       }
       locallyStoppedStreams.delete(chat.id);
     });
@@ -280,6 +284,7 @@ async function reclaimOrphanedStream(chat) {
       const tip = latest.messages.at(-1);
       if (tip?.role !== "assistant" || tip.status !== "streaming") return latest;
       markAssistantStopped(latest);
+      latest.updatedAt = Math.max(Date.now(), latest.updatedAt + 1);
       await saveChat(latest);
       locallyStoppedStreams.delete(latest.id);
       return latest;
@@ -454,9 +459,17 @@ async function storeCurrent(chat) {
   await withChatLock(chat.id, async () => {
     const saved = await getChat(chat.id);
     if (!saved && wasSaved) throw new Error("This chat was deleted in another panel. Start a new chat.");
-    if (saved && saved.updatedAt !== chat.updatedAt) throw new Error("This chat changed in another panel. Reopen it from history before sending.");
+    if (saved && saved.updatedAt !== chat.updatedAt) {
+      // Local disconnect may have coerced stopped in memory before IndexedDB caught up.
+      const pendingLocalStop = locallyStoppedStreams.has(chat.id)
+        && saved.messages.at(-1)?.role === "assistant"
+        && saved.messages.at(-1)?.status === "streaming";
+      if (pendingLocalStop) chat.updatedAt = saved.updatedAt;
+      else throw new Error("This chat changed in another panel. Reopen it from history before sending.");
+    }
     chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
     await saveChat(chat);
+    locallyStoppedStreams.delete(chat.id);
   });
 }
 
