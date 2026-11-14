@@ -4,7 +4,7 @@ Inference Bridge is packaged for manual Chrome Web Store submission. CI uploads 
 
 ## Single purpose
 
-Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, typed decisions, and separately approved speech to user-configured providers. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech follows IPA with separate operation-specific site approval.
+Inference Bridge provides a browser bridge for the Inference Provider API: inject `window.inference`, manage per-origin permission, and route chat, typed decisions, and separately approved speech to user-configured providers. An optional first-party side-panel chat uses those same providers and keys without granting websites access or reading the page. Keep listing copy focused on that purpose. Decisions are available by default with separate site approval; speech follows IPA with separate operation-specific site approval.
 
 ## Versioning
 
@@ -49,7 +49,7 @@ unzip -l "dist/inference-bridge-$(node -p 'require("./manifest.json").version').
 | Field | Suggested content |
 | --- | --- |
 | Name | Inference Bridge |
-| Summary | Browser bridge for `window.inference`: per-site permission, your chosen provider, API keys stay in the extension. |
+| Summary | Browser bridge for `window.inference` plus optional side-panel chat — per-site permission, your providers, keys stay in the extension. |
 | Description | Paste the block below |
 | Category | Developer Tools (or Productivity — choose one and keep consistent) |
 | Language | English |
@@ -60,11 +60,12 @@ unzip -l "dist/inference-bridge-$(node -p 'require("./manifest.json").version').
 Avoid stacked brand/product name lists in Summary and Description — Chrome Web Store may reject that as excessive keywords even if the copy was previously accepted.
 
 ```
-Inference Bridge lets websites use AI chat through window.inference — with your permission, on a provider you choose in Options.
+Inference Bridge lets websites use AI through window.inference — with your permission, on a provider you choose in Options. You can also chat yourself in the extension side panel with the same providers and keys; that chat does not grant websites access and does not read the page.
 
 Bring your own API keys for supported cloud providers, run a local model server, use on-device browser AI when available, or point the extension at an OpenAI-compatible endpoint you configure. Keys stay in the extension; page scripts never see them.
 
-• Streaming chat via window.inference.request()
+• Optional side-panel chat with local history, image attachments, and provider-hosted web search
+• Streaming chat via window.inference.request() for sites that implement the Inference Provider API
 • Function tools executed by the requesting website
 • Hosted web search when the selected provider supports it
 • Image input and output on window.inference.request when the selected model supports vision or image generation
@@ -90,6 +91,8 @@ Chrome Web Store caps each justification field at **1000 characters**. Host perm
 ### Non-host (separate fields)
 
 - **storage** — Store provider settings, API keys, named OpenAI-compatible endpoints, and per-origin grants locally.
+- **contextMenus** — Manage the extension toolbar action’s context menu on install/update: clear any previous custom Open Chat entry so Chrome’s built-in Open Side Panel is not duplicated. Does not add page or selection context menus.
+- **sidePanel** — Show optional first-party chat beside the current page (`ui/chat.html`) using the same providers and keys configured in Options. Chat does not read page content and does not grant websites access.
 - **declarativeNetRequestWithHostAccess** — Remove `Origin`/`Referer` only for loopback inference hosts (Ollama and user-configured local OpenAI-compatible servers) so loopback inference works without widening server CORS/`ORIGINS` settings. Never applied to remote HTTPS APIs.
 - **offscreen** — Host the browser Prompt API (`LanguageModel`) in an offscreen document for the On-device provider; the API is not reliable in the service worker.
 
