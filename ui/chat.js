@@ -320,10 +320,20 @@ async function beginResponse(chat) {
     if (run === task) run = null;
     port.disconnect();
     if (current.id === chat.id) {
-      try { current = await getChat(chat.id) || chat; } catch (storageError) { report(storageError); }
-      renderMessages(); updateControls();
-      if (error) report(error);
-      $("status").textContent = error ? "Response interrupted." : "Response finished.";
+      try {
+        const saved = await getChat(chat.id);
+        if (!saved) {
+          // Another panel deleted this conversation during generation.
+          startNewChat();
+          report("This chat was deleted in another panel. Start a new chat.");
+          $("status").textContent = "Response interrupted.";
+        } else {
+          current = saved;
+          renderMessages(); updateControls();
+          if (error) report(error);
+          $("status").textContent = error ? "Response interrupted." : "Response finished.";
+        }
+      } catch (storageError) { report(storageError); }
     }
     updateControls();
     void refreshHistory().catch(report);

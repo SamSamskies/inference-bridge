@@ -325,6 +325,20 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("error").textContent).toContain("deleted in another panel"));
     expect(await history.getChat(id)).toBeUndefined();
   });
+  it("resets to a new chat when the conversation is deleted during generation", async () => {
+    await type("Delete mid-stream"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    expect($("messages").querySelectorAll("article")).toHaveLength(2);
+    await history.deleteChat(id);
+    port.onMessage.emit({ type: "done", chatId: id });
+    await vi.waitFor(() => expect($("empty").hidden).toBe(false));
+    expect($("error").textContent).toContain("deleted in another panel");
+    expect($("stop").hidden).toBe(true);
+    expect($("status").textContent).toBe("Response interrupted.");
+    expect(await history.getChat(id)).toBeUndefined();
+    expect($("messages").children).toHaveLength(0);
+  });
   it("renames, pins/unpins, and deletes a conversation through its options menu", async () => {
     await type("Original name"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
