@@ -226,6 +226,43 @@ async function refreshHistory() {
   if (contentChanged) renderHistory();
   else if (orderChanged) reorderHistoryList();
 }
+/** Chats this panel interrupted locally; ignore racing streaming checkpoints until storage catches up. */
+const locallyStoppedStreams = new Set();
+
+function markAssistantStopped(chat, message = "Response interrupted.") {
+  const tip = chat.messages.at(-1);
+  if (tip?.role !== "assistant" || tip.status !== "streaming") return chat;
+  tip.status = "stopped";
+  tip.error = tip.error || message;
+  chat.updatedAt = Math.max(Date.now(), chat.updatedAt + 1);
+  locallyStoppedStreams.add(chat.id);
+  return chat;
+}
+
+async function persistStoppedStream(chat, attempts = 6) {
+  try {
+    await withChatLock(chat.id, async () => {
+      const latest = await getChat(chat.id);
+      if (!latest) { locallyStoppedStreams.delete(chat.id); return; }
+      const tip = latest.messages.at(-1);
+      if (tip?.role === "assistant" && tip.status === "streaming") {
+        tip.status = "stopped";
+        tip.error = tip.error || chat.messages.at(-1)?.error || "Response interrupted.";
+        latest.updatedAt = Math.max(Date.now(), latest.updatedAt + 1);
+        await saveChat(latest);
+      }
+      locallyStoppedStreams.delete(chat.id);
+    });
+  } catch (error) {
+    if (!String(error?.message || error).includes("generating") || attempts <= 1) {
+      if (!String(error?.message || error).includes("generating")) throw error;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return persistStoppedStream(chat, attempts - 1);
+  }
+}
+
 /** If a stream died without a final write, the chat lock is free — mark it interrupted. */
 async function reclaimOrphanedStream(chat) {
   const last = chat?.messages.at(-1);
@@ -237,10 +274,9 @@ async function reclaimOrphanedStream(chat) {
       if (!latest) return chat;
       const tip = latest.messages.at(-1);
       if (tip?.role !== "assistant" || tip.status !== "streaming") return latest;
-      tip.status = "stopped";
-      tip.error = tip.error || "Response interrupted.";
-      latest.updatedAt = Math.max(Date.now(), latest.updatedAt + 1);
+      markAssistantStopped(latest);
       await saveChat(latest);
+      locallyStoppedStreams.delete(latest.id);
       return latest;
     });
   } catch (error) {
@@ -261,7 +297,10 @@ async function reconcileRemoteHistory() {
     report("This chat was deleted in another panel. Start a new chat.");
     return;
   }
+  // A racing checkpoint must not revive a stream this panel just interrupted.
+  if (locallyStoppedStreams.has(current.id) && loaded.messages.at(-1)?.status === "streaming") return;
   const saved = await reclaimOrphanedStream(loaded);
+  if (saved.messages.at(-1)?.status !== "streaming") locallyStoppedStreams.delete(saved.id);
   if (saved.updatedAt === current.updatedAt) return;
   const routeChanged = saved.providerId !== current.providerId || saved.model !== current.model;
   current = saved;
@@ -433,8 +472,8 @@ async function beginResponse(chat) {
           let saved = await reclaimOrphanedStream(loaded);
           const tip = saved.messages.at(-1);
           if (error && tip?.role === "assistant" && tip.status === "streaming") {
-            tip.status = "stopped";
-            tip.error = tip.error || (typeof error === "string" ? error : error?.message) || "Response interrupted.";
+            markAssistantStopped(saved, typeof error === "string" ? error : error?.message || "Response interrupted.");
+            void persistStoppedStream(saved).catch(report);
           }
           current = saved;
           renderMessages(); updateControls();
@@ -448,7 +487,14 @@ async function beginResponse(chat) {
       $("status").textContent = error
         ? "Response interrupted in another chat. Open it from history for details."
         : "Response finished in another chat.";
-      void getChat(chat.id).then((loaded) => loaded && reclaimOrphanedStream(loaded)).catch(report);
+      void getChat(chat.id).then(async (loaded) => {
+        if (!loaded) return;
+        let saved = await reclaimOrphanedStream(loaded);
+        if (error && saved.messages.at(-1)?.status === "streaming") {
+          markAssistantStopped(saved, typeof error === "string" ? error : error?.message || "Response interrupted.");
+          await persistStoppedStream(saved);
+        }
+      }).catch(report);
     }
     updateControls();
     void refreshHistory().catch(report);

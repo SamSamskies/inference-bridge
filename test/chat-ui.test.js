@@ -315,12 +315,27 @@ describe("chat interface", () => {
     };
     await type("Disconnect mid-stream"); await submit();
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const id = (await history.listChats())[0].id;
+    // Hold the lock so finish can only coerce in memory (worker still "owns" the stream).
+    let release;
+    const hold = history.withChatLock(id, () => new Promise((resolve) => { release = resolve; }));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("error").textContent).toContain("Connection interrupted");
     expect($("composerHint").textContent).not.toContain("another panel");
     expect($("retry").hidden).toBe(false);
     expect($("messages").querySelector(".message-note")?.textContent).toMatch(/interrupted|Connection/i);
+    // A racing worker checkpoint must not revive the remote-streaming composer.
+    const raced = await history.getChat(id);
+    raced.messages.at(-1).status = "streaming";
+    delete raced.messages.at(-1).error;
+    raced.updatedAt += 50;
+    await history.saveChat(raced);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect($("composerHint").textContent).not.toContain("another panel");
+    expect($("retry").hidden).toBe(false);
+    release(); await hold;
   });
   it("announces background stream failures while viewing another chat", async () => {
     chrome.runtime.connect = () => {
