@@ -220,6 +220,36 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
     expect($("prompt").value).toBe("");
   });
+  it("clears a previous error after a later successful response", async () => {
+    chrome.runtime.connect = () => {
+      port = { onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage: vi.fn(async (m) => {
+        if (m.type !== "start") return;
+        const chat = await history.getChat(m.chatId);
+        const assistant = { role: "assistant", content: "", status: "streaming" };
+        chat.messages.push(assistant); await history.saveChat(chat);
+        finish = async (ok = true) => {
+          if (ok) {
+            assistant.content = "Recovered"; assistant.status = "complete"; chat.updatedAt++;
+            await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+          } else {
+            assistant.status = "error"; assistant.error = "First attempt failed."; chat.updatedAt++;
+            await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
+          }
+        };
+      }) }; return port;
+    };
+    await type("Fail first"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish(false);
+    await vi.waitFor(() => expect($("error").textContent).toContain("First attempt failed."));
+    finish = undefined;
+    $("retry").click();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await finish(true);
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("error").hidden).toBe(true);
+    expect($("status").textContent).toBe("Response finished.");
+  });
   it("requires retry when starting a response fails before the worker accepts", async () => {
     chrome.runtime.connect = () => {
       port = {
