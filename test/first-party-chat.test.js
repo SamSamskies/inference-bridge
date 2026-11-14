@@ -59,8 +59,18 @@ describe("first-party chat channel", () => {
   it("keeps provider errors with the user message for retry", async () => {
     service.mockRejectedValueOnce(new Error("Model unavailable"));
     const p = port(); const chat = await start(p);
-    await vi.waitFor(() => expect(p.messages.at(-1)?.type).toBe("done"));
+    await vi.waitFor(() => expect(p.messages.at(-1)).toMatchObject({ type: "error", error: "Model unavailable" }));
     expect((await history.getChat(chat.id)).messages).toMatchObject([{ role: "user" }, { role: "assistant", status: "error", error: "Model unavailable" }]);
+  });
+  it("signals a stopped turn with an error port message after abort", async () => {
+    service.mockImplementationOnce(({ signal, onDelta }) => new Promise((_, reject) => {
+      onDelta("Partial"); signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+    }));
+    const p = port(); const chat = await start(p);
+    await vi.waitFor(() => expect(p.messages.some((m) => m.type === "delta")).toBe(true));
+    p.onMessage.emit({ type: "abort" });
+    await vi.waitFor(() => expect(p.messages.at(-1)).toMatchObject({ type: "error", error: "Response stopped." }));
+    expect((await history.getChat(chat.id)).messages.at(-1)).toMatchObject({ status: "stopped", content: "Partial" });
   });
   it("prevents two windows from generating in the same conversation", async () => {
     let release;

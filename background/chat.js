@@ -80,7 +80,8 @@ export function connectChat(port) {
       await writes.catch(() => {});
       writes = Promise.resolve();
       await persist();
-      post({ type: "done", chatId: chat.id });
+      if (assistant.status === "complete") post({ type: "done", chatId: chat.id });
+      else post({ type: "error", error: assistant.error });
     }).catch((error) => {
       post({ type: "error", error: error.message || "Chat failed. Try again." });
     });

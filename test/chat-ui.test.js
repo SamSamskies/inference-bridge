@@ -229,7 +229,7 @@ describe("chat interface", () => {
         chat.messages.push(assistant); await history.saveChat(chat);
         finish = async () => {
           assistant.status = "error"; assistant.error = "Provider failed."; chat.updatedAt++;
-          await history.saveChat(chat); port.onMessage.emit({ type: "done", chatId: chat.id });
+          await history.saveChat(chat); port.onMessage.emit({ type: "error", error: assistant.error });
         };
       }) }; return port;
     };
@@ -237,6 +237,8 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     await finish();
     await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    expect($("status").textContent).toBe("Response interrupted.");
+    expect($("error").textContent).toContain("Provider failed.");
     await type("Another try without retry");
     expect($("retry").hidden).toBe(false);
     expect($("send").disabled).toBe(true);
