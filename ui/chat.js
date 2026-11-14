@@ -290,11 +290,18 @@ async function reconcileRemoteHistory() {
   // hosts while the drawer is still on screen; order updates must still apply.
   await refreshHistory();
   // Unsaved drafts are local-only. An active stream finishes through beginResponse.
-  if (!current.messages.length || busy()) return;
+  if (!current.messages.length) return;
   const loaded = await getChat(current.id);
   if (!loaded) {
+    // Mid-stream delete is handled when finish() reloads the conversation.
+    if (busy()) return;
     startNewChat();
     report("This chat was deleted in another panel. Start a new chat.");
+    return;
+  }
+  if (busy()) {
+    // Keep the live message stream; only sync rename/pin (and revision) metadata.
+    for (const key of ["title", "titleEdited", "pinned", "updatedAt"]) current[key] = loaded[key];
     return;
   }
   // A racing checkpoint must not revive a stream this panel just interrupted.
