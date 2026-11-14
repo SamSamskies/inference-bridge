@@ -402,6 +402,21 @@ describe("chat interface", () => {
     await vi.waitFor(() => expect($("messages").textContent).toContain("Keep this chat"));
     expect($("messages").textContent).toContain("Streamed answer");
   });
+  it("clears a stale active chat preference on startup", async () => {
+    await type("Gone before reopen"); await submit();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function")); await finish();
+    await vi.waitFor(() => expect($("stop").hidden).toBe(true));
+    const id = await history.getChatPreference("activeChatId");
+    await history.deleteChat(id);
+    expect(await history.getChatPreference("activeChatId")).toBe(id);
+    document.documentElement.innerHTML = readFileSync("ui/chat.html", "utf8");
+    vi.resetModules();
+    history = await import("../src/chat-history.js");
+    await import("../ui/chat.js");
+    await vi.waitFor(async () => expect(await history.getChatPreference("activeChatId")).toBeFalsy());
+    expect($("empty").hidden).toBe(false);
+    expect($("messages").children).toHaveLength(0);
+  });
   it("resets the delete confirmation so Escape cannot reuse a previous Delete result", () => {
     $("confirmDelete").returnValue = "delete";
     $("clearHistory").click();

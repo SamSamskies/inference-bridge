@@ -756,7 +756,10 @@ async function initialize() {
     sendMessage({ type: "list-providers", method: "chat" }), sendMessage({ type: "chat-config" }), getChatPreference("activeChatId"),
   ]);
   providers = catalog?.providers || [];
-  current = (activeId && await getChat(activeId)) || newChat(config?.defaultProviderId, "");
+  const saved = activeId ? await getChat(activeId) : undefined;
+  current = saved || newChat(config?.defaultProviderId, "");
+  // Match live delete reconcile: do not keep a preference that points at nothing.
+  if (activeId && !saved) await setChatPreference("activeChatId", "");
   if (current.messages.length) current = await reclaimOrphanedStream(current);
   if (!current.messages.length && !providers.some((p) => p.id === current.providerId)) {
     current.providerId = providers[0]?.id || ""; current.model = "";
