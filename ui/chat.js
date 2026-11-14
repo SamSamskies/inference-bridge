@@ -237,7 +237,6 @@ async function chooseRoute({ keepModel = false } = {}) {
     if (request === routeRequest) {
       chat.model = readModelValue();
       $("modelStatus").textContent = error.message;
-      $("configuration").hidden = false;
     }
   } finally {
     if (request === routeRequest) { loading = false; updateControls(); }

@@ -109,9 +109,9 @@ describe("chat interface", () => {
       expect($("modelField").hidden).toBe(false);
     }
   });
-  it("clears a failed provider's configuration notice when switching or recovering", async () => {
+  it("keeps discovery failures in the model status without implying missing setup", async () => {
     await loadProviderCatalog("openrouter", [], { fail: true });
-    expect($("configuration").hidden).toBe(false);
+    expect($("configuration").hidden).toBe(true);
     expect($("modelStatus").textContent).toBe("Discovery failed");
     $("provider").value = "openai"; $("provider").dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect($("provider").disabled).toBe(false));
@@ -120,7 +120,8 @@ describe("chat interface", () => {
     await type("Continue with a configured provider"); expect($("send").disabled).toBe(false);
     $("provider").value = "openrouter"; $("provider").dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect($("provider").disabled).toBe(false));
-    expect($("configuration").hidden).toBe(false);
+    expect($("configuration").hidden).toBe(true);
+    expect($("modelStatus").textContent).toBe("Discovery failed");
     // Settings changes can also repair the currently selected provider.
     await loadProviderCatalog("openrouter", [{ id: "working-model" }]);
     expect($("configuration").hidden).toBe(true);
