@@ -1,3 +1,8 @@
+/** @param {unknown} model */
+export function isOpenAIGpt62Model(model) {
+  return typeof model === "string" && /^gpt-6\.2-(?:astra|sol)(?:$|-)/i.test(model.trim());
+}
+
 /** Existing Responses image-generation model policy, owned by the adapter. */
 export function openaiModelSupportsImageOutput(model) {
   if (typeof model !== "string") return false;

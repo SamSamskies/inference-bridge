@@ -59,9 +59,17 @@ describe("openaiProvider.streamChat", () => {
     ]);
   });
 
-  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"])(
+  it.each([
+    ["gpt-6.2-astra", "low", 0.5],
+    ["gpt-6.2-sol", "low", 0.5],
+    ["gpt-6-astra", "low", undefined],
+    ["gpt-6.1-sol", "low", undefined],
+    ["gpt-6.1-terra", "none", undefined],
+    ["gpt-6-sol", "none", undefined],
+    ["gpt-6-luna", "none", undefined],
+  ])(
     "uses Responses for %s when only function tools are present",
-    async (model) => {
+    async (model, expectedEffort, temperature) => {
       const fetchMock = vi.fn(async () =>
         sseResponse(
           [
@@ -82,7 +90,7 @@ describe("openaiProvider.streamChat", () => {
         messages: [{ role: "user", content: "weather?" }],
         tools: [{ type: "function", function: { name: "get_weather" } }],
         toolChoice: { type: "function", function: { name: "get_weather" } },
-        options: { reasoningEffort: "none" },
+        options: { reasoningEffort: "none", temperature },
         signal: new AbortController().signal,
         onDelta: () => {},
       });
@@ -91,9 +99,8 @@ describe("openaiProvider.streamChat", () => {
       expect(url).toBe("https://api.openai.com/v1/responses");
       const body = JSON.parse(init.body);
       expect(body.model).toBe(model);
-      expect(body.reasoning.effort).toBe(
-        model === "gpt-6-astra" || model === "gpt-6.1-sol" ? "low" : "none"
-      );
+      expect(body.reasoning.effort).toBe(expectedEffort);
+      expect(body).not.toHaveProperty("temperature");
       expect(body.tools).toEqual([
         {
           type: "function",
@@ -115,9 +122,14 @@ describe("openaiProvider.streamChat", () => {
     }
   );
 
-  it.each(["gpt-6-astra", "gpt-6.1-sol"])(
+  it.each([
+    ["gpt-6.2-astra", 0.5],
+    ["gpt-6.2-sol", 0],
+    ["gpt-6-astra", undefined],
+    ["gpt-6.1-sol", undefined],
+  ])(
     "keeps %s on Chat Completions without function tools",
-    async (model) => {
+    async (model, temperature) => {
       const fetchMock = vi.fn(async () =>
         sseResponse(
           [
@@ -133,7 +145,7 @@ describe("openaiProvider.streamChat", () => {
         apiKey: "sk-test",
         model,
         messages: [{ role: "user", content: "hi" }],
-        options: { reasoningEffort: "none" },
+        options: { reasoningEffort: "none", temperature },
         signal: new AbortController().signal,
         onDelta: () => {},
       });
@@ -141,10 +153,12 @@ describe("openaiProvider.streamChat", () => {
       expect(fetchMock.mock.calls[0][0]).toBe(
         "https://api.openai.com/v1/chat/completions"
       );
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toMatchObject({
         model,
         reasoning_effort: "low",
       });
+      expect(body).not.toHaveProperty("temperature");
     }
   );
 
