@@ -12,7 +12,10 @@ import {
   assertImagesSupported,
   requestWantsImageOutput,
 } from "../image-parts.js";
-import { openaiModelSupportsImageOutput } from "./openai-capabilities.js";
+import {
+  isOpenAIGpt62Model,
+  openaiModelSupportsImageOutput,
+} from "./openai-capabilities.js";
 import {
   hasHostedWebSearch,
   omitHostedWebSearchIfNone,
@@ -43,6 +46,8 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
 /** Curated chat models for the Options/approval UI — not a live OpenAI catalog. */
 export const OPENAI_MODELS = Object.freeze([
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
   "gpt-6-astra",
   "gpt-6.1-sol",
   "gpt-6.1-terra",
@@ -52,7 +57,8 @@ export const OPENAI_MODELS = Object.freeze([
 
 /**
  * GPT-6 models support Chat Completions for text, but OpenAI recommends the
- * Responses API for function calling. Astra, GPT-6.1 Sol and Terra require Responses;
+ * Responses API for function calling. GPT-6.2 Astra and Sol, GPT-6 Astra,
+ * GPT-6.1 Sol and GPT-6.1 Terra require Responses.
  * GPT-6 Sol and Luna only support Chat Completions function calls at `none`.
  * @param {unknown} model
  * @returns {boolean}
@@ -132,6 +138,10 @@ export const openaiProvider = {
       wantImages ||
       (openaiModelRequiresResponsesForFunctionTools(model) &&
         Boolean(functionTools));
+    // GPT-6.2 uses the model's temperature on both OpenAI endpoints.
+    const providerOptions = isOpenAIGpt62Model(model) && options?.temperature != null
+      ? { ...options, temperature: undefined }
+      : options;
     if (useResponses) {
       return streamOpenAIResponsesChat({
         apiKey,
@@ -139,7 +149,7 @@ export const openaiProvider = {
         messages,
         tools: toolsForRequest,
         toolChoice,
-        ...(options ? { options } : {}),
+        options: providerOptions,
         includeAssistantImages: wantImages,
         signal,
         onDelta,
@@ -158,7 +168,7 @@ export const openaiProvider = {
             ...(toolChoice !== undefined ? { toolChoice } : {}),
           }
         : {}),
-      ...(options ? { options } : {}),
+      options: providerOptions,
       signal,
       onDelta,
       onReasoningDelta,

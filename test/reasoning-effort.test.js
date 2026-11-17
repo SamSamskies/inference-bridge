@@ -15,6 +15,10 @@ describe("mapReasoningEffortForOpenAICompat", () => {
     "gpt-6.1-sol-2026-09-29",
     "openai/gpt-6.1-sol",
     "openai/gpt-6.1-sol-2026-09-29",
+    "gpt-6.2-astra",
+    "gpt-6.2-sol",
+    "openai/gpt-6.2-astra",
+    "openai/gpt-6.2-sol",
   ])("uses at least low reasoning effort for %s", (model) => {
     expect(mapReasoningEffortForOpenAICompat("none", model)).toBe("low");
     expect(mapReasoningEffortForOpenAICompat("auto", model)).toBeUndefined();

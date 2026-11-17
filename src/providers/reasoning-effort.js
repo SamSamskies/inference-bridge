@@ -8,6 +8,8 @@
  * `MAX_PARAM_RETRIES`).
  */
 
+import { isOpenAIGpt62Model } from "./openai-capabilities.js";
+
 /** Max retries after a 400 that rejects temperature and/or reasoning effort. */
 export const MAX_PARAM_RETRIES = 3;
 
@@ -27,8 +29,8 @@ const OPENAI_COMPAT_REASONING_EFFORTS = Object.freeze([
 /**
  * Lowest OpenAI-compatible effort for IPA `"none"` on a known model id.
  * OpenAI: models before gpt-5.1 do not support `"none"` (use `"minimal"`);
- * gpt-5.1+ does. GPT-6 Astra and GPT-6.1 Sol reject `"none"` / `"minimal"`
- * (use `"low"`), while GPT-6.1 Terra, GPT-6 Sol and Luna support `"none"`.
+ * gpt-5.1+ does. GPT-6 Astra, GPT-6.1 Sol and GPT-6.2 Astra/Sol use `"low"`
+ * for mandatory reasoning. GPT-6.1 Terra, GPT-6 Sol and Luna support `"none"`.
  * gpt-4.x is not a reasoning family — omit the field.
  * Unknown slugs return undefined so the caller can pass `"none"` through.
  *
@@ -41,6 +43,7 @@ export function mapOpenAINoneReasoningEffort(model) {
   if (/^gpt-4/i.test(id)) return undefined;
   if (/^gpt-6-astra(?:$|-)/i.test(id)) return "low";
   if (/^gpt-6\.1-sol(?:$|-)/i.test(id)) return "low";
+  if (isOpenAIGpt62Model(id)) return "low";
   if (/^gpt-6/i.test(id)) return "none";
   const match = /^gpt-5(?:\.(\d+))?/i.exec(id);
   if (!match) return undefined;

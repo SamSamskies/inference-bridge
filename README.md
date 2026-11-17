@@ -299,7 +299,7 @@ if (features.options?.temperature) {
 | IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra / GPT-6.1 Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Fable 5.2 / Opus 5.5 | `think: false` when advertised; otherwise the lowest known supported level |
+| `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra/Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Fable 5.2 / Opus 5.5 | `think: false` when advertised; otherwise the lowest known supported level |
 | `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | matching supported level; `true` for boolean on/off models; otherwise provider default |
 
 Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
@@ -331,7 +331,7 @@ IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
 | IPA `temperature` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
 | --- | --- | --- | --- |
 | omitted | omit `temperature` | omit `temperature` | omit `options.temperature` |
-| `0`–`2` | top-level `temperature` | top-level `temperature`, clamped to `[0, 1]` on Claude 4.6 and earlier; omitted on Claude 4.7+ | nested `options: { temperature }` |
+| `0`–`2` | top-level `temperature`, omitted for GPT-6.2 Astra and Sol on OpenAI | top-level `temperature`, clamped to `[0, 1]` on Claude 4.6 and earlier; omitted on Claude 4.7+ | nested `options: { temperature }` |
 
 Values outside `[0, 2]` or non-finite numbers return `invalid_request`. Bridge omits temperature for Claude 4.7+ and retries once without it when an Anthropic or OpenAI-compatible API explicitly rejects the setting. On-device ignores this option. See [`src/providers/temperature.js`](src/providers/temperature.js).
 
