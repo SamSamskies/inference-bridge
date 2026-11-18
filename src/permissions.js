@@ -1289,6 +1289,23 @@ export function isApprovalDocumentUrl(urlString, requestId) {
 }
 
 /**
+ * Trust get-approval / resolve-approval only from this request's approval
+ * document. Safari tabs also bind to the stored approval tabId so concurrent
+ * interim URLs (no ?requestId=) cannot cross-read or cross-resolve.
+ * @param {string} requestId
+ * @param {{ url?: string, tab?: { id?: number } }} sender
+ */
+export function isTrustedApprovalSender(requestId, sender) {
+  if (typeof requestId !== "string" || typeof sender?.url !== "string") {
+    return false;
+  }
+  if (!isApprovalDocumentUrl(sender.url, requestId)) return false;
+  const entry = pendingApprovals.get(requestId);
+  if (entry?.tabId != null && sender.tab?.id !== entry.tabId) return false;
+  return true;
+}
+
+/**
  * Deny a Safari approval when its tab navigates away from the approval
  * document (back, address bar, link). Closing the tab is handled separately.
  * @param {number} tabId

@@ -100,10 +100,18 @@ function editPreference(chatReasoningEffort, {
     type: "set-origin-chat-reasoning-effort", origin: requestOrigin, chatReasoningEffort,
   }, { url: senderUrl }, resolve));
 }
-function sendApprovalMessage(port, message, senderUrl = permissions.approvalPageUrl(port.streamId)) {
+function sendApprovalMessage(
+  port,
+  message,
+  senderUrl = permissions.approvalPageUrl(port.streamId),
+  tabId = 201,
+) {
   return new Promise((resolve) => chrome.runtime.onMessage.emit({
     requestId: port.streamId, ...message,
-  }, { url: senderUrl }, resolve));
+  }, {
+    url: senderUrl,
+    ...(typeof tabId === "number" ? { tab: { id: tabId } } : {}),
+  }, resolve));
 }
 afterEach(() => {
   for (const port of ports) port.onDisconnect.emit();
@@ -201,6 +209,35 @@ describe("Safari website approval", () => {
       type: "resolve-approval", decision: "allow_once", ...route,
     }, withoutQuery)).toEqual({ ok: true });
     await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("isolates concurrent Safari approvals when sender URLs omit requestId", async () => {
+    chrome.tabs.create
+      .mockResolvedValueOnce({ id: 201 })
+      .mockResolvedValueOnce({ id: 202 });
+    const first = start();
+    const second = start();
+    await pending(first);
+    await pending(second);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(202));
+    const interim = permissions.approvalPageUrl(first.streamId).replace(/\?.*$/, "");
+    expect(await sendApprovalMessage(second, { type: "get-approval" }, interim, 201))
+      .toEqual({ request: null });
+    expect(await sendApprovalMessage(second, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: false });
+    expect(permissions.getPendingApproval(second.streamId)).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+
+    expect(await sendApprovalMessage(second, {
+      type: "resolve-approval", decision: "deny",
+    }, permissions.approvalPageUrl(second.streamId), 202)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(second.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(first, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: true });
+    await outcome(first);
     expect(fetch).toHaveBeenCalledOnce();
   });
 

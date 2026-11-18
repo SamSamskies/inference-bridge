@@ -92,11 +92,19 @@ function start(request) {
   return port;
 }
 
-function sendApprovalMessage(port, message, senderUrl = permissions.approvalPageUrl(port.streamId)) {
+function sendApprovalMessage(
+  port,
+  message,
+  senderUrl = permissions.approvalPageUrl(port.streamId),
+  tabId = 201,
+) {
   return new Promise((resolve) => chrome.runtime.onMessage.emit({
     requestId: port.streamId,
     ...message,
-  }, { url: senderUrl }, resolve));
+  }, {
+    url: senderUrl,
+    ...(typeof tabId === "number" ? { tab: { id: tabId } } : {}),
+  }, resolve));
 }
 
 async function pending(port, method) {
