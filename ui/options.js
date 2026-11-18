@@ -119,12 +119,36 @@ const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
 const compatEndpointsEl = document.getElementById("compatEndpoints");
 const compatEndpointsEmpty = document.getElementById("compatEndpointsEmpty");
+const compatServersHint = document.getElementById("compatServersHint");
 const compatNameInput = document.getElementById("compatName");
 const compatBaseUrlInput = document.getElementById("compatBaseUrl");
 const compatApiKeyInput = document.getElementById("compatApiKey");
 const compatSaveButton = document.getElementById("compatSave");
 const compatCancelButton = document.getElementById("compatCancel");
 const compatStatusEl = document.getElementById("compatStatus");
+
+if (isSafariBuild() && compatServersHint && compatBaseUrlInput) {
+  compatServersHint.replaceChildren(
+    document.createTextNode(
+      "Add remote OpenAI-compatible servers over HTTPS. Safari only grants optional host access for ",
+    ),
+    Object.assign(document.createElement("code"), { textContent: "https://*/*" }),
+    document.createTextNode(
+      " — HTTP and loopback URLs cannot be saved. Enter the host (e.g. ",
+    ),
+    Object.assign(document.createElement("code"), {
+      textContent: "https://llm.example.com",
+    }),
+    document.createTextNode(
+      ") — ",
+    ),
+    Object.assign(document.createElement("code"), { textContent: "/v1" }),
+    document.createTextNode(
+      " is added automatically if omitted. Safari asks for host access when you save each server (that origin only).",
+    ),
+  );
+  compatBaseUrlInput.placeholder = "https://llm.example.com";
+}
 const ppqTransferDialog = document.getElementById("ppqTransferDialog");
 const ppqTransferForm = document.getElementById("ppqTransferForm");
 const ppqTransferSummary = document.getElementById("ppqTransferSummary");
@@ -2415,6 +2439,13 @@ compatSaveButton.addEventListener("click", async () => {
     if (!baseUrl) {
       setCompatStatus(
         "Enter a valid http(s) URL (e.g. http://127.0.0.1:1234).",
+        "err",
+      );
+      return;
+    }
+    if (isSafariBuild() && new URL(baseUrl).protocol === "http:") {
+      setCompatStatus(
+        "Safari requires HTTPS for custom servers. HTTP and loopback URLs are not available in this build.",
         "err",
       );
       return;
