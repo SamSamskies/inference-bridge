@@ -360,28 +360,36 @@ async function waitForPending(requestId) {
 }
 
 describe("ensurePermission", () => {
-  it("fails closed for a stale Firefox On-device default", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("fails closed for a stale %s On-device default", async (browser, settings) => {
+    chromeMock.setManifest({ browser_specific_settings: settings });
     await saveSettings({ defaultProviderId: "on-device", defaultModel: "on-device" });
+    const requestId = `${browser.toLowerCase()}-on-device-default`;
     const result = await ensurePermission({
-      requestId: "firefox-on-device-default",
+      requestId,
       origin: "https://app.example",
       messages: [{ role: "user", content: "hi" }],
     });
     expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
-    expect(getPendingApproval("firefox-on-device-default")).toBeNull();
+    expect(getPendingApproval(requestId)).toBeNull();
   });
 
-  it("fails closed for a stale Firefox On-device origin grant", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("fails closed for a stale %s On-device origin grant", async (browser, settings) => {
+    chromeMock.setManifest({ browser_specific_settings: settings });
     await grantOriginAlways("https://app.example", { providerId: "on-device", model: "on-device" });
+    const requestId = `${browser.toLowerCase()}-on-device-grant`;
     const result = await ensurePermission({
-      requestId: "firefox-on-device-grant",
+      requestId,
       origin: "https://app.example",
       messages: [{ role: "user", content: "hi" }],
     });
     expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
-    expect(getPendingApproval("firefox-on-device-grant")).toBeNull();
+    expect(getPendingApproval(requestId)).toBeNull();
   });
 
   it("denies blocked origins without prompting", async () => {
