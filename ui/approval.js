@@ -46,6 +46,9 @@ import { isSafariBuild } from "../src/runtime-browser.js";
 // Persist across reloads that drop ?requestId= so Safari tabs stay usable.
 const requestId = resolveApprovalRequestId(location.search);
 const safari = isSafariBuild();
+/** Set once the decision finished or a terminal error is shown, so keep-alive
+ * disconnect from a worker tab close does not flash a false “expired” error. */
+let approvalSettled = false;
 
 async function closeApproval() {
   if (safari) {
@@ -64,6 +67,7 @@ const APPROVAL_KEEPALIVE_MS = 20_000;
 try {
   const keepAlivePort = chrome.runtime.connect({ name: "ipa-approval" });
   keepAlivePort.onDisconnect.addListener(() => {
+    if (approvalSettled) return;
     // Firefox event pages can unload while an approval is open. Their
     // in-memory request is then gone; close this orphaned popup. The page
     // relay rebinds and settles its iterator as aborted/unavailable.
@@ -213,6 +217,7 @@ function showError(message) {
 async function showTerminalError(message) {
   showError(message);
   if (!safari) return;
+  approvalSettled = true;
   await new Promise((resolve) => setTimeout(resolve, 2000));
   await closeApproval().catch(() => {});
 }
@@ -1160,6 +1165,7 @@ async function decide(action) {
         : "This permission request is no longer active.");
       return;
     }
+    approvalSettled = true;
     // Safari: the worker already closes the approval tab after a successful
     // resolve. Calling tabs.remove here races that close and can flash
     // “decision was recorded” when getCurrent/remove fails on a gone tab.
