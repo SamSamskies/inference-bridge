@@ -4,6 +4,12 @@
  */
 
 /**
+ * Firefox/Safari: a restarted background cannot recover an in-memory stream.
+ * Keep content/content-script.js REBIND_LIMIT_MS in sync with this value.
+ */
+export const BOUNDED_REBIND_TIMEOUT_MS = 15_000;
+
+/**
  * @typedef {"awaiting_permission" | "streaming"} StreamPhase
  */
 

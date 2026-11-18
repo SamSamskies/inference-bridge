@@ -11,8 +11,9 @@
   const REBIND_TIMEOUT_MS = 3000;
   /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
   const KEEP_ALIVE_MS = 20_000;
-  /** A restarted Firefox or Safari background cannot recover an in-memory stream. */
-  const REBIND_LIMIT_MS = 12_000;
+  /** A restarted Firefox or Safari background cannot recover an in-memory stream.
+   * Keep in sync with BOUNDED_REBIND_TIMEOUT_MS in src/stream-rebind.js. */
+  const REBIND_LIMIT_MS = 15_000;
   const browserSettings = chrome.runtime.getManifest?.().browser_specific_settings;
   const hasBoundedRebind = Boolean(browserSettings?.gecko || browserSettings?.safari);
 

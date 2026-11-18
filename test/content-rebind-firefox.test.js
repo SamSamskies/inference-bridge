@@ -94,7 +94,7 @@ describe("Firefox event-page loss", () => {
 
     runtimePorts[0].disconnect();
     expect(runtimePorts[1].sent).toContainEqual({ type: "rebind", streamId: "stream-1" });
-    await vi.advanceTimersByTimeAsync(12_100);
+    await vi.advanceTimersByTimeAsync(15_100);
     expect(pageMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         streamId: "stream-1",

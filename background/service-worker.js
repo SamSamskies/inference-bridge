@@ -59,6 +59,7 @@ import {
 import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
 import { getOnDeviceDecisionAvailability } from "../src/decision-api-client.js";
 import {
+  BOUNDED_REBIND_TIMEOUT_MS,
   canAcceptRebind,
   canAcceptStartedAck,
   decidePortDisconnect,
@@ -112,7 +113,6 @@ chrome.permissions.onRemoved.addListener(() => {
 const activeStreams = new Map();
 
 let streamCounter = 0;
-const SAFARI_REBIND_TIMEOUT_MS = 15_000;
 
 function nextStreamId() {
   streamCounter += 1;
@@ -1601,7 +1601,7 @@ function abortStream(streamId, reason) {
  * } | null>}
  */
 async function waitForPortRebind(streamId, timeoutMs) {
-  if (isSafariBuild()) timeoutMs = Math.min(timeoutMs, SAFARI_REBIND_TIMEOUT_MS);
+  if (isSafariBuild()) timeoutMs = Math.min(timeoutMs, BOUNDED_REBIND_TIMEOUT_MS);
   const deadline = Number.isFinite(timeoutMs)
     ? Date.now() + timeoutMs
     : Infinity;
