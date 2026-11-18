@@ -47,7 +47,7 @@ describe("resolveApprovalRequestId", () => {
 
 describe("fetchPendingApprovalRequest", () => {
   it("defaults to a multi-second pre-bind poll window", () => {
-    expect((APPROVAL_FETCH_ATTEMPTS - 1) * APPROVAL_FETCH_DELAY_MS).toBeGreaterThanOrEqual(2_000);
+    expect((APPROVAL_FETCH_ATTEMPTS - 1) * APPROVAL_FETCH_DELAY_MS).toBeGreaterThanOrEqual(10_000);
   });
 
   it("returns on the first successful response without sleeping", async () => {

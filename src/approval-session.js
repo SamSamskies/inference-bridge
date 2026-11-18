@@ -3,10 +3,10 @@ export const APPROVAL_REQUEST_ID_KEY = "ipa-approval-requestId";
 
 /**
  * Poll window while Safari assigns approval tabId after tabs.create.
- * ~2.4s of retries covers slow tab opens without hanging a truly expired request.
+ * ~10s covers slow physical-device tab opens without hanging a truly expired request forever.
  */
-export const APPROVAL_FETCH_ATTEMPTS = 25;
-export const APPROVAL_FETCH_DELAY_MS = 100;
+export const APPROVAL_FETCH_ATTEMPTS = 51;
+export const APPROVAL_FETCH_DELAY_MS = 200;
 
 /**
  * Prefer ?requestId= from the URL (and remember it). Fall back to sessionStorage
