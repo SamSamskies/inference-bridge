@@ -562,6 +562,41 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("rejects get and resolve until the popup tabId is bound via tabs.query", async () => {
+    let deliverTabs;
+    chrome.windows.create = (_opts, cb) => {
+      queueMicrotask(() => cb?.({ id: 1001 }));
+    };
+    chrome.tabs.query = vi.fn((_query, cb) => {
+      deliverTabs = (tabs) => queueMicrotask(() => cb?.(tabs));
+    });
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.query).toHaveBeenCalledWith(
+      { windowId: 1001 },
+      expect.any(Function),
+    ));
+    const approvalUrl = permissions.approvalPageUrl(port.streamId);
+    const interim = approvalUrl.replace(/\?.*$/, "");
+    expect(await sendApprovalMessage(port, { type: "get-approval" }, interim, 201))
+      .toEqual({ request: null });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: false });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+
+    deliverTabs([{ id: 201 }]);
+    await vi.waitFor(async () => {
+      expect(await sendApprovalMessage(port, { type: "get-approval" }, interim, 201))
+        .toMatchObject({ request: { origin, ...route } });
+    });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: true });
+    await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["global", "low"], ["page", "high"], ["auto", undefined],
     ["none", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"],
