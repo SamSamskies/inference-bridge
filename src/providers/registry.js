@@ -12,7 +12,7 @@ import { ppqProvider } from "./ppq.js";
 import { onDeviceProvider } from "./on-device.js";
 import { createOpenAICompatProvider } from "./openai-compat.js";
 import { getSettings } from "../storage.js";
-import { isFirefoxBuild } from "../runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "../runtime-browser.js";
 export { resolveModelCapabilities } from "./model-capabilities.js";
 import {
   SYNTHESIS_OUTPUT_MEDIA_TYPES,
@@ -23,6 +23,11 @@ import {
 /** @typedef {import("./types.js").ModelInfo} ModelInfo */
 /** @typedef {import("./types.js").VoiceInfo} VoiceInfo */
 /** @typedef {"chat" | "decide" | "transcribe" | "synthesize"} InferenceMethod */
+
+/** Chrome Prompt API / offscreen host — not available in Firefox or Safari builds. */
+function supportsOnDeviceProvider() {
+  return !isFirefoxBuild() && !isSafariBuild();
+}
 
 /** @type {Map<string, Provider>} */
 const providers = new Map([
@@ -42,7 +47,7 @@ const providers = new Map([
  */
 export function listProviders() {
   return [...providers.values()].filter(
-    (provider) => provider.id !== "on-device" || !isFirefoxBuild()
+    (provider) => provider.id !== "on-device" || supportsOnDeviceProvider()
   );
 }
 
@@ -51,7 +56,7 @@ export function listProviders() {
  * @returns {Provider | undefined}
  */
 export function getProvider(id) {
-  if (id === "on-device" && isFirefoxBuild()) return undefined;
+  if (id === "on-device" && !supportsOnDeviceProvider()) return undefined;
   return providers.get(id);
 }
 

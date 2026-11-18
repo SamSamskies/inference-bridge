@@ -37,8 +37,11 @@ describe("provider registry", () => {
     expect(getProvider("missing")).toBeUndefined();
   });
 
-  it("omits the Chrome On-device provider from Firefox", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("omits the Chrome On-device provider from %s", async (_label, browserSpecific) => {
+    chromeMock.setManifest({ browser_specific_settings: browserSpecific });
     expect(listProviders().map((provider) => provider.id)).not.toContain("on-device");
     expect(getProvider("on-device")).toBeUndefined();
     expect(await getProviderAsync("on-device")).toBeUndefined();

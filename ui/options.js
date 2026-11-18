@@ -411,7 +411,7 @@ async function refreshOllamaStatus() {
  * @returns {boolean}
  */
 function isOnDeviceOffered() {
-  if (isFirefoxBuild()) return false;
+  if (isFirefoxBuild() || isSafariBuild()) return false;
   return (
     onDeviceStatus.availability !== "missing" &&
     onDeviceStatus.availability !== "unavailable"
@@ -432,7 +432,7 @@ function isOnDeviceReady() {
  * (downloadable / downloading) because create() needs a user gesture here.
  */
 async function refreshOnDeviceStatus() {
-  if (isFirefoxBuild()) {
+  if (isFirefoxBuild() || isSafariBuild()) {
     onDeviceStatus = { availability: "missing", message: "" };
     return onDeviceStatus;
   }

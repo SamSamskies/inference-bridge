@@ -710,9 +710,9 @@ export async function ensurePermission(args) {
       defaultProvider.id
   );
   // A saved provider may be absent in this browser (notably Chrome's
-  // On-device provider on Firefox). Never substitute the remote default.
+  // On-device provider on Firefox/Safari). Never substitute the remote default.
   const selectedProvider = await getProviderAsync(providerId);
-  if (!selectedProvider && isFirefoxBuild()) {
+  if (!selectedProvider && (isFirefoxBuild() || isSafariBuild())) {
     return {
       allowed: false,
       providerId,
@@ -778,7 +778,7 @@ export async function ensurePermission(args) {
     // Fall back to the grant provider's default — not settings.defaultModel,
     // which may belong to a different provider.
     const grantProvider = await getProviderAsync(grantProviderId);
-    if (!grantProvider && isFirefoxBuild()) {
+    if (!grantProvider && (isFirefoxBuild() || isSafariBuild())) {
       return {
         allowed: false,
         providerId: grantProviderId,
