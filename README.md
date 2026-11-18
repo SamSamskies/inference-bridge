@@ -1132,8 +1132,12 @@ Build runtime-only packages:
 ```bash
 npm run package          # Chrome ZIP and build/chrome/
 npm run package:firefox  # Firefox ZIP and build/firefox/
+npm run package:safari   # Safari development ZIP and build/safari/
+npm run package:all      # Stage all three browsers
 npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as errors
 ```
+
+See the [Safari development guide](docs/safari.md) for local installation and the page-injection smoke test.
 
 ### Manual checks
 

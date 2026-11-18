@@ -553,7 +553,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-chrome.windows.onRemoved.addListener((windowId) => {
+chrome.windows?.onRemoved?.addListener((windowId) => {
   handleApprovalWindowClosed(windowId);
 });
 
@@ -582,6 +582,7 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onInstalled?.addListener(() => {
+  if (!chrome.contextMenus?.removeAll) return;
   void chrome.contextMenus.removeAll().then(() => {
     // Chrome already supplies Open Side Panel. Clear our earlier duplicate on
     // update/reload; Firefox still needs an explicit sidebar menu entry.

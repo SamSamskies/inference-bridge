@@ -9,6 +9,7 @@
     "test:watch": "vitest",
     "package": "node scripts/package.mjs chrome",
     "package:firefox": "node scripts/package.mjs firefox",
+    "package:safari": "node scripts/package.mjs safari",
     "dev:firefox": "npm run package:firefox && web-ext run --source-dir build/firefox --target firefox-desktop",
     "package:all": "node scripts/package.mjs all",
     "package:firefox-source": "node scripts/package-firefox-source.mjs",
