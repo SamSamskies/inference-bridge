@@ -7,7 +7,7 @@
 import { isLoopbackHostname } from "./loopback-origin-bypass.js";
 import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 
-const FIREFOX_BUILTIN_HOSTS = Object.freeze({
+const BUILTIN_HOST_PATTERNS = Object.freeze({
   openai: "https://api.openai.com/*",
   anthropic: "https://api.anthropic.com/*",
   gemini: "https://generativelanguage.googleapis.com/*",
@@ -20,8 +20,7 @@ const FIREFOX_BUILTIN_HOSTS = Object.freeze({
 
 /**
  * Where the user restores revoked optional host access.
- * Built-in host checks currently apply on Firefox; Safari-specific copy keeps
- * recovery instructions accurate if that expands or other paths reuse this.
+ * Built-in host checks apply on Firefox and Safari.
  */
 export function revokedHostAccessRestoreHint() {
   if (isSafariBuild()) return "Safari extension settings";
@@ -34,10 +33,13 @@ export function revokedHostAccessMessage(label) {
   return `Host access for ${label} was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`;
 }
 
-/** Firefox users can revoke install-time host grants in about:addons. */
+/**
+ * Firefox and Safari users can revoke install-time host grants in extension
+ * settings. Chrome keeps those hosts for the installed MV3 package.
+ */
 export async function hasBuiltInHostPermission(providerId) {
-  if (!isFirefoxBuild()) return true;
-  const pattern = FIREFOX_BUILTIN_HOSTS[providerId];
+  if (!isFirefoxBuild() && !isSafariBuild()) return true;
+  const pattern = BUILTIN_HOST_PATTERNS[providerId];
   if (!pattern) return true;
   if (!chrome.permissions?.contains) return false;
   return chrome.permissions.contains({ origins: [pattern] });

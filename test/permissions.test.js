@@ -586,12 +586,22 @@ describe("ensurePermission", () => {
     });
   });
 
-  it("re-prompts when a built-in grant exists but Firefox host was revoked", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("re-prompts when a built-in grant exists but %s host was revoked", async (_label, browserSpecific) => {
+    chromeMock.setManifest({ browser_specific_settings: browserSpecific });
     globalThis.chrome.permissions = {
       contains: vi.fn(async () => false),
       request: vi.fn(async () => false),
     };
+    if (browserSpecific.safari) {
+      globalThis.chrome.tabs = {
+        create: vi.fn(async () => ({ id: 201 })),
+        get: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(async () => {}),
+      };
+    }
     await grantOriginAlways("https://builtin-grant.example", {
       providerId: "openai",
       model: "gpt-4o",
@@ -617,12 +627,22 @@ describe("ensurePermission", () => {
     await expect(pending).resolves.toMatchObject({ allowed: false });
   });
 
-  it("denies always for built-in when Firefox host permission is still missing", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("denies always for built-in when %s host permission is still missing", async (_label, browserSpecific) => {
+    chromeMock.setManifest({ browser_specific_settings: browserSpecific });
     globalThis.chrome.permissions = {
       contains: vi.fn(async () => false),
       request: vi.fn(async () => false),
     };
+    if (browserSpecific.safari) {
+      globalThis.chrome.tabs = {
+        create: vi.fn(async () => ({ id: 201 })),
+        get: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(async () => {}),
+      };
+    }
 
     const pending = ensurePermission({
       requestId: "r2builtin-approve-no-host",
@@ -644,7 +664,7 @@ describe("ensurePermission", () => {
       model: "gpt-4o",
       once: false,
       code: "unavailable",
-      message: expect.stringMatching(/revoked|Firefox add-on/i),
+      message: expect.stringMatching(/revoked|(Firefox add-on|Safari extension) settings/i),
     });
     expect(await getOriginGrant("https://builtin-approve.example")).toBeNull();
   });

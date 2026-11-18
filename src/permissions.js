@@ -382,8 +382,8 @@ function matchingToolEpisode(origin, args, now = Date.now()) {
 
 /**
  * Optional host access required before Always-allow / Allow-once can proceed.
- * Compat endpoints need a user-granted origin pattern; Firefox built-ins need
- * their install-time host (revocable in about:addons).
+ * Compat endpoints need a user-granted origin pattern; Firefox/Safari built-ins
+ * need their install-time host (revocable in extension settings).
  * @param {{ id?: string, baseUrl?: string } | null | undefined} provider
  * @returns {Promise<boolean>}
  */

@@ -116,9 +116,12 @@ describe("revoked host access copy", () => {
   });
 });
 
-describe("Firefox built-in host grants", () => {
+describe.each([
+  ["Firefox", { gecko: {} }],
+  ["Safari", { safari: {} }],
+])("%s built-in host grants", (_label, browserSpecific) => {
   it("checks the selected provider host and fails when revoked", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    chromeMock.setManifest({ browser_specific_settings: browserSpecific });
     const contains = vi.fn(async () => false);
     globalThis.chrome.permissions = { contains };
     expect(await hasBuiltInHostPermission("openai")).toBe(false);
@@ -130,7 +133,9 @@ describe("Firefox built-in host grants", () => {
     expect(await hasBuiltInHostPermission("ollama-cloud")).toBe(false);
     expect(contains).toHaveBeenCalledWith({ origins: ["https://ollama.com/*"] });
   });
+});
 
+describe("Chrome built-in host grants", () => {
   it("does not block Chrome built-ins or custom endpoints", async () => {
     expect(await hasBuiltInHostPermission("openai")).toBe(true);
     chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
