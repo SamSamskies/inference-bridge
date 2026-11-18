@@ -172,6 +172,24 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("keeps the pending approval across approval-tab reload and interim same-document URLs", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    const approvalUrl = permissions.approvalPageUrl(port.streamId);
+    // chrome-extension origins are opaque in Node; strip the query in place.
+    const withoutQuery = approvalUrl.replace(/\?.*$/, "");
+    chrome.tabs.onUpdated.emit(201, { url: withoutQuery, status: "loading" });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    chrome.tabs.onUpdated.emit(201, { url: approvalUrl, status: "loading" });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    })).toEqual({ ok: true });
+    await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("closes the approval tab if it opens after the originating tab navigated", async () => {
     let opened;
     chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));

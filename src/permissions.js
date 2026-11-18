@@ -1259,16 +1259,45 @@ export function handleApprovalTabClosed(tabId) {
 }
 
 /**
+ * True when url is still this request's approval document. Uses protocol +
+ * host + pathname + optional requestId so interim WebKit URLs (missing query)
+ * and reloads do not false-deny. Prefer host over origin: chrome-extension
+ * URLs are opaque (`origin === "null"`) in some runtimes including Node tests.
+ * @param {string} urlString
+ * @param {string} requestId
+ */
+function isApprovalDocumentUrl(urlString, requestId) {
+  let url;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return false;
+  }
+  const expected = new URL(approvalPageUrl(requestId));
+  if (url.protocol !== expected.protocol || url.host !== expected.host) {
+    return false;
+  }
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const expectedPath = expected.pathname.replace(/\/+$/, "") || "/";
+  if (path !== expectedPath) return false;
+  const reportedId = url.searchParams.get("requestId");
+  if (reportedId != null && reportedId !== "" && reportedId !== requestId) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Deny a Safari approval when its tab navigates away from the approval
  * document (back, address bar, link). Closing the tab is handled separately.
  * @param {number} tabId
  * @param {{ url?: string }} changeInfo
  */
 export function handleApprovalTabNavigated(tabId, changeInfo) {
-  if (typeof changeInfo?.url !== "string") return;
+  if (typeof changeInfo?.url !== "string" || !changeInfo.url) return;
   for (const [requestId, entry] of pendingApprovals.entries()) {
     if (entry.tabId !== tabId) continue;
-    if (changeInfo.url === approvalPageUrl(requestId)) continue;
+    if (isApprovalDocumentUrl(changeInfo.url, requestId)) continue;
     denyPendingApproval(requestId);
   }
 }
