@@ -1071,9 +1071,16 @@ function takePendingApproval(requestId) {
 
 /** @param {number} tabId */
 function closeApprovalTab(tabId) {
-  void chrome.tabs.remove(tabId).catch(() => {
-    // The user may already have closed the tab.
-  });
+  try {
+    const removing = chrome.tabs?.remove?.(tabId);
+    if (removing != null && typeof removing.then === "function") {
+      void removing.catch(() => {
+        // The user may already have closed the tab.
+      });
+    }
+  } catch {
+    // Tab APIs unavailable or the tab is already gone.
+  }
 }
 
 /**
@@ -1147,6 +1154,22 @@ function promptUser(request, { signal, sourceTab }) {
 
         // Assign before any await/callback so onRemoved can match this entry.
         entry.windowId = win.id;
+        const createdTabId = win.tabs?.find(
+          (tab) => typeof tab?.id === "number" && tab.id >= 0
+        )?.id;
+        if (createdTabId != null) {
+          entry.tabId = createdTabId;
+        } else if (typeof chrome.tabs?.query === "function") {
+          // Some builds omit tabs on the create result; bind for sender trust.
+          chrome.tabs.query({ windowId: win.id }, (tabs) => {
+            if (pendingApprovals.get(request.requestId) !== entry) return;
+            if (chrome.runtime.lastError) return;
+            const tabId = tabs?.find(
+              (tab) => typeof tab?.id === "number" && tab.id >= 0
+            )?.id;
+            if (tabId != null) entry.tabId = tabId;
+          });
+        }
 
         // Some Chrome builds ignore or clamp the initial create size; force it.
         chrome.windows.update(win.id, { width, height }, () => {
@@ -1290,9 +1313,10 @@ export function isApprovalDocumentUrl(urlString, requestId) {
 
 /**
  * Trust get-approval / resolve-approval only from this request's approval
- * document. Safari tabs also bind to the stored approval tabId so concurrent
- * interim URLs (no ?requestId=) cannot cross-read or cross-resolve. Until
- * tabs.create assigns tabId, Safari senders are untrusted.
+ * document. Approval tabs (Safari) and popup window tabs (Chrome/Firefox)
+ * bind to the stored approval tabId so concurrent interim URLs (no
+ * ?requestId=) cannot cross-read or cross-resolve. Until create assigns
+ * tabId, senders are untrusted.
  * @param {string} requestId
  * @param {{ url?: string, tab?: { id?: number } }} sender
  */
@@ -1305,10 +1329,9 @@ export function isTrustedApprovalSender(requestId, sender) {
   if (entry?.tabId != null) {
     return sender.tab?.id === entry.tabId;
   }
-  // Safari always opens an approval tab; reject until tabId is bound so the
-  // pre-create window cannot be abused with interim document URLs.
-  if (isSafariBuild()) return false;
-  return true;
+  // Reject until the approval tab is bound so the pre-create window cannot
+  // be abused with interim document URLs.
+  return false;
 }
 
 /**

@@ -33,7 +33,11 @@ async function setup(firefox) {
     onRemoved: event(),
   };
   chrome.windows.onRemoved = event();
-  chrome.tabs = { onRemoved: event(), onUpdated: event() };
+  chrome.tabs = {
+    onRemoved: event(),
+    onUpdated: event(),
+    remove: vi.fn(async () => {}),
+  };
   chrome.action = { onClicked: event() };
   ports = [];
   storage = await import("../src/storage.js");

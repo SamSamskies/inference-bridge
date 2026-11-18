@@ -35,12 +35,15 @@ async function setup(firefox, safari = false) {
   chrome.contextMenus = { removeAll: vi.fn(async () => {}), create: vi.fn(), onClicked: event() };
   chrome.permissions = { contains: vi.fn(async () => true), onRemoved: event() };
   chrome.windows.onRemoved = event();
-  chrome.tabs = { onRemoved: event(), onUpdated: event() };
+  chrome.tabs = {
+    onRemoved: event(),
+    onUpdated: event(),
+    remove: vi.fn(async () => {}),
+  };
   if (safari) {
     delete chrome.windows.create;
     chrome.tabs.create = vi.fn(async () => ({ id: 201 }));
     chrome.tabs.get = vi.fn(async (id) => ({ id }));
-    chrome.tabs.remove = vi.fn(async () => {});
   }
   chrome.action = { onClicked: event() };
   ports = [];
@@ -522,6 +525,44 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect(settings.blockedOrigins).toEqual({});
     expect(settings.originLastUsed).toEqual({});
     expect(settings.originChatReasoningEfforts).toEqual({});
+  });
+
+  it("isolates concurrent popup approvals when sender URLs omit requestId", async () => {
+    let windowSeq = 0;
+    chrome.windows.create = (opts, cb) => {
+      windowSeq += 1;
+      const id = 1000 + windowSeq;
+      const tabId = 200 + windowSeq;
+      queueMicrotask(() => cb?.({ id, tabs: [{ id: tabId }] }));
+    };
+    const first = start();
+    const second = start();
+    await pending(first);
+    await pending(second);
+    await vi.waitFor(async () => {
+      expect(await sendApprovalMessage(first, { type: "get-approval" }, permissions.approvalPageUrl(first.streamId), 201))
+        .toMatchObject({ request: { origin } });
+      expect(await sendApprovalMessage(second, { type: "get-approval" }, permissions.approvalPageUrl(second.streamId), 202))
+        .toMatchObject({ request: { origin } });
+    });
+    const interim = permissions.approvalPageUrl(first.streamId).replace(/\?.*$/, "");
+    expect(await sendApprovalMessage(second, { type: "get-approval" }, interim, 201))
+      .toEqual({ request: null });
+    expect(await sendApprovalMessage(second, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: false });
+    expect(permissions.getPendingApproval(second.streamId)).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+
+    expect(await sendApprovalMessage(second, {
+      type: "resolve-approval", decision: "deny",
+    }, permissions.approvalPageUrl(second.streamId), 202)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(second.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(first, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: true });
+    await outcome(first);
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it.each([
