@@ -625,6 +625,17 @@ async function refreshOllamaStatus() {
 }
 
 async function refreshOnDeviceStatus() {
+  // On-device is omitted from Safari/Firefox provider lists; skip Chrome-only
+  // Decisions/Prompt API copy and the unused status probe.
+  if (safari) {
+    onDeviceStatus = {
+      availability: "missing",
+      available: false,
+      message: "On-device AI is not available in this browser.",
+    };
+    return onDeviceStatus;
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: "on-device-status",
