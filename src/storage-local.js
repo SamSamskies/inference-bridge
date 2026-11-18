@@ -11,6 +11,7 @@ import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "./chat-options.js";
 import { ppqTransferModel, ppqTransferPreview } from "./ppq-transfer.js";
+import { isSafariBuild } from "./runtime-browser.js";
 
 /** Storage promises reject on quota and browser persistence failures. */
 async function writeSettings(patch) {
@@ -353,6 +354,23 @@ export function normalizeCompatEndpoints(value) {
 }
 
 /**
+ * Safari optional hosts are HTTPS-only. Drop HTTP/loopback compat endpoints
+ * that can never receive host permission (e.g. synced from Chrome).
+ * @param {CompatEndpoint[]} endpoints
+ * @returns {CompatEndpoint[]}
+ */
+export function compatEndpointsForBrowser(endpoints) {
+  if (!isSafariBuild()) return endpoints;
+  return endpoints.filter((endpoint) => {
+    try {
+      return new URL(endpoint.baseUrl).protocol === "https:";
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
  * @returns {Promise<{
  *   apiKeys: Record<string, string>,
  *   defaultProviderId: string,
@@ -395,7 +413,9 @@ export async function getSettings() {
   const operationLastUsed = /** @type {OperationLastUsedByOrigin} */ (
     normalizeOperationOriginMap(stored.operationLastUsed, "usedAt")
   );
-  const compatEndpoints = normalizeCompatEndpoints(stored.compatEndpoints);
+  const compatEndpoints = compatEndpointsForBrowser(
+    normalizeCompatEndpoints(stored.compatEndpoints),
+  );
   const originChatReasoningEfforts = {};
   if (stored.originChatReasoningEfforts && typeof stored.originChatReasoningEfforts === "object" && !Array.isArray(stored.originChatReasoningEfforts)) {
     for (const [origin, raw] of Object.entries(stored.originChatReasoningEfforts)) {
@@ -803,7 +823,7 @@ export async function setOriginChatReasoningEffort(origin, preference) {
  * @returns {Promise<CompatEndpoint[]>}
  */
 export async function saveCompatEndpoints(endpoints) {
-  const normalized = normalizeCompatEndpoints(endpoints);
+  const normalized = compatEndpointsForBrowser(normalizeCompatEndpoints(endpoints));
   await writeSettings({ compatEndpoints: normalized });
   // Re-read so orphan scrubbing (keys, models, grants, defaultProviderId) runs.
   const settings = await getSettings();

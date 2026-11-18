@@ -745,6 +745,35 @@ describe("compatEndpoints", () => {
       { id: "compat:ok", name: "Ok", baseUrl: "http://127.0.0.1:1/v1" },
     ]);
   });
+
+  it("scrubs HTTP compat endpoints on Safari reads", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    chromeMock.store.set("compatEndpoints", [
+      { id: "compat:local", name: "Local", baseUrl: "http://127.0.0.1:1234/v1" },
+      { id: "compat:remote", name: "Remote", baseUrl: "https://llm.example.com/v1" },
+    ]);
+    chromeMock.store.set("apiKeys", {
+      "compat:local": "local-key",
+      "compat:remote": "remote-key",
+    });
+    chromeMock.store.set("defaultProviderId", "compat:local");
+    chromeMock.store.set("defaultModels", {
+      "compat:local": "local-model",
+      "compat:remote": "remote-model",
+    });
+
+    const settings = await getSettings();
+    expect(settings.compatEndpoints).toEqual([
+      { id: "compat:remote", name: "Remote", baseUrl: "https://llm.example.com/v1" },
+    ]);
+    expect(settings.apiKeys["compat:local"]).toBeUndefined();
+    expect(settings.apiKeys["compat:remote"]).toBe("remote-key");
+    expect(settings.defaultModels["compat:local"]).toBeUndefined();
+    expect(settings.defaultProviderId).toBe("openai");
+    expect(chromeMock.store.get("compatEndpoints")).toEqual([
+      { id: "compat:remote", name: "Remote", baseUrl: "https://llm.example.com/v1" },
+    ]);
+  });
 });
 
 describe("origin grants still work with openrouter", () => {
