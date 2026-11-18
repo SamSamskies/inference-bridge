@@ -179,6 +179,7 @@ describe("Safari website approval", () => {
     expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
     chrome.tabs.onUpdated.emit(201, { url: "https://example.com/", status: "loading" });
     await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
     expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -196,6 +197,7 @@ describe("Safari website approval", () => {
     chrome.tabs.get.mockResolvedValueOnce({ id: 201, url: "https://example.com/" });
     chrome.tabs.onUpdated.emit(201, { status: "loading" });
     await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
     expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -216,6 +218,7 @@ describe("Safari website approval", () => {
     chrome.tabs.get.mockResolvedValueOnce({ id: 201, url: "https://example.com/" });
     chrome.tabs.onUpdated.emit(201, { status: "complete" });
     await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
     expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
     expect(fetch).not.toHaveBeenCalled();
   });

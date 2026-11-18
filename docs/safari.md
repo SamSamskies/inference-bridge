@@ -75,7 +75,7 @@ Expect `function function` followed by `invalid_request messages must be a non-e
 
 1. Configure a hosted provider in Bridge Options. Open a chat example from the [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) and grant it site access in Safari.
 2. Send a short message. The approval tab should show the requesting site, the provider and model selectors, and the request preview. Choose **Allow** with **Remember for this site** unchecked to approve only this request. Safari should close the approval tab and return to the chat with the response.
-3. Send another message and choose **Deny**. The approval tab should close and the chat should report `permission_denied`. Closing the approval tab without a decision also denies the request. An unanswered Safari approval expires after two minutes.
+3. Send another message and choose **Deny**. The approval tab should close and the chat should report `permission_denied`. Closing the approval tab without a decision, or navigating that tab away from the approval page, also denies the request and closes the tab. An unanswered Safari approval expires after two minutes.
 4. Try **Remember for this site** with **Allow**, then send another message from the same site. Confirm the saved route is used. Revoke the grant in **Options → Site access** and confirm the next request opens an approval tab again.
 
 ## Compatibility checks

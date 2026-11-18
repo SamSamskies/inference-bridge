@@ -1347,13 +1347,14 @@ function denyApprovalTabsLeavingDocument(tabId, url) {
   for (const [requestId, entry] of pendingApprovals.entries()) {
     if (entry.tabId !== tabId) continue;
     if (isApprovalDocumentUrl(url, requestId)) continue;
-    denyPendingApproval(requestId);
+    // Match Deny UX: settle permission_denied and close the approval tab.
+    cancelApproval(requestId);
   }
 }
 
 /**
  * Deny a Safari approval when its tab navigates away from the approval
- * document (back, address bar, link). Closing the tab is handled separately.
+ * document (back, address bar, link). Closes the tab like an explicit Deny.
  * WebKit sometimes omits changeInfo.url on loading/complete; fall back to
  * tabs.get for either status.
  * @param {number} tabId
