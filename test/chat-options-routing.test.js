@@ -21,10 +21,11 @@ function event() {
   };
 }
 let mock, ports, storage, permissions;
-async function setup(firefox) {
+async function setup(firefox, safari = false) {
   vi.resetModules();
   mock = installChromeMock();
   if (firefox) mock.setManifest({ browser_specific_settings: { gecko: {} } });
+  if (safari) mock.setManifest({ browser_specific_settings: { safari: {} } });
   // Exercise real request/approval routing with the supported Chrome API, and
   // the unsupported Firefox path. This mock does not emulate browser isolation.
   if (!firefox) chrome.storage.local.setAccessLevel = vi.fn(async () => {});
@@ -35,6 +36,12 @@ async function setup(firefox) {
   chrome.permissions = { contains: vi.fn(async () => true), onRemoved: event() };
   chrome.windows.onRemoved = event();
   chrome.tabs = { onRemoved: event(), onUpdated: event() };
+  if (safari) {
+    delete chrome.windows.create;
+    chrome.tabs.create = vi.fn(async () => ({ id: 201 }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id }));
+    chrome.tabs.remove = vi.fn(async () => {});
+  }
   chrome.action = { onClicked: event() };
   ports = [];
   storage = await import("../src/storage.js");
@@ -93,10 +100,120 @@ function editPreference(chatReasoningEffort, {
     type: "set-origin-chat-reasoning-effort", origin: requestOrigin, chatReasoningEffort,
   }, { url: senderUrl }, resolve));
 }
+function sendApprovalMessage(port, message, senderUrl = permissions.approvalPageUrl(port.streamId)) {
+  return new Promise((resolve) => chrome.runtime.onMessage.emit({
+    requestId: port.streamId, ...message,
+  }, { url: senderUrl }, resolve));
+}
 afterEach(() => {
   for (const port of ports) port.onDisconnect.emit();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("Safari website approval", () => {
+  beforeEach(() => setup(false, true));
+
+  it("opens a tab and sends only an explicitly approved provider and model", async () => {
+    await storage.saveSettings({ apiKeys: { openai: "test-key", openrouter: "router-test-key" } });
+    const port = start();
+    await pending(port);
+    const url = permissions.approvalPageUrl(port.streamId);
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url, active: true, openerTabId: 1 });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await sendApprovalMessage(port, { type: "get-approval" }, origin))
+      .toEqual({ request: null });
+    expect(await sendApprovalMessage(port, { type: "get-approval" }))
+      .toMatchObject({ request: { origin, ...route } });
+    const approval = {
+      type: "resolve-approval", decision: "allow_once",
+      providerId: "openrouter", model: "openrouter/auto",
+    };
+    expect(await sendApprovalMessage(port, approval, origin)).toEqual({ ok: false });
+    expect(await sendApprovalMessage(port, approval, permissions.approvalPageUrl("other")))
+      .toEqual({ ok: false });
+    expect(fetch).not.toHaveBeenCalled();
+
+    expect(await sendApprovalMessage(port, approval)).toEqual({ ok: true });
+    await outcome(port);
+    expect(fetch.mock.calls.at(-1)[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(body().model).toBe("openrouter/auto");
+    expect((await storage.getSettings()).allowedOrigins).toEqual({});
+
+    const next = start();
+    await pending(next);
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(2);
+    expect(await sendApprovalMessage(next, { type: "resolve-approval", decision: "deny" }))
+      .toEqual({ ok: true });
+    await vi.waitFor(() => expect(next.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("denies when the approval tab closes without a decision", async () => {
+    const port = start();
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    chrome.tabs.onRemoved.emit(201);
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the approval tab if it opens after the originating tab navigated", async () => {
+    let opened;
+    chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
+    const port = start();
+    await vi.waitFor(() => expect(chrome.tabs.create).toHaveBeenCalledOnce());
+    chrome.tabs.onUpdated.emit(1, { status: "loading" });
+    opened({ id: 202 });
+    await vi.waitFor(() => expect(chrome.tabs.remove).toHaveBeenCalledWith(202));
+    expect(port.messages.at(-1)?.error?.code).toBe("aborted");
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("expires a pending approval and rejects a late decision", async () => {
+    vi.useFakeTimers();
+    const port = start();
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    await vi.advanceTimersByTimeAsync(permissions.SAFARI_APPROVAL_TIMEOUT_MS);
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
+    expect(port.messages.at(-1)?.error).toMatchObject({
+      code: "aborted",
+      message: expect.stringContaining("Approval timed out"),
+    });
+    expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "always", ...route }))
+      .toEqual({ ok: false });
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await storage.getSettings()).allowedOrigins).toEqual({});
+  });
+
+  it("abandons an approved request if the originating tab fails to reconnect", async () => {
+    vi.useFakeTimers();
+    const port = start();
+    await pending(port);
+    port.onDisconnect.emit();
+    expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "allow_once", ...route }))
+      .toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(port.messages.at(-1)?.error).toMatchObject({
+      code: "aborted",
+      message: expect.stringContaining("did not reconnect"),
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns an actionable error when Safari cannot open the approval tab", async () => {
+    chrome.tabs.create.mockRejectedValueOnce(new Error("Browser API error"));
+    const port = start();
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error).toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("Could not open the Safari approval tab"),
+    }));
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
@@ -248,10 +365,10 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     const port = start();
     await pending(port);
     vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("Storage full"));
-    const response = await new Promise((resolve) => chrome.runtime.onMessage.emit({
-      type: "resolve-approval", requestId: port.streamId, decision,
+    const response = await sendApprovalMessage(port, {
+      type: "resolve-approval", decision,
       ...route, chatReasoningEffort: "high",
-    }, {}, resolve));
+    });
     expect(response).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
     await vi.waitFor(() => expect(port.messages.at(-1)?.type).toBe("error"));
     expect(fetch).not.toHaveBeenCalled();
@@ -273,10 +390,10 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
       chatReasoningEffort: "global", globalChatReasoningEffort: "low",
     });
     // Exercise the popup's runtime message transport, including the new field.
-    const response = await new Promise((resolve) => chrome.runtime.onMessage.emit({
-      type: "resolve-approval", requestId: port.streamId, decision: "always",
+    const response = await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "always",
       ...route, chatReasoningEffort: preference,
-    }, {}, resolve));
+    });
     expect(response.ok).toBe(true);
     await outcome(port);
     expect(body().reasoning_effort).toBe(expected);

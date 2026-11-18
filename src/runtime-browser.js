@@ -5,3 +5,10 @@ export function isFirefoxBuild() {
       chrome.runtime?.getManifest?.().browser_specific_settings?.gecko
   );
 }
+
+export function isSafariBuild() {
+  return Boolean(
+    typeof chrome !== "undefined" &&
+      chrome.runtime?.getManifest?.().browser_specific_settings?.safari
+  );
+}

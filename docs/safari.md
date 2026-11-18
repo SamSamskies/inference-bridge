@@ -1,6 +1,6 @@
 # Safari development
 
-The first Safari milestone covers installation, site access, and the page bridge. Mobile approval and provider requests are subsequent milestones. The package uses the same page injection, relay, and background worker as Chrome.
+The Safari development build covers installation, site access, and the page bridge. Website requests that require approval open a Safari tab where you can review the request and choose a provider and model. The package uses the same page injection, relay, and background worker as Chrome.
 
 The manifest floor is Safari 18 on macOS and iOS/iPadOS 18, based on support for static content scripts in the page's `MAIN` world. Safari 27.2 on macOS 27.2.1 is the first verified desktop combination. Start device testing on iOS/iPadOS 27.2, then test older versions before publishing a support minimum. [Content script compatibility data](https://github.com/mdn/browser-compat-data/blob/main/webextensions/manifest/content_scripts.json)
 
@@ -25,13 +25,21 @@ DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
     --project-location "$PWD/build/safari-xcode" --no-prompt
 ```
 
-1. In the generated Xcode project, select your signing team for both the app and extension targets. Check that both deployment targets allow the device’s iOS/iPadOS version.
-2. Select the iOS app scheme and the attached device. Enable Developer Mode if prompted, then run the app from Xcode. You can use an iOS simulator for an initial check.
-3. On the device, open **Settings → Apps → Safari → Extensions → Inference Bridge** and enable it. Check the active Safari profile if you use profiles. [Apple’s run and install guide](https://developer.apple.com/documentation/safariservices/running-your-safari-web-extension)
+Copy the setup screen into the generated app. The app shows these instructions on launch, before Safari has granted the extension access to a website.
+
+```bash
+cp safari/ios-app/Main.html "build/safari-xcode/Inference Bridge/Inference Bridge/Resources/Base.lproj/" &&
+  cp safari/ios-app/Style.css "build/safari-xcode/Inference Bridge/Inference Bridge/Resources/"
+```
+
+1. Select the project in Xcode’s navigator, then open **Signing & Capabilities** for each target. Set **Bundle Identifier** to `io.github.samsamskies.inferencebridge.safaritest` for **Inference Bridge** and `io.github.samsamskies.inferencebridge.safaritest.Extension` for **Inference Bridge Extension**. The packager can derive a different ID for the app, so check both fields.
+2. If **Team** shows **Add Account…**, sign in to your Apple Account. Select the same development team for both targets and keep **Automatically manage signing** enabled. Check that both deployment targets allow the device’s iOS/iPadOS version. [Apple’s device signing guide](https://developer.apple.com/documentation/xcode/building-and-running-an-app)
+3. Select the iOS app scheme and the attached device. Enable Developer Mode if prompted, then run the app from Xcode. You can use an iOS simulator for an initial check.
+4. On the device, open **Settings → Apps → Safari → Extensions → Inference Bridge** and enable it. Check the active Safari profile if you use profiles. [Apple’s run and install guide](https://developer.apple.com/documentation/safariservices/running-your-safari-web-extension)
 
 The generated project references `build/safari/`. For later slices, rerun `npm run package:safari`, then build and run the same Xcode project.
 
-With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
+With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the extension ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. The custom setup screen is part of the generated app, so a build that includes it uses the Xcode project. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
 
 ## Install temporarily on macOS
 
@@ -42,7 +50,7 @@ With an Apple Developer Program membership, App Store Connect’s Safari Web Ext
 ## Smoke-test page access and the worker
 
 1. Open `https://example.com/` in Safari. In the page’s Web Inspector console, `typeof window.inference` should be `"undefined"` before site access is granted. For iPhone or iPad, enable **Web Inspector** in Safari’s Advanced settings and open the device’s page from the Mac Safari **Develop** menu. [Apple’s Web Inspector guide](https://developer.apple.com/documentation/safariservices/troubleshooting-your-safari-web-extension)
-2. Grant Inference Bridge access to example.com only using Safari’s extension menu and reload the page. Safari site access allows injection. Bridge approval for inference is a separate step.
+2. On iPhone or iPad, tap the **Page Menu** beside the address bar and choose **Inference Bridge**. If needed, turn it on under **Manage Extensions** first. Grant access to example.com only and reload the page. Safari site access allows injection. Bridge approval for inference is a separate step. On macOS, grant site access from the extension’s toolbar button. [Apple’s Safari permissions guide](https://developer.apple.com/documentation/safariservices/managing-safari-web-extension-permissions)
 3. In the page’s Web Inspector console, run the probe. It exercises both content scripts and the background port without using a provider or API key.
 
 ```js
@@ -68,14 +76,21 @@ With an Apple Developer Program membership, App Store Connect’s Safari Web Ext
 
 Expect `function function` followed by `invalid_request messages must be a non-empty array.` Report the device, OS version, and console output if either check differs. To verify revocation, deny website access in Safari and reload. The page API should disappear.
 
+## Smoke-test a website approval
+
+1. Configure a hosted provider in Bridge Options. Open a chat example from the [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) and grant it site access in Safari.
+2. Send a short message. The approval tab should show the requesting site, the provider and model selectors, and the request preview. Choose **Allow** with **Remember for this site** unchecked to approve only this request. Safari should close the approval tab and return to the chat with the response.
+3. Send another message and choose **Deny**. The approval tab should close and the chat should report `permission_denied`. Closing the approval tab without a decision also denies the request. An unanswered Safari approval expires after two minutes.
+4. Try **Remember for this site** with **Allow**, then send another message from the same site. Confirm the saved route is used. Revoke the grant in **Options → Site access** and confirm the next request opens an approval tab again.
+
 ## Compatibility checks
 
 | Area | Result or device check |
 | --- | --- |
 | MV3, static injection, and runtime ports | Safari 27.2 on macOS loaded the temporary extension. The API appeared only after a site grant and reload. The invalid request made the full trip to the worker and back. Repeat on iPhone and iPad, including revocation. |
 | Storage and Web Locks | On macOS Safari 27.2 the worker could acquire a Web Lock and read extension storage. Verify cross-context locking, settings persistence and quota behavior on device. |
-| Mobile approvals | iOS lacks window creation, update and removal. Verify a Safari approval tab preserves exact-origin and operation scoping, denial, prompt closure, cancellation, timeout and revocation. [Apple’s extension compatibility guide](https://developer.apple.com/documentation/safariservices/assessing-your-safari-web-extension-s-browser-compatibility) |
+| Mobile approvals | Safari uses an approval tab because iOS lacks window creation, update and removal. On iOS 27.2 Simulator, the provider/model picker opened, and Deny closed the approval tab and returned `permission_denied`. Repeat on iPhone and iPad and verify remembered grants, revocation and operation-specific approvals. [Apple’s extension compatibility guide](https://developer.apple.com/documentation/safariservices/assessing-your-safari-web-extension-s-browser-compatibility) |
 | Streaming and lifecycle | Verify chunk delivery, cancellation, navigation, tab close, app switching, and worker suspension. Opening the worker inspector can affect its lifetime, so repeat with it closed. |
-| Hosted providers | Test real requests with OpenAI, Anthropic, Gemini, OpenRouter, PayPerQ, Ollama Cloud and an HTTPS custom endpoint. Check Safari’s host grants, provider CORS behavior and revocation. |
+| Hosted providers | On iOS 27.2 Simulator, a one-time approval returned a live response from Gemini 3.1 Flash Lite. Repeat on a physical iPhone and test OpenAI, Anthropic, OpenRouter, PayPerQ, Ollama Cloud and an HTTPS custom endpoint. Check Safari’s host grants, provider CORS behavior and revocation. |
 | Local and browser-specific features | The Safari manifest omits the Ollama header-rule permission, localhost host grant, side panel and offscreen permission. Validate feature gating with the approval flow. On an iPhone, localhost points to the phone. |
-| Settings and distribution | The shared Options page opened through macOS Safari Settings. Verify access from the toolbar, touch layouts, keyboard and dark mode on iPhone and iPad. Validate signing, TestFlight and App Store privacy disclosures before distribution. |
+| Settings and distribution | The iOS app showed the setup screen on Simulator, and the shared Options page opened through macOS Safari Settings. Verify that first-time users can enable Bridge and grant site access, then check toolbar access, touch layouts, keyboard and dark mode on iPhone and iPad. Validate signing, TestFlight and App Store privacy disclosures before distribution. |

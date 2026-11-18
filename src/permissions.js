@@ -25,7 +25,7 @@ import {
   hasBuiltInHostPermission,
   hasHostPermissionForBaseUrl,
 } from "./host-permissions.js";
-import { isFirefoxBuild } from "./runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 import {
   blocksAllowForImages,
   isImageGrantCovered,
@@ -80,6 +80,7 @@ import {
 
 /** Episode TTL for short-lived SW-side tools approval (ms). */
 export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
+export const SAFARI_APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * @typedef {{
@@ -107,6 +108,8 @@ const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
  *   request: ApprovalRequest,
  *   resolve: (result: { decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort, acknowledge?: (result: { ok: boolean, error?: string }) => void }) => void,
  *   windowId?: number,
+ *   tabId?: number,
+ *   timeout?: ReturnType<typeof setTimeout>,
  * }>} */
 const pendingApprovals = new Map();
 
@@ -448,6 +451,8 @@ async function imagesAllowAutoApprove(provider, model, grant, messages, output, 
  * Experimental operation permissions are separate from chat/tool episodes.
  * Existing allowedOrigins entries can never satisfy this function.
  * @param {{
+ *   signal?: AbortSignal,
+ *   sourceTab?: { id?: number, windowId?: number },
  *   requestId: string,
  *   origin: string,
  *   method: "decide" | "transcribe" | "synthesize",
@@ -565,7 +570,7 @@ export async function ensureOperationPermission(args) {
     ...(args.method === "decide"
       ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries, ...(args.attachmentSummaries?.length ? { attachmentSummaries: args.attachmentSummaries, imageMediaTypes: args.imageMediaTypes } : {}) }
       : {}),
-  });
+  }, args);
   return finishApproval(decision, async () => {
     const chosenProviderId =
       typeof decision.providerId === "string"
@@ -671,6 +676,7 @@ export const ensureSpeechPermission = ensureOperationPermission;
  * Ensure the origin may proceed. Opens an approval popup when needed.
  * @param {{
  *   signal?: AbortSignal,
+ *   sourceTab?: { id?: number, windowId?: number },
  *   requestId: string,
  *   origin: string,
  *   messages: ChatMessage[],
@@ -917,7 +923,7 @@ export async function ensurePermission(args) {
     ...(tools ? { tools } : {}),
     ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
     ...(args.output ? { output: args.output } : {}),
-  });
+  }, args);
 
   return finishApproval(decision, async () => {
     const chosenProviderId = normalizeProviderId(
@@ -1043,16 +1049,82 @@ export async function ensurePermission(args) {
 }
 
 /**
+ * @param {string} requestId
+ */
+export function approvalPageUrl(requestId) {
+  const url = new URL(chrome.runtime.getURL("ui/approval.html"));
+  url.searchParams.set("requestId", requestId);
+  return url.href;
+}
+
+/**
+ * @param {string} requestId
+ */
+function takePendingApproval(requestId) {
+  const entry = pendingApprovals.get(requestId);
+  if (!entry) return;
+  pendingApprovals.delete(requestId);
+  clearTimeout(entry.timeout);
+  return entry;
+}
+
+/** @param {number} tabId */
+function closeApprovalTab(tabId) {
+  void chrome.tabs.remove(tabId).catch(() => {
+    // The user may already have closed the tab.
+  });
+}
+
+/**
  * @param {ApprovalRequest} request
+ * @param {{ signal?: AbortSignal, sourceTab?: { id?: number, windowId?: number } }} context
  * @returns {Promise<{ decision: ApprovalDecision, providerId: string, model: string, voice?: string, chatReasoningEffort?: import("./chat-options.js").SiteChatReasoningEffort, acknowledge?: (result: { ok: boolean, error?: string }) => void }>}
  */
-function promptUser(request) {
+function promptUser(request, { signal, sourceTab }) {
   return new Promise((resolve, reject) => {
-    pendingApprovals.set(request.requestId, { request, resolve });
+    signal?.throwIfAborted();
+    const url = approvalPageUrl(request.requestId);
+    const entry = { request, resolve, tabId: undefined, windowId: undefined, timeout: undefined };
+    pendingApprovals.set(request.requestId, entry);
 
-    const url = chrome.runtime.getURL(
-      `ui/approval.html?requestId=${encodeURIComponent(request.requestId)}`
-    );
+    function fail(message, code = "unavailable") {
+      if (pendingApprovals.get(request.requestId) !== entry) return;
+      takePendingApproval(request.requestId);
+      if (entry.tabId != null) closeApprovalTab(entry.tabId);
+      reject(Object.assign(new Error(message), { name: "InferenceError", code }));
+    }
+
+    if (isSafariBuild()) {
+      entry.timeout = setTimeout(() => {
+        fail("Approval timed out. Retry the request from the website.", "aborted");
+      }, SAFARI_APPROVAL_TIMEOUT_MS);
+      void Promise.resolve().then(async () => {
+        if (pendingApprovals.get(request.requestId) !== entry) return;
+        const tab = await chrome.tabs.create({
+          url,
+          active: true,
+          ...(sourceTab?.id != null ? { openerTabId: sourceTab.id } : {}),
+          ...(sourceTab?.windowId != null ? { windowId: sourceTab.windowId } : {}),
+        });
+        if (tab?.id == null || tab.id < 0) {
+          throw new Error("Safari did not return an approval tab.");
+        }
+        if (pendingApprovals.get(request.requestId) !== entry) {
+          // The requesting page may have cancelled while Safari opened the tab.
+          closeApprovalTab(tab.id);
+          return;
+        }
+        entry.tabId = tab.id;
+        // A tab can be closed before create() returns and before onRemoved
+        // can associate the tab with the pending approval.
+        try {
+          await chrome.tabs.get(tab.id);
+        } catch {
+          handleApprovalTabClosed(tab.id);
+        }
+      }).catch(() => fail("Could not open the Safari approval tab. Retry the request from the website."));
+      return;
+    }
 
     const width = 480;
     const height = 820;
@@ -1066,16 +1138,9 @@ function promptUser(request) {
         focused: true,
       },
       (win) => {
-        const entry = pendingApprovals.get(request.requestId);
-        if (!entry) return;
+        if (pendingApprovals.get(request.requestId) !== entry) return;
         if (chrome.runtime.lastError || !win?.id) {
-          pendingApprovals.delete(request.requestId);
-          const error = new Error(
-            chrome.runtime.lastError?.message || "Failed to open approval window"
-          );
-          error.name = "InferenceError";
-          /** @type {any} */ (error).code = "unavailable";
-          reject(error);
+          fail(chrome.runtime.lastError?.message || "Failed to open approval window");
           return;
         }
 
@@ -1106,9 +1171,8 @@ function promptUser(request) {
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
 export async function resolveApproval(requestId, result) {
-  const entry = pendingApprovals.get(requestId);
+  const entry = takePendingApproval(requestId);
   if (!entry) return { ok: false };
-  pendingApprovals.delete(requestId);
 
   let acknowledge;
   const completion = new Promise((resolve) => { acknowledge = resolve; });
@@ -1145,7 +1209,7 @@ export async function resolveApproval(requestId, result) {
   });
 
   // Let the approval page close itself after sendMessage succeeds.
-  // Avoid windows.remove here — it can race with the page and obscure the decision.
+  // Closing the surface here can race with the page and obscure the decision.
   return completion;
 }
 
@@ -1182,14 +1246,14 @@ export function getPendingApproval(requestId) {
  */
 export function handleApprovalWindowClosed(windowId) {
   for (const [requestId, entry] of pendingApprovals.entries()) {
-    if (entry.windowId === windowId) {
-      pendingApprovals.delete(requestId);
-      entry.resolve({
-        decision: "deny",
-        providerId: entry.request.providerId,
-        model: entry.request.model,
-      });
-    }
+    if (entry.windowId === windowId) denyPendingApproval(requestId);
+  }
+}
+
+/** @param {number} tabId */
+export function handleApprovalTabClosed(tabId) {
+  for (const [requestId, entry] of pendingApprovals.entries()) {
+    if (entry.tabId === tabId) denyPendingApproval(requestId);
   }
 }
 
@@ -1198,17 +1262,24 @@ export function handleApprovalWindowClosed(windowId) {
  * @param {string} requestId
  */
 export function cancelApproval(requestId) {
-  const entry = pendingApprovals.get(requestId);
+  const entry = denyPendingApproval(requestId);
   if (!entry) return;
-  pendingApprovals.delete(requestId);
-  entry.resolve({
-    decision: "deny",
-    providerId: entry.request.providerId,
-    model: entry.request.model,
-  });
+  if (entry.tabId != null) closeApprovalTab(entry.tabId);
   if (entry.windowId != null) {
     chrome.windows.remove(entry.windowId, () => {
       void chrome.runtime.lastError;
     });
   }
+}
+
+/** @param {string} requestId */
+function denyPendingApproval(requestId) {
+  const entry = takePendingApproval(requestId);
+  if (!entry) return;
+  entry.resolve({
+    decision: "deny",
+    providerId: entry.request.providerId,
+    model: entry.request.model,
+  });
+  return entry;
 }

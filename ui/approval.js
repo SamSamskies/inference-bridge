@@ -37,9 +37,22 @@ import { isPlausibleModelForProvider } from "../src/storage-local.js";
 import { assertDecisionMediaSupported } from "../src/decision-media.js";
 import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
+import { isSafariBuild } from "../src/runtime-browser.js";
 
 const params = new URLSearchParams(location.search);
 const requestId = params.get("requestId");
+const safari = isSafariBuild();
+
+async function closeApproval() {
+  if (safari) {
+    const tab = await chrome.tabs.getCurrent();
+    if (tab?.id != null) {
+      await chrome.tabs.remove(tab.id);
+      return;
+    }
+  }
+  window.close();
+}
 
 // Keep the MV3 service worker alive while this popup is open. Opening a port
 // alone no longer resets Chrome's idle timer — periodic messages do.
@@ -50,7 +63,9 @@ try {
     // Firefox event pages can unload while an approval is open. Their
     // in-memory request is then gone; close this orphaned popup. The page
     // relay rebinds and settles its iterator as aborted/unavailable.
-    window.close();
+    void closeApproval().catch(() => {
+      showError("This permission request expired. Close the tab and retry from the website.");
+    });
   });
   const ping = () => {
     try {
@@ -1101,11 +1116,13 @@ async function decide(action) {
     });
     if (!response?.ok) {
       showError(response?.error
-        ? `${response.error} Close this dialog and retry the request from the site.`
+        ? `${response.error} Close this ${safari ? "tab" : "dialog"} and retry the request from the site.`
         : "This permission request is no longer active.");
       return;
     }
-    window.close();
+    await closeApproval().catch(() => {
+      showError("The decision was recorded. Return to the requesting website.");
+    });
   } catch (err) {
     showError(err instanceof Error ? err.message : "Failed to send decision");
   }

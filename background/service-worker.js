@@ -19,6 +19,8 @@ import {
   ensureOperationPermission,
   resolveApproval,
   getPendingApproval,
+  approvalPageUrl,
+  handleApprovalTabClosed,
   handleApprovalWindowClosed,
   cancelApproval,
   onAllowedOriginsStorageChanged,
@@ -60,7 +62,7 @@ import {
   canAcceptStartedAck,
   decidePortDisconnect,
 } from "../src/stream-rebind.js";
-import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
 import { hasBuiltInHostPermission } from "../src/host-permissions.js";
 import { ensureTrustedStorageAccess } from "../src/storage-access.js";
 import { connectChat, isChatSender } from "./chat.js";
@@ -104,6 +106,7 @@ chrome.permissions.onRemoved.addListener(() => {
 const activeStreams = new Map();
 
 let streamCounter = 0;
+const SAFARI_REBIND_TIMEOUT_MS = 15_000;
 
 function nextStreamId() {
   streamCounter += 1;
@@ -255,11 +258,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "get-approval") {
-    sendResponse({ request: getPendingApproval(message.requestId) });
+    // Only the extension approval document for this request can read its
+    // preview or send a decision. The browser provides the sender URL.
+    const { requestId } = message;
+    const trusted = typeof requestId === "string" && _sender.url === approvalPageUrl(requestId);
+    sendResponse({ request: trusted ? getPendingApproval(requestId) : null });
     return false;
   }
 
   if (message?.type === "resolve-approval") {
+    if (typeof message.requestId !== "string" || _sender.url !== approvalPageUrl(message.requestId)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     void resolveApproval(message.requestId, {
       decision: message.decision,
       providerId: message.providerId,
@@ -558,6 +569,7 @@ chrome.windows?.onRemoved?.addListener((windowId) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  handleApprovalTabClosed(tabId);
   for (const [id, entry] of activeStreams.entries()) {
     if (entry.tabId === tabId) {
       abortStream(id, "Tab closed");
@@ -877,6 +889,8 @@ async function handleDecideStart({
   if (controller.signal.aborted || !activeStreams.has(streamId)) return streamId;
   const permission = await ensureOperationPermission({
     requestId: streamId,
+    signal: controller.signal,
+    sourceTab: port.sender?.tab,
     origin,
     method: "decide",
     preferredProviderId: preferred.id,
@@ -1012,6 +1026,8 @@ async function handleSpeechStart({
   port.postMessage({ type: "started", streamId });
   const permission = await ensureSpeechPermission({
     requestId: streamId,
+    signal: controller.signal,
+    sourceTab: port.sender?.tab,
     origin,
     method,
     preferredProviderId: preferred.id,
@@ -1334,6 +1350,7 @@ async function handleStart(port, msg, onStreamId) {
 
     const permission = await ensurePermission({
       signal: controller.signal,
+      sourceTab: port.sender?.tab,
       requestId: streamId,
       origin,
       messages: validated.value.messages,
@@ -1559,6 +1576,7 @@ function abortStream(streamId, reason) {
  * } | null>}
  */
 async function waitForPortRebind(streamId, timeoutMs) {
+  if (isSafariBuild()) timeoutMs = Math.min(timeoutMs, SAFARI_REBIND_TIMEOUT_MS);
   const deadline = Number.isFinite(timeoutMs)
     ? Date.now() + timeoutMs
     : Infinity;
@@ -1569,7 +1587,9 @@ async function waitForPortRebind(streamId, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const entry = activeStreams.get(streamId);
-  if (!entry || entry.portDisconnected || entry.controller.signal.aborted) {
+  if (!entry || entry.controller.signal.aborted) return null;
+  if (entry.portDisconnected) {
+    abortStream(streamId, "The requesting tab did not reconnect.");
     return null;
   }
   return entry;
