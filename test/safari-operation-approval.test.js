@@ -11,6 +11,7 @@ import openaiDecideFixture from "./fixtures/openai-decisions-response.json";
 const origin = "https://app.example";
 const decideRoute = { providerId: "openai", model: "gpt-6-luna" };
 const transcribeRoute = { providerId: "openai", model: "gpt-4o-mini-transcribe" };
+const synthesizeRoute = { providerId: "openai", model: "tts-1", voice: "alloy" };
 
 function event() {
   const listeners = [];
@@ -233,7 +234,7 @@ describe("Safari transcribe approval", () => {
     expect(port.messages.some((m) => m.type.startsWith("binary-"))).toBe(false);
   });
 
-  it("aborts an in-flight transfer when Safari host access is revoked", async () => {
+  it("aborts an in-flight upload when Safari host access is revoked", async () => {
     await storage.grantOriginOperationAlways(origin, "transcribe", transcribeRoute);
     const port = {
       name: "ipa-inference",
@@ -274,6 +275,67 @@ describe("Safari transcribe approval", () => {
       }),
     }));
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Safari synthesize approval", () => {
+  beforeEach(async () => {
+    await storage.saveSettings({
+      apiKeys: { openai: "test-key" },
+      operationDefaults: { synthesize: synthesizeRoute },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (url.endsWith("/audio/speech")) {
+        return new Response(Uint8Array.from([1, 2, 3]), {
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+  });
+
+  it("opens a tab and downloads audio only after a trusted allow once with voice", async () => {
+    const port = start({ method: "synthesize", text: "Hello from Safari" });
+    await pending(port, "synthesize");
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({
+      url: permissions.approvalPageUrl(port.streamId),
+      active: true,
+    }));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(port.messages.some((m) => m.type.startsWith("binary-"))).toBe(false);
+
+    expect(await sendApprovalMessage(port, { type: "get-approval" }))
+      .toMatchObject({ request: { method: "synthesize", origin, ...synthesizeRoute } });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...synthesizeRoute,
+    }, origin)).toEqual({ ok: false });
+    expect(fetch).not.toHaveBeenCalled();
+
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...synthesizeRoute,
+    })).toEqual({ ok: true });
+    await outcome(port);
+    expect(port.messages.filter((m) => m.type === "error")).toEqual([]);
+    expect(port.messages.find((m) => m.chunk?.type === "done").chunk.audio)
+      .toMatchObject({ mediaType: "audio/mpeg", byteLength: 3 });
+    const packet = port.messages.find((m) => m.type === "binary-data");
+    expect(atob(packet.data)).toBe(String.fromCharCode(1, 2, 3));
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+      input: "Hello from Safari",
+      model: "tts-1",
+      voice: "alloy",
+      response_format: "mp3",
+    });
+  });
+
+  it("denies without calling the provider or sending audio", async () => {
+    const port = start({ method: "synthesize", text: "Hello from Safari" });
+    await pending(port, "synthesize");
+    expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "deny" }))
+      .toEqual({ ok: true });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(port.messages.some((m) => m.type.startsWith("binary-"))).toBe(false);
   });
 });
 
