@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { expect, it } from "vitest";
@@ -13,6 +21,7 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
     for (const path of [scripts, bin, source]) mkdirSync(path, { recursive: true });
     const prepare = join(scripts, "prepare-safari-ios.mjs");
     copyFileSync(new URL("../scripts/prepare-safari-ios.mjs", import.meta.url), prepare);
+    copyFileSync(new URL("../safari/ios-app/Icon.png", import.meta.url), join(source, "Icon.png"));
     writeFileSync(join(scripts, "package.mjs"), `
       import assert from "node:assert/strict";
       import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -59,12 +68,14 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
     run();
     expect(readFileSync(join(resources, "Base.lproj", "Main.html"), "utf8")).toBe("setup screen");
     expect(readFileSync(join(resources, "Style.css"), "utf8")).toBe("setup styles");
+    expect(existsSync(join(resources, "Icon.png"))).toBe(true);
 
     writeFileSync(project, "configured signing");
     writeFileSync(join(source, "Main.html"), "updated setup screen");
     run();
     expect(readFileSync(project, "utf8")).toBe("configured signing");
     expect(readFileSync(join(resources, "Base.lproj", "Main.html"), "utf8")).toBe("updated setup screen");
+    expect(existsSync(join(resources, "Icon.png"))).toBe(true);
     expect(readFileSync(join(root, "build", "stages"), "utf8")).toBe("safari\nsafari\n");
   } finally {
     rmSync(root, { recursive: true, force: true });

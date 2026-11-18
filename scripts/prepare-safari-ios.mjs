@@ -37,10 +37,20 @@ if (!existsSync(project)) {
   ], env);
 }
 
-const setupFiles = [join(resources, "Base.lproj", "Main.html"), join(resources, "Style.css")];
-for (const path of [project, ...setupFiles]) {
+const requiredGenerated = [
+  project,
+  join(resources, "Base.lproj", "Main.html"),
+  join(resources, "Style.css"),
+];
+for (const path of requiredGenerated) {
   if (!existsSync(path)) throw new Error(`The generated Safari wrapper is missing ${path}`);
 }
+// Main.html references ../Icon.png from Base.lproj — copy brand mark into Resources/.
+const setupFiles = [
+  join(resources, "Base.lproj", "Main.html"),
+  join(resources, "Style.css"),
+  join(resources, "Icon.png"),
+];
 for (const destination of setupFiles) {
   copyFileSync(join(root, "safari", "ios-app", basename(destination)), destination);
 }
