@@ -1291,7 +1291,8 @@ export function isApprovalDocumentUrl(urlString, requestId) {
 /**
  * Trust get-approval / resolve-approval only from this request's approval
  * document. Safari tabs also bind to the stored approval tabId so concurrent
- * interim URLs (no ?requestId=) cannot cross-read or cross-resolve.
+ * interim URLs (no ?requestId=) cannot cross-read or cross-resolve. Until
+ * tabs.create assigns tabId, Safari senders are untrusted.
  * @param {string} requestId
  * @param {{ url?: string, tab?: { id?: number } }} sender
  */
@@ -1301,7 +1302,12 @@ export function isTrustedApprovalSender(requestId, sender) {
   }
   if (!isApprovalDocumentUrl(sender.url, requestId)) return false;
   const entry = pendingApprovals.get(requestId);
-  if (entry?.tabId != null && sender.tab?.id !== entry.tabId) return false;
+  if (entry?.tabId != null) {
+    return sender.tab?.id === entry.tabId;
+  }
+  // Safari always opens an approval tab; reject until tabId is bound so the
+  // pre-create window cannot be abused with interim document URLs.
+  if (isSafariBuild()) return false;
   return true;
 }
 

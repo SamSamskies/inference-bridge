@@ -241,6 +241,32 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("rejects get and resolve until the Safari approval tabId is bound", async () => {
+    let opened;
+    chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.create).toHaveBeenCalledOnce());
+    const approvalUrl = permissions.approvalPageUrl(port.streamId);
+    const interim = approvalUrl.replace(/\?.*$/, "");
+    expect(await sendApprovalMessage(port, { type: "get-approval" }, interim, 201))
+      .toEqual({ request: null });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: false });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+
+    opened({ id: 201 });
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    expect(await sendApprovalMessage(port, { type: "get-approval" }, interim, 201))
+      .toMatchObject({ request: { origin, ...route } });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, interim, 201)).toEqual({ ok: true });
+    await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("closes the approval tab if it opens after the originating tab navigated", async () => {
     let opened;
     chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
