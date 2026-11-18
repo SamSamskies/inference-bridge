@@ -4,6 +4,8 @@ import {
   hasBuiltInHostPermission,
   normalizeCompatBaseUrl,
   originPatternFromBaseUrl,
+  revokedHostAccessMessage,
+  revokedHostAccessRestoreHint,
 } from "../src/host-permissions.js";
 
 const chromeMock = installChromeMock();
@@ -92,6 +94,25 @@ describe("originPatternFromBaseUrl", () => {
     );
     expect(originPatternFromBaseUrl("http://192.168.1.3:1234/v1", firefox)).toBeNull();
     expect(originPatternFromBaseUrl("http://remote.example:1234/v1", firefox)).toBeNull();
+  });
+});
+
+describe("revoked host access copy", () => {
+  it("points Safari and Firefox users at their own settings", () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    expect(revokedHostAccessRestoreHint()).toBe("Safari extension settings");
+    expect(revokedHostAccessMessage("Gemini")).toBe(
+      "Host access for Gemini was revoked. Restore it in Safari extension settings."
+    );
+
+    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+    expect(revokedHostAccessRestoreHint()).toBe("Firefox add-on settings");
+    expect(revokedHostAccessMessage("Gemini")).toBe(
+      "Host access for Gemini was revoked. Restore it in Firefox add-on settings."
+    );
+
+    chromeMock.setManifest({});
+    expect(revokedHostAccessRestoreHint()).toBe("extension settings");
   });
 });
 

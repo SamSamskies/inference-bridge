@@ -24,6 +24,7 @@ import { getDefaultProvider, getProviderAsync, resolveModelCapabilities, resolve
 import {
   hasBuiltInHostPermission,
   hasHostPermissionForBaseUrl,
+  revokedHostAccessMessage,
 } from "./host-permissions.js";
 import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 import {
@@ -970,7 +971,7 @@ export async function ensurePermission(args) {
           const label = chosenProvider.label || chosenProviderId;
           const message = isCompatProviderId(chosenProviderId)
             ? `Host permission not granted for ${label}. Re-save the endpoint in extension Options to allow access.`
-            : `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
+            : revokedHostAccessMessage(label);
           return {
             allowed: false,
             providerId: chosenProviderId,

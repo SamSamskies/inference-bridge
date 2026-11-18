@@ -20,6 +20,8 @@ import {
   normalizeCompatBaseUrl,
   originPatternFromBaseUrl,
   requestHostPermissionForBaseUrl,
+  revokedHostAccessMessage,
+  revokedHostAccessRestoreHint,
 } from "../src/host-permissions.js";
 import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
 import { summarizeToolFingerprintLabels } from "../src/tool-approval.js";
@@ -755,7 +757,7 @@ function providerAccessError(providerId) {
   if (!providersWithRevokedHostAccess.has(providerId)) return "";
   const provider = providers.find((candidate) => candidate.id === providerId);
   const label = provider?.label || providerId;
-  return `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
+  return revokedHostAccessMessage(label);
 }
 
 /**
@@ -2254,7 +2256,7 @@ ppqTransferForm.addEventListener("submit", async (event) => {
   let transferred = false;
   try {
     if (!(await hasBuiltInHostPermission("ppq"))) {
-      throw new Error("Host access for PayPerQ was revoked. Restore it in Firefox add-on settings before transferring.");
+      throw new Error(`Host access for PayPerQ was revoked. Restore it in ${revokedHostAccessRestoreHint()} before transferring.`);
     }
     await transferPPQCompatEndpoint(review.source.id, {
       expected: review, replaceExisting: ppqTransferReplace.checked,

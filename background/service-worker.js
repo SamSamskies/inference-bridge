@@ -64,7 +64,11 @@ import {
   decidePortDisconnect,
 } from "../src/stream-rebind.js";
 import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
-import { hasBuiltInHostPermission } from "../src/host-permissions.js";
+import {
+  hasBuiltInHostPermission,
+  revokedHostAccessMessage,
+  revokedHostAccessRestoreHint,
+} from "../src/host-permissions.js";
 import { ensureTrustedStorageAccess } from "../src/storage-access.js";
 import { connectChat, isChatSender } from "./chat.js";
 import { openChat } from "../src/open-chat.js";
@@ -87,7 +91,7 @@ chrome.permissions.onRemoved.addListener(() => {
   // streaming. Abort in-flight work; the next request re-checks its host.
   if (!isFirefoxBuild()) return;
   for (const id of activeStreams.keys()) {
-    abortStream(id, "Host access was revoked. Restore it in Firefox add-on settings.");
+    abortStream(id, `Host access was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`);
   }
 });
 
@@ -439,7 +443,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             ok: false,
             error: {
               code: "unavailable",
-              message: `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`,
+              message: revokedHostAccessMessage(provider.label),
             },
           });
           return;
@@ -932,7 +936,7 @@ async function handleDecideStart({
   if (!(await hasBuiltInHostPermission(provider.id)))
     throw inferenceError(
       "unavailable",
-      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+      revokedHostAccessMessage(provider.label)
     );
   assertDecisionQuestionLimit(provider.label, provider.decisions.maxQuestions, request.questions);
   await provider.preflightDecide?.({
@@ -1082,7 +1086,7 @@ async function handleSpeechStart({
   if (!(await hasBuiltInHostPermission(provider.id))) {
     throw inferenceError(
       "unavailable",
-      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+      revokedHostAccessMessage(provider.label)
     );
   }
   const model = permission.model;
@@ -1416,7 +1420,7 @@ async function handleStart(port, msg, onStreamId) {
     if (!(await hasBuiltInHostPermission(provider.id))) {
       throwInference(
         "unavailable",
-        `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+        revokedHostAccessMessage(provider.label)
       );
     }
 

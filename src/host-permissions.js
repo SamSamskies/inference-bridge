@@ -5,7 +5,7 @@
  */
 
 import { isLoopbackHostname } from "./loopback-origin-bypass.js";
-import { isFirefoxBuild } from "./runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 
 const FIREFOX_BUILTIN_HOSTS = Object.freeze({
   openai: "https://api.openai.com/*",
@@ -17,6 +17,22 @@ const FIREFOX_BUILTIN_HOSTS = Object.freeze({
   "ollama-cloud": "https://ollama.com/*",
   "ollama-web-search": "https://ollama.com/*",
 });
+
+/**
+ * Where the user restores revoked optional host access.
+ * Built-in host checks currently apply on Firefox; Safari-specific copy keeps
+ * recovery instructions accurate if that expands or other paths reuse this.
+ */
+export function revokedHostAccessRestoreHint() {
+  if (isSafariBuild()) return "Safari extension settings";
+  if (isFirefoxBuild()) return "Firefox add-on settings";
+  return "extension settings";
+}
+
+/** @param {string} label */
+export function revokedHostAccessMessage(label) {
+  return `Host access for ${label} was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`;
+}
 
 /** Firefox users can revoke install-time host grants in about:addons. */
 export async function hasBuiltInHostPermission(providerId) {
