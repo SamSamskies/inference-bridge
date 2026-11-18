@@ -11,7 +11,7 @@ import { OPENAI_MODELS } from "./providers/openai.js";
 import { normalizeCompatBaseUrl } from "./host-permissions.js";
 import { normalizeChatReasoningEffort, normalizeSiteChatReasoningEffort } from "./chat-options.js";
 import { ppqTransferModel, ppqTransferPreview } from "./ppq-transfer.js";
-import { isSafariBuild } from "./runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 
 /** Storage promises reject on quota and browser persistence failures. */
 async function writeSettings(patch) {
@@ -114,6 +114,18 @@ const OPENAI_MODEL_SET = new Set([
  */
 export function isCompatProviderId(providerId) {
   return typeof providerId === "string" && providerId.startsWith("compat:");
+}
+
+/**
+ * Built-ins omitted from this browser's registry (mirror providers/registry.js).
+ * Keep checks here to avoid a storage ↔ registry import cycle.
+ * @param {string} providerId
+ * @returns {boolean}
+ */
+export function isUnavailableBuiltInProviderId(providerId) {
+  if (providerId === "on-device") return isFirefoxBuild() || isSafariBuild();
+  if (providerId === "ollama") return isSafariBuild();
+  return false;
 }
 
 /**
@@ -475,9 +487,12 @@ export async function getSettings() {
     scrubbed = true;
   }
 
-  // Drop api keys for deleted compat endpoints.
+  // Drop api keys for deleted compat endpoints and unavailable built-ins.
   for (const key of Object.keys(apiKeys)) {
-    if (isCompatProviderId(key) && !compatIds.has(key)) {
+    if (
+      (isCompatProviderId(key) && !compatIds.has(key)) ||
+      isUnavailableBuiltInProviderId(key)
+    ) {
       delete apiKeys[key];
       scrubbed = true;
     }
@@ -486,7 +501,10 @@ export async function getSettings() {
   let defaultProviderId = normalizeProviderId(
     typeof stored.defaultProviderId === "string" ? stored.defaultProviderId : undefined
   );
-  if (isCompatProviderId(defaultProviderId) && !compatIds.has(defaultProviderId)) {
+  if (
+    (isCompatProviderId(defaultProviderId) && !compatIds.has(defaultProviderId)) ||
+    isUnavailableBuiltInProviderId(defaultProviderId)
+  ) {
     defaultProviderId = DEFAULTS.defaultProviderId;
     scrubbed = true;
   }
@@ -522,7 +540,10 @@ export async function getSettings() {
       scrubbed = true;
       continue;
     }
-    if (isCompatProviderId(providerId) && !compatIds.has(providerId)) {
+    if (
+      (isCompatProviderId(providerId) && !compatIds.has(providerId)) ||
+      isUnavailableBuiltInProviderId(providerId)
+    ) {
       delete defaultModels[providerId];
       scrubbed = true;
     }
@@ -540,12 +561,17 @@ export async function getSettings() {
     DEFAULTS.defaultModels[defaultProviderId] ||
     "";
 
-  // Drop grants / last-used that pointed at deleted compat endpoints. Do not
-  // retarget them to another provider — that would keep always-allow active and
-  // could send previously local-only traffic to OpenAI without a new prompt.
+  // Drop grants / last-used that pointed at deleted compat endpoints or
+  // built-ins unavailable in this browser (e.g. local Ollama / On-device on
+  // Safari). Do not retarget them to another provider — that would keep
+  // always-allow active and could send previously local-only traffic to
+  // OpenAI without a new prompt.
   for (const [origin, grant] of Object.entries(allowedOrigins)) {
     const pid = normalizeProviderId(grant?.providerId);
-    if (isCompatProviderId(pid) && !compatIds.has(pid)) {
+    if (
+      (isCompatProviderId(pid) && !compatIds.has(pid)) ||
+      isUnavailableBuiltInProviderId(pid)
+    ) {
       delete allowedOrigins[origin];
       scrubbed = true;
       continue;
@@ -563,7 +589,10 @@ export async function getSettings() {
     }
   }
   for (const [origin, entry] of Object.entries(originLastUsed)) {
-    if (isCompatProviderId(entry.providerId) && !compatIds.has(entry.providerId)) {
+    if (
+      (isCompatProviderId(entry.providerId) && !compatIds.has(entry.providerId)) ||
+      isUnavailableBuiltInProviderId(entry.providerId)
+    ) {
       delete originLastUsed[origin];
       scrubbed = true;
       continue;
@@ -581,8 +610,8 @@ export async function getSettings() {
     const route = operationDefaults[operation];
     if (
       route &&
-      isCompatProviderId(route.providerId) &&
-      !compatIds.has(route.providerId)
+      ((isCompatProviderId(route.providerId) && !compatIds.has(route.providerId)) ||
+        isUnavailableBuiltInProviderId(route.providerId))
     ) {
       delete operationDefaults[operation];
       scrubbed = true;
@@ -598,8 +627,8 @@ export async function getSettings() {
         const route = operations[operation];
         if (
           route &&
-          isCompatProviderId(route.providerId) &&
-          !compatIds.has(route.providerId)
+          ((isCompatProviderId(route.providerId) && !compatIds.has(route.providerId)) ||
+            isUnavailableBuiltInProviderId(route.providerId))
         ) {
           delete operations[operation];
           scrubbed = true;

@@ -774,6 +774,60 @@ describe("compatEndpoints", () => {
       { id: "compat:remote", name: "Remote", baseUrl: "https://llm.example.com/v1" },
     ]);
   });
+
+  it("scrubs unavailable built-in grants on Safari reads", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    chromeMock.store.set("defaultProviderId", "ollama");
+    chromeMock.store.set("defaultModels", {
+      ollama: "gemma4",
+      openai: "gpt-6-luna",
+      "on-device": "on-device",
+    });
+    chromeMock.store.set("apiKeys", { ollama: "ollama-key", openai: "sk-oai" });
+    chromeMock.store.set("allowedOrigins", {
+      "https://app.example": {
+        allowedAt: 1,
+        providerId: "ollama",
+        model: "gemma4",
+      },
+      "https://other.example": {
+        allowedAt: 1,
+        providerId: "on-device",
+        model: "on-device",
+      },
+      "https://ok.example": {
+        allowedAt: 1,
+        providerId: "openai",
+        model: "gpt-6-luna",
+      },
+    });
+    chromeMock.store.set("originLastUsed", {
+      "https://app.example": { providerId: "ollama", model: "gemma4", usedAt: 1 },
+    });
+    chromeMock.store.set("operationDefaults", {
+      decide: { providerId: "on-device", model: "on-device" },
+    });
+    chromeMock.store.set("operationGrants", {
+      "https://speech.example": {
+        transcribe: { providerId: "ollama", model: "whisper", allowedAt: 1 },
+      },
+    });
+
+    const settings = await getSettings();
+    expect(settings.defaultProviderId).toBe("openai");
+    expect(settings.defaultModels.ollama).toBeUndefined();
+    expect(settings.defaultModels["on-device"]).toBeUndefined();
+    expect(settings.apiKeys.ollama).toBeUndefined();
+    expect(settings.allowedOrigins["https://app.example"]).toBeUndefined();
+    expect(settings.allowedOrigins["https://other.example"]).toBeUndefined();
+    expect(settings.allowedOrigins["https://ok.example"]).toMatchObject({
+      providerId: "openai",
+    });
+    expect(settings.originLastUsed["https://app.example"]).toBeUndefined();
+    expect(settings.operationDefaults.decide).toBeUndefined();
+    expect(settings.operationGrants["https://speech.example"]).toBeUndefined();
+    expect(chromeMock.store.get("allowedOrigins")["https://app.example"]).toBeUndefined();
+  });
 });
 
 describe("origin grants still work with openrouter", () => {
