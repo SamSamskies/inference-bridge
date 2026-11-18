@@ -170,6 +170,24 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("denies when the approval tab closes before tabId is bound", async () => {
+    let opened;
+    chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.create).toHaveBeenCalledOnce());
+    // onRemoved before entry.tabId is set cannot match the pending entry.
+    chrome.tabs.onRemoved.emit(201);
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    expect(port.messages.some((m) => m.type === "error")).toBe(false);
+
+    chrome.tabs.get.mockRejectedValueOnce(new Error("No tab with id: 201."));
+    opened({ id: 201 });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("denies when the approval tab navigates away without a decision", async () => {
     const port = start();
     await pending(port);
