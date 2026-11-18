@@ -1337,6 +1337,24 @@ export function isTrustedApprovalSender(requestId, sender) {
 }
 
 /**
+ * Trust provider-catalog RPCs from an approval document only when the sender
+ * tab is the bound approval tab for a pending request (same isolation as
+ * get-approval). Options and chat use a separate page-level allowlist.
+ * @param {{ url?: string, tab?: { id?: number } }} sender
+ */
+export function isTrustedApprovalCatalogSender(sender) {
+  const tabId = sender?.tab?.id;
+  if (typeof tabId !== "number" || tabId < 0 || typeof sender?.url !== "string") {
+    return false;
+  }
+  for (const [requestId, entry] of pendingApprovals.entries()) {
+    if (entry.tabId !== tabId) continue;
+    if (isApprovalDocumentUrl(sender.url, requestId)) return true;
+  }
+  return false;
+}
+
+/**
  * @param {number} tabId
  * @param {string} url
  */

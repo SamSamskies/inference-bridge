@@ -284,6 +284,16 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("rejects approval catalog reads from a foreign tabId", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    const url = permissions.approvalPageUrl(port.streamId);
+    expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 201 } })).toBe(true);
+    expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 999 } })).toBe(false);
+    expect(permissions.isTrustedApprovalCatalogSender({ url })).toBe(false);
+  });
+
   it("rejects get and resolve until the Safari approval tabId is bound", async () => {
     let opened;
     chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
@@ -430,7 +440,7 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   ])("uses the saved %s chat model before the factory default when approval switches providers", async (providerId, savedModel, nextModel, factoryDefault) => {
     const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method },
-      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") }, resolve
+      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/options.html") }, resolve
     ));
     // This is not the global provider: a switch must still use its own saved model.
     await storage.saveSettings({

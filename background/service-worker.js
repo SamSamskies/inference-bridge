@@ -20,6 +20,7 @@ import {
   resolveApproval,
   getPendingApproval,
   isTrustedApprovalSender,
+  isTrustedApprovalCatalogSender,
   handleApprovalTabClosed,
   handleApprovalTabNavigated,
   handleApprovalWindowClosed,
@@ -74,9 +75,23 @@ import { ensureTrustedStorageAccess } from "../src/storage-access.js";
 import {
   connectChat,
   isChatSender,
+  isExtensionPageSender,
   isTrustedProviderCatalogSender,
 } from "./chat.js";
 import { openChat } from "../src/open-chat.js";
+
+/**
+ * Options and chat may read the catalog by page identity. Approval documents
+ * must also match the bound approval tabId (same isolation as get-approval).
+ * @param {{ id?: string, url?: string, tab?: { id?: number } } | undefined} sender
+ */
+function mayReadProviderCatalog(sender) {
+  if (!isTrustedProviderCatalogSender(sender)) return false;
+  if (isExtensionPageSender(sender, "ui/approval.html")) {
+    return isTrustedApprovalCatalogSender(sender);
+  }
+  return true;
+}
 
 // Reapply on every worker/event-page start, including browser restart. Keep
 // event registration synchronous; settings operations await the same promise.
@@ -363,8 +378,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "list-providers") {
     // Catalog metadata (keys, models, voices, capabilities) — only Options,
-    // approval, and first-party chat may read it.
-    if (!isTrustedProviderCatalogSender(_sender)) return false;
+    // approval (bound tab), and first-party chat may read it.
+    if (!mayReadProviderCatalog(_sender)) return false;
     const method =
       message.method === "decide" ||
       message.method === "transcribe" ||
@@ -450,7 +465,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-models") {
-    if (!isTrustedProviderCatalogSender(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) return false;
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
 
@@ -530,7 +545,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "ollama-thinking") {
-    if (!isTrustedProviderCatalogSender(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) return false;
     const model = typeof message.model === "string" ? message.model : "";
     const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
     void (async () => {
@@ -545,7 +560,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "model-capabilities") {
-    if (!isTrustedProviderCatalogSender(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) return false;
     const providerId = typeof message.providerId === "string" ? message.providerId : "";
     const model = typeof message.model === "string" ? message.model : "";
     void (async () => {
@@ -558,7 +573,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-voices") {
-    if (!isTrustedProviderCatalogSender(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) return false;
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
     void getProviderAsync(providerId)

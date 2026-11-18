@@ -139,7 +139,7 @@ async function approve(port, route = cloud, decision = "allow_once") {
 }
 async function message(payload, sender = {
   id: chrome.runtime.id,
-  url: chrome.runtime.getURL("ui/approval.html"),
+  url: chrome.runtime.getURL("ui/options.html"),
 }) {
   return new Promise((resolve) =>
     chrome.runtime.onMessage.emit(payload, sender, resolve)

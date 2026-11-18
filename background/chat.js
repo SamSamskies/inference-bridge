@@ -19,9 +19,8 @@ export function isChatSender(sender) {
 }
 
 /**
- * Options, approval, and first-party chat may read provider catalog metadata
- * (list-providers, list-models, list-voices, model-capabilities, ollama-thinking).
- * Content scripts and other contexts must not.
+ * Page allowlist for provider catalog metadata RPCs. The service worker also
+ * requires a bound approval tabId when the sender is ui/approval.html.
  * @param {{ id?: string, url?: string } | undefined} sender
  */
 export function isTrustedProviderCatalogSender(sender) {

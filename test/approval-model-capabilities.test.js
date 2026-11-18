@@ -24,7 +24,7 @@ beforeEach(async () => {
   await import("../background/service-worker.js");
   chrome.runtime.sendMessage = (message) => new Promise((resolve) => chrome.runtime.onMessage.emit(
     message,
-    { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") },
+    { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/options.html") },
     resolve,
   ));
 });

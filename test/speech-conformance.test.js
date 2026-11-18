@@ -242,7 +242,7 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
     await storage.revokeOriginOperation(origin, "synthesize");
     const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method: "synthesize", mediaType: "audio/wav" },
-      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") },
+      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/options.html") },
       resolve
     ));
     expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini", "ollama", "ollama-cloud"]);
