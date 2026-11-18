@@ -1206,6 +1206,7 @@ function promptUser(request, { signal, sourceTab }) {
 export async function resolveApproval(requestId, result) {
   const entry = takePendingApproval(requestId);
   if (!entry) return { ok: false };
+  const approvalTabId = entry.tabId;
 
   let acknowledge;
   const completion = new Promise((resolve) => { acknowledge = resolve; });
@@ -1241,9 +1242,15 @@ export async function resolveApproval(requestId, result) {
         : {}),
   });
 
-  // Let the approval page close itself after sendMessage succeeds.
-  // Closing the surface here can race with the page and obscure the decision.
-  return completion;
+  // Wait for persistence before responding so the approval page can show save
+  // errors. Chrome/Firefox popups still close themselves (closing the popup
+  // window from here can race sendResponse). Safari also closes the approval
+  // tab here after ok so a missing tabs.getCurrent() cannot leave an orphan.
+  const response = await completion;
+  if (isSafariBuild() && response?.ok && approvalTabId != null) {
+    closeApprovalTab(approvalTabId);
+  }
+  return response;
 }
 
 /**

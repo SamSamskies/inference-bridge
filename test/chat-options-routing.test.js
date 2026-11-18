@@ -161,6 +161,19 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("closes the approval tab from the worker after a successful Allow", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    chrome.tabs.remove.mockClear();
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    })).toEqual({ ok: true });
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
+    await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("denies when the approval tab closes without a decision", async () => {
     const port = start();
     await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
