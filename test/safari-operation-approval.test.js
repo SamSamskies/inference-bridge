@@ -233,3 +233,31 @@ describe("Safari transcribe approval", () => {
     expect(port.messages.some((m) => m.type.startsWith("binary-"))).toBe(false);
   });
 });
+
+describe("Safari on-device messages", () => {
+  function message(payload) {
+    return new Promise((resolve) => chrome.runtime.onMessage.emit(payload, {}, resolve));
+  }
+
+  it("rejects status and install without probing an offscreen host", async () => {
+    const getContexts = vi.fn(async () => [{}]);
+    chrome.runtime.getContexts = getContexts;
+
+    await expect(message({ type: "on-device-status" })).resolves.toEqual({
+      ok: false,
+      availability: "missing",
+      error: "On-device AI is unavailable in Safari.",
+    });
+    await expect(message({ type: "on-device-install" })).resolves.toEqual({
+      ok: false,
+      code: "unavailable",
+      error: "On-device AI is unavailable in Safari.",
+    });
+    await expect(message({ type: "on-device-cancel-install" })).resolves.toEqual({
+      ok: false,
+      code: "unavailable",
+      error: "On-device AI is unavailable in Safari.",
+    });
+    expect(getContexts).not.toHaveBeenCalled();
+  });
+});

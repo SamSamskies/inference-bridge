@@ -298,8 +298,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-status") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, availability: "missing", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        availability: "missing",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void (message.method === "decide" ? getOnDeviceDecisionAvailability() : getOnDeviceAvailability())
@@ -317,8 +322,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-install") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        code: "unavailable",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void installOnDeviceModel({})
@@ -334,8 +344,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-cancel-install") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        code: "unavailable",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void cancelOnDeviceInstall()
