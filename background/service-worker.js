@@ -21,6 +21,7 @@ import {
   getPendingApproval,
   approvalPageUrl,
   handleApprovalTabClosed,
+  handleApprovalTabNavigated,
   handleApprovalWindowClosed,
   cancelApproval,
   onAllowedOriginsStorageChanged,
@@ -580,7 +581,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Navigation/reload destroys the content script. Soft-disconnect during
 // approval leaves the stream waiting for rebind (or abort); without this,
 // waitForPortRebind(..., Infinity) never resolves and the stream leaks.
+// Safari approvals also open as normal tabs — navigating that tab away from
+// the approval document must deny immediately, not wait for the timeout.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  handleApprovalTabNavigated(tabId, changeInfo);
   if (changeInfo.status !== "loading") return;
   for (const [id, entry] of activeStreams.entries()) {
     if (entry.tabId === tabId) {

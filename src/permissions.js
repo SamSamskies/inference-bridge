@@ -1258,6 +1258,21 @@ export function handleApprovalTabClosed(tabId) {
 }
 
 /**
+ * Deny a Safari approval when its tab navigates away from the approval
+ * document (back, address bar, link). Closing the tab is handled separately.
+ * @param {number} tabId
+ * @param {{ url?: string }} changeInfo
+ */
+export function handleApprovalTabNavigated(tabId, changeInfo) {
+  if (typeof changeInfo?.url !== "string") return;
+  for (const [requestId, entry] of pendingApprovals.entries()) {
+    if (entry.tabId !== tabId) continue;
+    if (changeInfo.url === approvalPageUrl(requestId)) continue;
+    denyPendingApproval(requestId);
+  }
+}
+
+/**
  * Deny a pending approval (e.g. request aborted while prompting).
  * @param {string} requestId
  */

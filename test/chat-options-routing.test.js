@@ -159,6 +159,19 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("denies when the approval tab navigates away without a decision", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    const approvalUrl = permissions.approvalPageUrl(port.streamId);
+    chrome.tabs.onUpdated.emit(201, { url: approvalUrl, status: "loading" });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    chrome.tabs.onUpdated.emit(201, { url: "https://example.com/", status: "loading" });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("closes the approval tab if it opens after the originating tab navigated", async () => {
     let opened;
     chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
