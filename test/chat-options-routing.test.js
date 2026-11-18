@@ -638,6 +638,25 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("expires a popup approval that never binds tabId", async () => {
+    vi.useFakeTimers();
+    chrome.windows.create = (_opts, cb) => {
+      queueMicrotask(() => cb?.({ id: 1001 }));
+    };
+    chrome.tabs.query = vi.fn((_query, cb) => {
+      // Never deliver tabs — tabId stays unbound until the shared prompt timeout.
+      void cb;
+    });
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.query).toHaveBeenCalled());
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(permissions.APPROVAL_PROMPT_TIMEOUT_MS);
+    expect(port.messages.at(-1)?.error?.code).toBe("permission_denied");
+    expect(permissions.getPendingApproval(port.streamId)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["global", "low"], ["page", "high"], ["auto", undefined],
     ["none", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"],

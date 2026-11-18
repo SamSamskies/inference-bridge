@@ -81,7 +81,10 @@ import {
 
 /** Episode TTL for short-lived SW-side tools approval (ms). */
 export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
-export const SAFARI_APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
+/** Max time an approval tab/popup may stay open without a decision. */
+export const APPROVAL_PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
+/** Alias kept for existing Safari tests; same as APPROVAL_PROMPT_TIMEOUT_MS. */
+export const SAFARI_APPROVAL_TIMEOUT_MS = APPROVAL_PROMPT_TIMEOUT_MS;
 
 /**
  * @typedef {{
@@ -1102,12 +1105,13 @@ function promptUser(request, { signal, sourceTab }) {
       reject(Object.assign(new Error(message), { name: "InferenceError", code }));
     }
 
+    // Same deny path as dismiss / navigate-away for Safari tabs and Chrome /
+    // Firefox popups (including when tabId never binds after windows.create).
+    entry.timeout = setTimeout(() => {
+      cancelApproval(request.requestId);
+    }, APPROVAL_PROMPT_TIMEOUT_MS);
+
     if (isSafariBuild()) {
-      // Same deny path as tab close / navigate-away so callers see
-      // permission_denied rather than a distinct aborted timeout code.
-      entry.timeout = setTimeout(() => {
-        cancelApproval(request.requestId);
-      }, SAFARI_APPROVAL_TIMEOUT_MS);
       void Promise.resolve().then(async () => {
         if (pendingApprovals.get(request.requestId) !== entry) return;
         const tab = await chrome.tabs.create({
