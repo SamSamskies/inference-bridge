@@ -1312,18 +1312,41 @@ export function isTrustedApprovalSender(requestId, sender) {
 }
 
 /**
- * Deny a Safari approval when its tab navigates away from the approval
- * document (back, address bar, link). Closing the tab is handled separately.
  * @param {number} tabId
- * @param {{ url?: string }} changeInfo
+ * @param {string} url
  */
-export function handleApprovalTabNavigated(tabId, changeInfo) {
-  if (typeof changeInfo?.url !== "string" || !changeInfo.url) return;
+function denyApprovalTabsLeavingDocument(tabId, url) {
+  // about:blank (and empty) can appear mid-navigation; wait for a real URL or
+  // onRemoved rather than false-denying a still-loading approval document.
+  if (!url || url === "about:blank" || url.startsWith("about:")) return;
   for (const [requestId, entry] of pendingApprovals.entries()) {
     if (entry.tabId !== tabId) continue;
-    if (isApprovalDocumentUrl(changeInfo.url, requestId)) continue;
+    if (isApprovalDocumentUrl(url, requestId)) continue;
     denyPendingApproval(requestId);
   }
+}
+
+/**
+ * Deny a Safari approval when its tab navigates away from the approval
+ * document (back, address bar, link). Closing the tab is handled separately.
+ * WebKit sometimes omits changeInfo.url on loading; fall back to tabs.get.
+ * @param {number} tabId
+ * @param {{ url?: string, status?: string }} changeInfo
+ */
+export function handleApprovalTabNavigated(tabId, changeInfo) {
+  if (typeof changeInfo?.url === "string" && changeInfo.url) {
+    denyApprovalTabsLeavingDocument(tabId, changeInfo.url);
+    return;
+  }
+  if (changeInfo?.status !== "loading") return;
+  if (![...pendingApprovals.values()].some((entry) => entry.tabId === tabId)) {
+    return;
+  }
+  void chrome.tabs.get(tabId).then((tab) => {
+    if (typeof tab?.url === "string") denyApprovalTabsLeavingDocument(tabId, tab.url);
+  }).catch(() => {
+    // Tab may already be gone; onRemoved handles that.
+  });
 }
 
 /**
