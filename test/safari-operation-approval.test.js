@@ -232,6 +232,49 @@ describe("Safari transcribe approval", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(port.messages.some((m) => m.type.startsWith("binary-"))).toBe(false);
   });
+
+  it("aborts an in-flight transfer when Safari host access is revoked", async () => {
+    await storage.grantOriginOperationAlways(origin, "transcribe", transcribeRoute);
+    const port = {
+      name: "ipa-inference",
+      sender: { tab: { id: 1 } },
+      onMessage: event(),
+      onDisconnect: event(),
+      messages: [],
+      postMessage(message) {
+        this.messages.push(message);
+        if (message.type === "started") {
+          this.streamId = message.streamId;
+          this.onMessage.emit({ type: "started-ack", streamId: this.streamId });
+        }
+        // Hold the upload open so onRemoved can fire mid-transfer.
+      },
+    };
+    ports.push(port);
+    chrome.runtime.onConnect.emit(port);
+    port.onMessage.emit({
+      type: "start",
+      origin,
+      pageUrl: `${origin}/`,
+      request: {
+        method: "transcribe",
+        media: { sourceId: "page-audio", mediaType: "audio/wav", byteLength: 3 },
+      },
+    });
+    await vi.waitFor(() => expect(port.messages.some(
+      (m) => m.type === "binary-pull"
+    )).toBe(true));
+    chrome.permissions.onRemoved.emit();
+    await outcome(port);
+    expect(port.messages).toContainEqual(expect.objectContaining({
+      type: "error",
+      error: expect.objectContaining({
+        code: "aborted",
+        message: expect.stringContaining("Safari extension settings"),
+      }),
+    }));
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("Safari on-device messages", () => {

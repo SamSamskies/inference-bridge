@@ -87,9 +87,10 @@ void ensureOllamaOriginBypass().catch(() => {});
 
 chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
 chrome.permissions.onRemoved.addListener(() => {
-  // A user can revoke host access while Firefox is waiting for approval or
-  // streaming. Abort in-flight work; the next request re-checks its host.
-  if (!isFirefoxBuild()) return;
+  // Firefox and Safari can revoke optional host access while a request is
+  // waiting for approval or streaming. Abort in-flight work; the next request
+  // re-checks its host. Chrome keeps install-time hosts and is left alone.
+  if (!isFirefoxBuild() && !isSafariBuild()) return;
   for (const id of activeStreams.keys()) {
     abortStream(id, `Host access was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`);
   }
