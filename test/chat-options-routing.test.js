@@ -326,10 +326,7 @@ describe("Safari website approval", () => {
     await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
     await vi.advanceTimersByTimeAsync(permissions.SAFARI_APPROVAL_TIMEOUT_MS);
     expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
-    expect(port.messages.at(-1)?.error).toMatchObject({
-      code: "aborted",
-      message: expect.stringContaining("Approval timed out"),
-    });
+    expect(port.messages.at(-1)?.error?.code).toBe("permission_denied");
     expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "always", ...route }))
       .toEqual({ ok: false });
     expect(fetch).not.toHaveBeenCalled();

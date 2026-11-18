@@ -1103,8 +1103,10 @@ function promptUser(request, { signal, sourceTab }) {
     }
 
     if (isSafariBuild()) {
+      // Same deny path as tab close / navigate-away so callers see
+      // permission_denied rather than a distinct aborted timeout code.
       entry.timeout = setTimeout(() => {
-        fail("Approval timed out. Retry the request from the website.", "aborted");
+        cancelApproval(request.requestId);
       }, SAFARI_APPROVAL_TIMEOUT_MS);
       void Promise.resolve().then(async () => {
         if (pendingApprovals.get(request.requestId) !== entry) return;
