@@ -22,7 +22,11 @@ beforeEach(async () => {
   permissions = await import("../src/permissions.js");
   registry = await import("../src/providers/registry.js");
   await import("../background/service-worker.js");
-  chrome.runtime.sendMessage = (message) => new Promise((resolve) => chrome.runtime.onMessage.emit(message, { url: chrome.runtime.getURL("ui/approval.html") }, resolve));
+  chrome.runtime.sendMessage = (message) => new Promise((resolve) => chrome.runtime.onMessage.emit(
+    message,
+    { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") },
+    resolve,
+  ));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 

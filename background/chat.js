@@ -19,7 +19,8 @@ export function isChatSender(sender) {
 }
 
 /**
- * Options, approval, and first-party chat may list providers (incl. hasApiKey).
+ * Options, approval, and first-party chat may read provider catalog metadata
+ * (list-providers, list-models, list-voices, model-capabilities, ollama-thinking).
  * Content scripts and other contexts must not.
  * @param {{ id?: string, url?: string } | undefined} sender
  */

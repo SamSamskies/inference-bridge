@@ -360,8 +360,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
-    // hasApiKey (and model defaults) are settings metadata — only Options,
-    // approval, and first-party chat may read the catalog.
+    // Catalog metadata (keys, models, voices, capabilities) — only Options,
+    // approval, and first-party chat may read it.
     if (!isTrustedProviderCatalogSender(_sender)) return false;
     const method =
       message.method === "decide" ||
@@ -448,6 +448,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-models") {
+    if (!isTrustedProviderCatalogSender(_sender)) return false;
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
 
@@ -527,6 +528,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "ollama-thinking") {
+    if (!isTrustedProviderCatalogSender(_sender)) return false;
     const model = typeof message.model === "string" ? message.model : "";
     const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
     void (async () => {
@@ -541,6 +543,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "model-capabilities") {
+    if (!isTrustedProviderCatalogSender(_sender)) return false;
     const providerId = typeof message.providerId === "string" ? message.providerId : "";
     const model = typeof message.model === "string" ? message.model : "";
     void (async () => {
@@ -553,6 +556,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-voices") {
+    if (!isTrustedProviderCatalogSender(_sender)) return false;
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
     void getProviderAsync(providerId)

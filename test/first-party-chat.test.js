@@ -39,7 +39,7 @@ describe("first-party chat channel", () => {
     { id: "test", url: "chrome-extension://test/ui/options.html" },
     { id: "test", url: "chrome-extension://test/ui/approval.html?requestId=stream_1" },
     { id: "test", url: "chrome-extension://test/ui/chat.html" },
-  ])("allows provider catalog reads from extension UI %j", (sender) => {
+  ])("allows catalog metadata reads from extension UI %j", (sender) => {
     expect(isTrustedProviderCatalogSender(sender)).toBe(true);
   });
   it.each([
@@ -47,7 +47,7 @@ describe("first-party chat channel", () => {
     { id: "other", url: "chrome-extension://test/ui/options.html" },
     { id: "test", url: "chrome-extension://test/ui/popup.html" },
     {},
-  ])("rejects provider catalog reads from untrusted senders %j", (sender) => {
+  ])("rejects catalog metadata reads from untrusted senders %j", (sender) => {
     expect(isTrustedProviderCatalogSender(sender)).toBe(false);
   });
   it("streams with the saved route/search choice and durably saves the answer", async () => {
