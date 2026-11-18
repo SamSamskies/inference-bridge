@@ -1149,6 +1149,10 @@ async function decide(action) {
         : "This permission request is no longer active.");
       return;
     }
+    // Safari: the worker already closes the approval tab after a successful
+    // resolve. Calling tabs.remove here races that close and can flash
+    // “decision was recorded” when getCurrent/remove fails on a gone tab.
+    if (safari) return;
     await closeApproval().catch(() => {
       showError("The decision was recorded. Return to the requesting website.");
     });
