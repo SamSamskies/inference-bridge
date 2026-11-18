@@ -352,6 +352,20 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("reports permission_denied when deny arrives after soft-disconnect without rebind", async () => {
+    vi.useFakeTimers();
+    const port = start();
+    await pending(port);
+    port.onDisconnect.emit();
+    expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "deny" }))
+      .toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(port.messages.at(-1)?.error?.code).toBe("permission_denied");
+    expect(JSON.stringify(port.messages)).not.toContain("did not reconnect");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("returns an actionable error when Safari cannot open the approval tab", async () => {
     chrome.tabs.create.mockRejectedValueOnce(new Error("Browser API error"));
     const port = start();

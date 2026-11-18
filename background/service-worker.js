@@ -941,8 +941,19 @@ async function handleDecideStart({
   let entry = activeStreams.get(streamId);
   if (!entry || controller.signal.aborted) return streamId;
   if (entry.portDisconnected) {
-    entry = await waitForPortRebind(streamId, Infinity);
-    if (!entry || controller.signal.aborted) return streamId;
+    entry = await waitForPortRebind(streamId, Infinity, {
+      abortOnTimeout: permission.allowed,
+    });
+    if (controller.signal.aborted) return streamId;
+    if (!entry) {
+      if (!permission.allowed && activeStreams.has(streamId)) {
+        throw inferenceError(
+          permission.code || "permission_denied",
+          permission.message || "Permission denied by user."
+        );
+      }
+      return streamId;
+    }
   }
   if (!permission.allowed)
     throw inferenceError(
@@ -1084,8 +1095,20 @@ async function handleSpeechStart({
   let entry = activeStreams.get(streamId);
   if (!entry || controller.signal.aborted) return streamId;
   if (entry.portDisconnected) {
-    entry = await waitForPortRebind(streamId, Infinity);
-    if (!entry || controller.signal.aborted) {
+    entry = await waitForPortRebind(streamId, Infinity, {
+      abortOnTimeout: permission.allowed,
+    });
+    if (controller.signal.aborted) {
+      activeStreams.delete(streamId);
+      return streamId;
+    }
+    if (!entry) {
+      if (!permission.allowed && activeStreams.has(streamId)) {
+        throw inferenceError(
+          permission.code || "permission_denied",
+          permission.message || "Permission denied by user."
+        );
+      }
       activeStreams.delete(streamId);
       return streamId;
     }
@@ -1412,9 +1435,23 @@ async function handleStart(port, msg, onStreamId) {
     // rebind every few seconds while still awaiting an outcome — a short
     // timeout would post permission_denied (or continue after Approve) to a
     // stale port and the page would only see a generic disconnect.
+    // After a deny/timeout, do not abort as "did not reconnect" if rebind
+    // never comes — prefer permission_denied on the last known port.
     if (entry.portDisconnected) {
-      entry = await waitForPortRebind(streamId, Infinity);
-      if (controller.signal.aborted || !entry) {
+      entry = await waitForPortRebind(streamId, Infinity, {
+        abortOnTimeout: permission.allowed,
+      });
+      if (controller.signal.aborted) {
+        activeStreams.delete(streamId);
+        return streamId;
+      }
+      if (!entry) {
+        if (!permission.allowed && activeStreams.has(streamId)) {
+          throwInference(
+            permission.code || "permission_denied",
+            permission.message || "Permission denied by user."
+          );
+        }
         activeStreams.delete(streamId);
         return streamId;
       }
@@ -1608,6 +1645,9 @@ function abortStream(streamId, reason) {
  * @param {number} timeoutMs Use Infinity to wait until rebind or abort.
  *   Firefox/Safari clamp Infinity to BOUNDED_REBIND_TIMEOUT_MS so a dead
  *   event page cannot orphan the stream forever.
+ * @param {{ abortOnTimeout?: boolean }} [options]
+ *   When abortOnTimeout is false (deny path), return null without posting
+ *   "did not reconnect" so the caller can surface permission_denied instead.
  * @returns {Promise<{
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
@@ -1617,7 +1657,8 @@ function abortStream(streamId, reason) {
  *   announced?: boolean,
  * } | null>}
  */
-async function waitForPortRebind(streamId, timeoutMs) {
+async function waitForPortRebind(streamId, timeoutMs, options = {}) {
+  const abortOnTimeout = options.abortOnTimeout !== false;
   if (isFirefoxBuild() || isSafariBuild()) {
     timeoutMs = Math.min(timeoutMs, BOUNDED_REBIND_TIMEOUT_MS);
   }
@@ -1633,7 +1674,9 @@ async function waitForPortRebind(streamId, timeoutMs) {
   const entry = activeStreams.get(streamId);
   if (!entry || entry.controller.signal.aborted) return null;
   if (entry.portDisconnected) {
-    abortStream(streamId, "The requesting tab did not reconnect.");
+    if (abortOnTimeout) {
+      abortStream(streamId, "The requesting tab did not reconnect.");
+    }
     return null;
   }
   return entry;
