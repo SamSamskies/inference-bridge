@@ -197,6 +197,26 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("denies navigate-away when WebKit only reports complete without a url", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    chrome.tabs.get.mockClear();
+    chrome.tabs.get.mockResolvedValueOnce({
+      id: 201,
+      url: permissions.approvalPageUrl(port.streamId),
+    });
+    chrome.tabs.onUpdated.emit(201, { status: "complete" });
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+
+    chrome.tabs.get.mockResolvedValueOnce({ id: 201, url: "https://example.com/" });
+    chrome.tabs.onUpdated.emit(201, { status: "complete" });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(await sendApprovalMessage(port, { type: "get-approval" })).toEqual({ request: null });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps the pending approval across approval-tab reload and interim same-document URLs", async () => {
     const port = start();
     await pending(port);

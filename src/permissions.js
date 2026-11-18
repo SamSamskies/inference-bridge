@@ -1329,7 +1329,8 @@ function denyApprovalTabsLeavingDocument(tabId, url) {
 /**
  * Deny a Safari approval when its tab navigates away from the approval
  * document (back, address bar, link). Closing the tab is handled separately.
- * WebKit sometimes omits changeInfo.url on loading; fall back to tabs.get.
+ * WebKit sometimes omits changeInfo.url on loading/complete; fall back to
+ * tabs.get for either status.
  * @param {number} tabId
  * @param {{ url?: string, status?: string }} changeInfo
  */
@@ -1338,7 +1339,9 @@ export function handleApprovalTabNavigated(tabId, changeInfo) {
     denyApprovalTabsLeavingDocument(tabId, changeInfo.url);
     return;
   }
-  if (changeInfo?.status !== "loading") return;
+  if (changeInfo?.status !== "loading" && changeInfo?.status !== "complete") {
+    return;
+  }
   if (![...pendingApprovals.values()].some((entry) => entry.tabId === tabId)) {
     return;
   }
