@@ -15,13 +15,14 @@ The unpacked extension is in `build/safari/`. The ZIP is `dist/inference-bridge-
 
 ## Install on an iPhone or iPad
 
-Use full Xcode with an SDK and device support for the OS you are testing. Select Xcode as the active developer directory if `xcrun` only sees the standalone Command Line Tools. From the repository root, generate a Swift wrapper with Apple’s packager. Replace the example bundle identifier with one you can sign. [Apple’s packager reference](https://developer.apple.com/documentation/safariservices/packaging-a-web-extension-for-safari)
+Use full Xcode with an SDK and device support for the OS you are testing. From the repository root, generate a Swift wrapper using the local test bundle ID. Edit the Xcode path if you installed it somewhere else. [Apple’s packager reference](https://developer.apple.com/documentation/safariservices/packaging-a-web-extension-for-safari)
 
 ```bash
-xcrun safari-web-extension-packager "$PWD/build/safari" \
-  --ios-only --swift --app-name "Inference Bridge" \
-  --bundle-identifier "com.example.inferencebridge.safaritest" \
-  --project-location "$PWD/build/safari-xcode" --no-prompt
+DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
+  xcrun safari-web-extension-packager "$PWD/build/safari" \
+    --ios-only --swift --app-name "Inference Bridge" \
+    --bundle-identifier "io.github.samsamskies.inferencebridge.safaritest" \
+    --project-location "$PWD/build/safari-xcode" --no-prompt
 ```
 
 1. In the generated Xcode project, select your signing team for both the app and extension targets. Check that both deployment targets allow the device’s iOS/iPadOS version.
@@ -30,7 +31,7 @@ xcrun safari-web-extension-packager "$PWD/build/safari" \
 
 The generated project references `build/safari/`. For later slices, rerun `npm run package:safari`, then build and run the same Xcode project.
 
-With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the ZIP for TestFlight without local Xcode. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to an app record with iOS enabled. This route still needs a signed build to be processed before it can be installed. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
+With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
 
 ## Install temporarily on macOS
 
