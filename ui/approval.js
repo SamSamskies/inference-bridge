@@ -37,10 +37,11 @@ import { isPlausibleModelForProvider } from "../src/storage-local.js";
 import { assertDecisionMediaSupported } from "../src/decision-media.js";
 import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
+import { resolveApprovalRequestId } from "../src/approval-session.js";
 import { isSafariBuild } from "../src/runtime-browser.js";
 
-const params = new URLSearchParams(location.search);
-const requestId = params.get("requestId");
+// Persist across reloads that drop ?requestId= so Safari tabs stay usable.
+const requestId = resolveApprovalRequestId(location.search);
 const safari = isSafariBuild();
 
 async function closeApproval() {
