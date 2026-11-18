@@ -36,26 +36,30 @@ import {
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
 import { installDecisionModel } from "../src/decision-api-core.js";
-import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 import { groupAllowedSites } from "./allowed-sites.js";
 import { isPPQCompatEndpoint, ppqTransferPreview } from "../src/ppq-transfer.js";
 import { openChat } from "../src/open-chat.js";
 
 const openChatButton = document.getElementById("openChat");
+const openChatStatus = document.getElementById("openChatStatus");
 let chatWindowId;
 // Resolve before the user clicks so sidePanel.open runs synchronously within
 // the gesture, with an actual window id rather than the windows API sentinel.
-openChatButton.disabled = true;
-void chrome.windows.getCurrent().then((window) => {
-  chatWindowId = window.id;
-  openChatButton.disabled = false;
-}).catch(() => {
-  document.getElementById("openChatStatus").textContent = "Could not find this browser window. Reopen settings to try again.";
-});
+if (!isSafariBuild()) {
+  openChatButton.disabled = true;
+  void chrome.windows.getCurrent().then((window) => {
+    chatWindowId = window.id;
+    openChatButton.disabled = false;
+  }).catch(() => {
+    openChatStatus.textContent = "Could not find this browser window. Reopen settings to try again.";
+  });
+}
 openChatButton.addEventListener("click", () => {
+  openChatStatus.textContent = "";
   void openChat(chatWindowId).catch((error) => {
-    document.getElementById("openChatStatus").textContent = error.message;
+    openChatStatus.textContent = error.message;
   });
 });
 

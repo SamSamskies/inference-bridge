@@ -37,6 +37,8 @@ cp safari/ios-app/Main.html "build/safari-xcode/Inference Bridge/Inference Bridg
 3. Select the iOS app scheme and the attached device. Enable Developer Mode if prompted, then run the app from Xcode. You can use an iOS simulator for an initial check.
 4. On the device, open **Settings → Apps → Safari → Extensions → Inference Bridge** and enable it. Check the active Safari profile if you use profiles. [Apple’s run and install guide](https://developer.apple.com/documentation/safariservices/running-your-safari-web-extension)
 
+To opt in to access across sites on iOS, choose **Permissions → Other Websites → Allow** on the same Settings screen. Safari applies this as the default for sites with no specific setting. Each new site still needs approval in Bridge before making inference requests. For the per-site smoke test below, leave **Other Websites** set to **Ask**. [Apple’s Safari permissions guide](https://developer.apple.com/documentation/safariservices/managing-safari-web-extension-permissions)
+
 The generated project references `build/safari/`. For later slices, rerun `npm run package:safari`, then build and run the same Xcode project.
 
 With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the extension ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. The custom setup screen is part of the generated app, so a build that includes it uses the Xcode project. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
@@ -46,6 +48,8 @@ With an Apple Developer Program membership, App Store Connect’s Safari Web Ext
 1. In **Safari → Settings → Advanced**, enable **Show features for web developers** if needed.
 2. In **Safari → Settings → Developer**, choose **Add Temporary Extension…**, authenticate if prompted, and select `build/safari/`.
 3. In **Extensions**, confirm Inference Bridge is enabled. Safari’s **Settings** button in that pane opens the extension’s Options page. Use **Reload** after rebuilding and **Uninstall** when finished. [Apple’s temporary installation guide](https://developer.apple.com/documentation/safariservices/running-your-safari-web-extension#Temporarily-install-a-web-extension-folder-in-macOS-Safari)
+
+Use **Open Chat** in Bridge Options to open the extension’s chat in a Safari tab.
 
 ## Smoke-test page access and the worker
 

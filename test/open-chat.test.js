@@ -21,4 +21,17 @@ describe("chat entry point", () => {
     await openChat();
     expect(browser.sidebarAction.open).toHaveBeenCalledOnce();
   });
+  it("opens a foreground chat tab in Safari without a browser window id", async () => {
+    chrome.runtime = {
+      getManifest: () => ({ browser_specific_settings: { safari: {} } }),
+      getURL: (path) => `safari-web-extension://test/${path}`,
+    };
+    chrome.tabs = { create: vi.fn(async () => ({ id: 1 })) };
+    await openChat();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: "safari-web-extension://test/ui/chat.html",
+      active: true,
+    });
+    expect(chrome.sidePanel.open).not.toHaveBeenCalled();
+  });
 });
