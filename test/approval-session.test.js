@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   APPROVAL_REQUEST_ID_KEY,
+  fetchPendingApprovalRequest,
   resolveApprovalRequestId,
 } from "../src/approval-session.js";
 
@@ -39,5 +40,44 @@ describe("resolveApprovalRequestId", () => {
       },
     };
     expect(resolveApprovalRequestId("?requestId=stream_2", storage)).toBe("stream_2");
+  });
+});
+
+describe("fetchPendingApprovalRequest", () => {
+  it("returns on the first successful response without sleeping", async () => {
+    const sleep = vi.fn(async () => {});
+    const sendMessage = vi.fn(async () => ({ request: { origin: "https://app.example" } }));
+    await expect(fetchPendingApprovalRequest("stream_1", sendMessage, { sleep }))
+      .resolves.toEqual({ origin: "https://app.example" });
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("retries briefly until the pending request is bound", async () => {
+    const sleep = vi.fn(async () => {});
+    const sendMessage = vi.fn()
+      .mockResolvedValueOnce({ request: null })
+      .mockResolvedValueOnce({ request: null })
+      .mockResolvedValueOnce({ request: { origin: "https://app.example" } });
+    await expect(fetchPendingApprovalRequest("stream_1", sendMessage, {
+      attempts: 5,
+      delayMs: 10,
+      sleep,
+    })).resolves.toEqual({ origin: "https://app.example" });
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(10);
+  });
+
+  it("returns null after exhausting attempts", async () => {
+    const sleep = vi.fn(async () => {});
+    const sendMessage = vi.fn(async () => ({ request: null }));
+    await expect(fetchPendingApprovalRequest("stream_1", sendMessage, {
+      attempts: 3,
+      delayMs: 5,
+      sleep,
+    })).resolves.toBeNull();
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
   });
 });

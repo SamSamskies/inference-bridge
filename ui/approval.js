@@ -37,7 +37,10 @@ import { isPlausibleModelForProvider } from "../src/storage-local.js";
 import { assertDecisionMediaSupported } from "../src/decision-media.js";
 import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
-import { resolveApprovalRequestId } from "../src/approval-session.js";
+import {
+  fetchPendingApprovalRequest,
+  resolveApprovalRequestId,
+} from "../src/approval-session.js";
 import { isSafariBuild } from "../src/runtime-browser.js";
 
 // Persist across reloads that drop ?requestId= so Safari tabs stay usable.
@@ -1154,11 +1157,12 @@ async function load() {
     return;
   }
 
-  const response = await chrome.runtime.sendMessage({
-    type: "get-approval",
+  // Safari may open this document before tabs.create assigns entry.tabId;
+  // brief retries avoid a false "expired" flash on first paint.
+  const request = await fetchPendingApprovalRequest(
     requestId,
-  });
-  const request = response?.request;
+    (message) => chrome.runtime.sendMessage(message),
+  );
   if (!request) {
     showError("This permission request expired or was cancelled.");
     return;
