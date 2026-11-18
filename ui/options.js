@@ -392,6 +392,19 @@ function normalizeModels(models) {
  * Probe local Ollama. Unavailable or empty installs keep the option disabled.
  */
 async function refreshOllamaStatus() {
+  // Safari packaging omits localhost host grants and DNR; local Ollama cannot
+  // be used. Avoid probing localhost and pointing users at http://localhost.
+  if (isSafariBuild()) {
+    ollamaStatus = {
+      available: false,
+      models: [],
+      message:
+        "Local Ollama is not available in Safari. Choose Ollama Cloud or another hosted provider.",
+    };
+    modelCache.delete("ollama");
+    return ollamaStatus;
+  }
+
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
     providerId: "ollama",
