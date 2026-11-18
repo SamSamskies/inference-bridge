@@ -15,22 +15,13 @@ The unpacked extension is in `build/safari/`. The ZIP is `dist/inference-bridge-
 
 ## Install on an iPhone or iPad
 
-Use full Xcode with an SDK and device support for the OS you are testing. From the repository root, generate a Swift wrapper using the local test bundle ID. Edit the Xcode path if you installed it somewhere else. [Apple’s packager reference](https://developer.apple.com/documentation/safariservices/packaging-a-web-extension-for-safari)
+Use full Xcode with an SDK and device support for the OS you are testing. After installing the npm dependencies, run this from the repository root. Set `DEVELOPER_DIR` to your Xcode developer directory to use a specific installation. [Apple’s packager reference](https://developer.apple.com/documentation/safariservices/packaging-a-web-extension-for-safari)
 
 ```bash
-DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
-  xcrun safari-web-extension-packager "$PWD/build/safari" \
-    --ios-only --swift --app-name "Inference Bridge" \
-    --bundle-identifier "io.github.samsamskies.inferencebridge.safaritest" \
-    --project-location "$PWD/build/safari-xcode" --no-prompt
+npm run prepare:safari:ios
 ```
 
-Copy the setup screen into the generated app. The app shows these instructions on launch, before Safari has granted the extension access to a website.
-
-```bash
-cp safari/ios-app/Main.html "build/safari-xcode/Inference Bridge/Inference Bridge/Resources/Base.lproj/" &&
-  cp safari/ios-app/Style.css "build/safari-xcode/Inference Bridge/Inference Bridge/Resources/"
-```
+The command builds the Safari extension, creates the local Xcode project in `build/safari-xcode/` the first time, and copies in the setup screen. Open the Xcode project at the path the command prints.
 
 1. Select the project in Xcode’s navigator, then open **Signing & Capabilities** for each target. Set **Bundle Identifier** to `io.github.samsamskies.inferencebridge.safaritest` for **Inference Bridge** and `io.github.samsamskies.inferencebridge.safaritest.Extension` for **Inference Bridge Extension**. The packager can derive a different ID for the app, so check both fields.
 2. If **Team** shows **Add Account…**, sign in to your Apple Account. Select the same development team for both targets and keep **Automatically manage signing** enabled. Check that both deployment targets allow the device’s iOS/iPadOS version. [Apple’s device signing guide](https://developer.apple.com/documentation/xcode/building-and-running-an-app)
@@ -39,7 +30,7 @@ cp safari/ios-app/Main.html "build/safari-xcode/Inference Bridge/Inference Bridg
 
 To opt in to access across sites on iOS, choose **Permissions → Other Websites → Allow** on the same Settings screen. Safari applies this as the default for sites with no specific setting. Each new site still needs approval in Bridge before making inference requests. For the per-site smoke test below, leave **Other Websites** set to **Ask**. [Apple’s Safari permissions guide](https://developer.apple.com/documentation/safariservices/managing-safari-web-extension-permissions)
 
-The generated project references `build/safari/`. For later slices, rerun `npm run package:safari`, then build and run the same Xcode project.
+For later builds, rerun `npm run prepare:safari:ios` to update the extension and setup screen, then click **Run** in the same Xcode project. The command reuses the project and its signing settings.
 
 With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the extension ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. The custom setup screen is part of the generated app, so a build that includes it uses the Xcode project. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
 
