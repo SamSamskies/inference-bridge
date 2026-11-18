@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   APPROVAL_FETCH_ATTEMPTS,
   APPROVAL_FETCH_DELAY_MS,
+  APPROVAL_PROMPT_TIMEOUT_MS,
   APPROVAL_REQUEST_ID_KEY,
   fetchPendingApprovalRequest,
   resolveApprovalRequestId,
@@ -46,8 +47,9 @@ describe("resolveApprovalRequestId", () => {
 });
 
 describe("fetchPendingApprovalRequest", () => {
-  it("defaults to a multi-second pre-bind poll window", () => {
-    expect((APPROVAL_FETCH_ATTEMPTS - 1) * APPROVAL_FETCH_DELAY_MS).toBeGreaterThanOrEqual(10_000);
+  it("defaults to a pre-bind poll window covering the full approval prompt timeout", () => {
+    expect((APPROVAL_FETCH_ATTEMPTS - 1) * APPROVAL_FETCH_DELAY_MS)
+      .toBeGreaterThanOrEqual(APPROVAL_PROMPT_TIMEOUT_MS);
   });
 
   it("returns on the first successful response without sleeping", async () => {

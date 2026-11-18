@@ -2,11 +2,17 @@
 export const APPROVAL_REQUEST_ID_KEY = "ipa-approval-requestId";
 
 /**
- * Poll window while Safari assigns approval tabId after tabs.create.
- * ~10s covers slow physical-device tab opens without hanging a truly expired request forever.
+ * Max time an approval tab/popup may stay open without a decision.
+ * Pre-bind get-approval polling uses the same budget so a slow tabId bind
+ * does not show “expired” while the worker still holds the request.
  */
-export const APPROVAL_FETCH_ATTEMPTS = 51;
-export const APPROVAL_FETCH_DELAY_MS = 200;
+export const APPROVAL_PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** Poll interval while Safari/Chrome binds the approval tabId after create. */
+export const APPROVAL_FETCH_DELAY_MS = 250;
+/** Enough attempts that (attempts - 1) * delayMs covers APPROVAL_PROMPT_TIMEOUT_MS. */
+export const APPROVAL_FETCH_ATTEMPTS =
+  Math.ceil(APPROVAL_PROMPT_TIMEOUT_MS / APPROVAL_FETCH_DELAY_MS) + 1;
 
 /**
  * Prefer ?requestId= from the URL (and remember it). Fall back to sessionStorage
@@ -36,8 +42,8 @@ export function resolveApprovalRequestId(search, storage = globalThis.sessionSto
 }
 
 /**
- * Fetch the pending approval, retrying briefly so Safari first paint can wait
- * until the worker binds the approval tabId.
+ * Fetch the pending approval, retrying until the worker binds the approval
+ * tabId (or APPROVAL_PROMPT_TIMEOUT_MS elapses).
  * @param {string} requestId
  * @param {(message: { type: string, requestId: string }) => Promise<{ request?: unknown }>} sendMessage
  * @param {{

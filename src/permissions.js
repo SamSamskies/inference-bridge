@@ -28,6 +28,9 @@ import {
 } from "./host-permissions.js";
 import { isFirefoxBuild, isSafariBuild } from "./runtime-browser.js";
 import {
+  APPROVAL_PROMPT_TIMEOUT_MS,
+} from "./approval-session.js";
+import {
   blocksAllowForImages,
   isImageGrantCovered,
   messagesHaveImageParts,
@@ -42,6 +45,10 @@ import {
   isToolGrantCovered,
   startsWithMessageHistory,
 } from "./tool-approval.js";
+
+export { APPROVAL_PROMPT_TIMEOUT_MS } from "./approval-session.js";
+/** Alias kept for existing Safari tests; same as APPROVAL_PROMPT_TIMEOUT_MS. */
+export const SAFARI_APPROVAL_TIMEOUT_MS = APPROVAL_PROMPT_TIMEOUT_MS;
 
 /** @typedef {import("./providers/types.js").Tool} Tool */
 /** @typedef {import("./providers/types.js").ChatMessage} ChatMessage */
@@ -81,10 +88,6 @@ import {
 
 /** Episode TTL for short-lived SW-side tools approval (ms). */
 export const TOOL_EPISODE_TTL_MS = 5 * 60 * 1000;
-/** Max time an approval tab/popup may stay open without a decision. */
-export const APPROVAL_PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
-/** Alias kept for existing Safari tests; same as APPROVAL_PROMPT_TIMEOUT_MS. */
-export const SAFARI_APPROVAL_TIMEOUT_MS = APPROVAL_PROMPT_TIMEOUT_MS;
 
 /**
  * @typedef {{

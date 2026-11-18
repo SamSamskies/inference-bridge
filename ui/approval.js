@@ -1158,13 +1158,15 @@ async function load() {
   }
 
   // Safari may open this document before tabs.create assigns entry.tabId;
-  // brief retries avoid a false "expired" flash on first paint.
+  // poll for the full approval prompt window so a slow bind is not “expired”.
   const request = await fetchPendingApprovalRequest(
     requestId,
     (message) => chrome.runtime.sendMessage(message),
   );
   if (!request) {
-    showError("This permission request expired or was cancelled.");
+    showError(
+      "This permission request expired or was cancelled. If the tab just opened, wait a moment and reload."
+    );
     return;
   }
 
