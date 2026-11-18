@@ -47,6 +47,16 @@ describe("provider registry", () => {
     expect(await getProviderAsync("on-device")).toBeUndefined();
   });
 
+  it("omits local Ollama from Safari while keeping Ollama Cloud", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    const ids = listProviders().map((provider) => provider.id);
+    expect(ids).not.toContain("ollama");
+    expect(ids).toContain("ollama-cloud");
+    expect(getProvider("ollama")).toBeUndefined();
+    expect(await getProviderAsync("ollama")).toBeUndefined();
+    expect(await getProviderAsync("ollama-cloud")).toMatchObject({ id: "ollama-cloud" });
+  });
+
   it("merges saved compat endpoints into listAllProviders", async () => {
     await saveCompatEndpoints([
       {

@@ -29,6 +29,11 @@ function supportsOnDeviceProvider() {
   return !isFirefoxBuild() && !isSafariBuild();
 }
 
+/** Local loopback Ollama — Safari has no localhost host grant or DNR bypass. */
+function supportsLocalOllamaProvider() {
+  return !isSafariBuild();
+}
+
 /** @type {Map<string, Provider>} */
 const providers = new Map([
   [openaiProvider.id, openaiProvider],
@@ -46,9 +51,11 @@ const providers = new Map([
  * @returns {Provider[]}
  */
 export function listProviders() {
-  return [...providers.values()].filter(
-    (provider) => provider.id !== "on-device" || supportsOnDeviceProvider()
-  );
+  return [...providers.values()].filter((provider) => {
+    if (provider.id === "on-device") return supportsOnDeviceProvider();
+    if (provider.id === "ollama") return supportsLocalOllamaProvider();
+    return true;
+  });
 }
 
 /**
@@ -57,6 +64,7 @@ export function listProviders() {
  */
 export function getProvider(id) {
   if (id === "on-device" && !supportsOnDeviceProvider()) return undefined;
+  if (id === "ollama" && !supportsLocalOllamaProvider()) return undefined;
   return providers.get(id);
 }
 

@@ -392,6 +392,18 @@ describe("ensurePermission", () => {
     expect(getPendingApproval(requestId)).toBeNull();
   });
 
+  it("fails closed for a stale Safari local Ollama origin grant", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    await grantOriginAlways("https://app.example", { providerId: "ollama", model: "gemma4" });
+    const result = await ensurePermission({
+      requestId: "safari-ollama-grant",
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "ollama" });
+    expect(getPendingApproval("safari-ollama-grant")).toBeNull();
+  });
+
   it("denies blocked origins without prompting", async () => {
     await blockOrigin("https://blocked.example");
 
