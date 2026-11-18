@@ -1,11 +1,34 @@
 import { streamConfiguredChat } from "../src/chat-service.js";
 import { chatTitle, getChat, saveChat, withChatLock } from "../src/chat-history.js";
 
-/** A content script's claimed origin/port name can never bypass IPA approval. */
-export function isChatSender(sender) {
+/**
+ * True when the message came from a same-extension page at `pagePath`
+ * (e.g. "ui/chat.html"). Content scripts and foreign extensions never match.
+ * @param {{ id?: string, url?: string } | undefined} sender
+ * @param {string} pagePath
+ */
+export function isExtensionPageSender(sender, pagePath) {
   return sender?.id === chrome.runtime.id &&
     typeof sender.url === "string" &&
-    sender.url.split(/[?#]/, 1)[0] === chrome.runtime.getURL("ui/chat.html");
+    sender.url.split(/[?#]/, 1)[0] === chrome.runtime.getURL(pagePath);
+}
+
+/** A content script's claimed origin/port name can never bypass IPA approval. */
+export function isChatSender(sender) {
+  return isExtensionPageSender(sender, "ui/chat.html");
+}
+
+/**
+ * Options, approval, and first-party chat may list providers (incl. hasApiKey).
+ * Content scripts and other contexts must not.
+ * @param {{ id?: string, url?: string } | undefined} sender
+ */
+export function isTrustedProviderCatalogSender(sender) {
+  return (
+    isExtensionPageSender(sender, "ui/options.html") ||
+    isExtensionPageSender(sender, "ui/approval.html") ||
+    isExtensionPageSender(sender, "ui/chat.html")
+  );
 }
 
 export function connectChat(port) {

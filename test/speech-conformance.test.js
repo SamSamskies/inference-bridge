@@ -241,7 +241,9 @@ describe.each(["Chrome", "Firefox"])("%s stable speech contract", (browser) => {
   it("filters WAV approval choices and sends no provider traffic until approval", async () => {
     await storage.revokeOriginOperation(origin, "synthesize");
     const listed = await new Promise((resolve) => chrome.runtime.onMessage.emit(
-      { type: "list-providers", method: "synthesize", mediaType: "audio/wav" }, {}, resolve
+      { type: "list-providers", method: "synthesize", mediaType: "audio/wav" },
+      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") },
+      resolve
     ));
     expect(listed.providers.map((p) => p.id)).toEqual(["openai", "gemini", "ollama", "ollama-cloud"]);
     const request = { method: "synthesize", text: "Hello", output: { mediaType: "audio/wav" } };

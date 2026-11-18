@@ -71,7 +71,11 @@ import {
   revokedHostAccessRestoreHint,
 } from "../src/host-permissions.js";
 import { ensureTrustedStorageAccess } from "../src/storage-access.js";
-import { connectChat, isChatSender } from "./chat.js";
+import {
+  connectChat,
+  isChatSender,
+  isTrustedProviderCatalogSender,
+} from "./chat.js";
 import { openChat } from "../src/open-chat.js";
 
 // Reapply on every worker/event-page start, including browser restart. Keep
@@ -356,6 +360,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
+    // hasApiKey (and model defaults) are settings metadata — only Options,
+    // approval, and first-party chat may read the catalog.
+    if (!isTrustedProviderCatalogSender(_sender)) return false;
     const method =
       message.method === "decide" ||
       message.method === "transcribe" ||

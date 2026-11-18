@@ -133,9 +133,12 @@ async function approve(port, route = cloud, decision = "allow_once") {
   );
   permissions.resolveApproval(port.streamId, { decision, ...route });
 }
-async function message(payload) {
+async function message(payload, sender = {
+  id: chrome.runtime.id,
+  url: chrome.runtime.getURL("ui/approval.html"),
+}) {
   return new Promise((resolve) =>
-    chrome.runtime.onMessage.emit(payload, {}, resolve)
+    chrome.runtime.onMessage.emit(payload, sender, resolve)
   );
 }
 

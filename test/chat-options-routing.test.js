@@ -413,7 +413,7 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   ])("uses the saved %s chat model before the factory default when approval switches providers", async (providerId, savedModel, nextModel, factoryDefault) => {
     const list = (method = "chat") => new Promise((resolve) => chrome.runtime.onMessage.emit(
       { type: "list-providers", method },
-      { url: chrome.runtime.getURL("ui/approval.html") }, resolve
+      { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/approval.html") }, resolve
     ));
     // This is not the global provider: a switch must still use its own saved model.
     await storage.saveSettings({
