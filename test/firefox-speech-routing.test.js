@@ -150,7 +150,7 @@ describe.each(["transcribe", "synthesize"])("Firefox %s routing", (method) => {
     ), JSON.stringify(port.messages)).toBe(true));
     if (reason === "disconnect") port.onDisconnect.emit();
     else if (reason === "abort") port.onMessage.emit({ type: "abort", streamId: port.streamId });
-    else chrome.permissions.onRemoved.emit();
+    else chrome.permissions.onRemoved.emit({ origins: ["https://api.openai.com/*"] });
     await waitForOutcome(port);
     expect(port.messages).toContainEqual(expect.objectContaining({
       type: "error", error: expect.objectContaining({ code: "aborted" }),

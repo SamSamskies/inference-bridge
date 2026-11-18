@@ -87,11 +87,13 @@ void ensureTrustedStorageAccess();
 void ensureOllamaOriginBypass().catch(() => {});
 
 chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
-chrome.permissions.onRemoved.addListener(() => {
+chrome.permissions.onRemoved.addListener((removed) => {
   // Firefox and Safari can revoke optional host access while a request is
-  // waiting for approval or streaming. Abort in-flight work; the next request
-  // re-checks its host. Chrome keeps install-time hosts and is left alone.
+  // waiting for approval or streaming. Abort only when origins were removed —
+  // unrelated permission removals must not cancel in-flight work. Chrome keeps
+  // install-time hosts and is left alone.
   if (!isFirefoxBuild() && !isSafariBuild()) return;
+  if (!Array.isArray(removed?.origins) || removed.origins.length === 0) return;
   for (const id of activeStreams.keys()) {
     abortStream(id, `Host access was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`);
   }
