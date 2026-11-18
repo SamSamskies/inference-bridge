@@ -1593,6 +1593,8 @@ function abortStream(streamId, reason) {
  * during the approval wait, or until timeout / stream removal / abort.
  * @param {string} streamId
  * @param {number} timeoutMs Use Infinity to wait until rebind or abort.
+ *   Firefox/Safari clamp Infinity to BOUNDED_REBIND_TIMEOUT_MS so a dead
+ *   event page cannot orphan the stream forever.
  * @returns {Promise<{
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
@@ -1603,7 +1605,9 @@ function abortStream(streamId, reason) {
  * } | null>}
  */
 async function waitForPortRebind(streamId, timeoutMs) {
-  if (isSafariBuild()) timeoutMs = Math.min(timeoutMs, BOUNDED_REBIND_TIMEOUT_MS);
+  if (isFirefoxBuild() || isSafariBuild()) {
+    timeoutMs = Math.min(timeoutMs, BOUNDED_REBIND_TIMEOUT_MS);
+  }
   const deadline = Number.isFinite(timeoutMs)
     ? Date.now() + timeoutMs
     : Infinity;
