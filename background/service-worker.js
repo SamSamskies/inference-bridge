@@ -379,7 +379,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "list-providers") {
     // Catalog metadata (keys, models, voices, capabilities) — only Options,
     // approval (bound tab), and first-party chat may read it.
-    if (!mayReadProviderCatalog(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ providers: [] });
+      return false;
+    }
     const method =
       message.method === "decide" ||
       message.method === "transcribe" ||
@@ -465,7 +468,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-models") {
-    if (!mayReadProviderCatalog(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
 
@@ -545,7 +551,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "ollama-thinking") {
-    if (!mayReadProviderCatalog(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const model = typeof message.model === "string" ? message.model : "";
     const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
     void (async () => {
@@ -560,7 +569,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "model-capabilities") {
-    if (!mayReadProviderCatalog(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId = typeof message.providerId === "string" ? message.providerId : "";
     const model = typeof message.model === "string" ? message.model : "";
     void (async () => {
@@ -573,7 +585,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-voices") {
-    if (!mayReadProviderCatalog(_sender)) return false;
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
     void getProviderAsync(providerId)

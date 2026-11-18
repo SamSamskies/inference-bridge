@@ -296,6 +296,16 @@ describe("Safari website approval", () => {
     expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 201 } })).toBe(true);
     expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 999 } })).toBe(false);
     expect(permissions.isTrustedApprovalCatalogSender({ url })).toBe(false);
+    const list = (tabId) => new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers" },
+      { id: chrome.runtime.id, url, tab: { id: tabId } },
+      resolve,
+    ));
+    await vi.waitFor(async () => {
+      expect(await list(201)).toMatchObject({ providers: expect.any(Array) });
+      expect((await list(201)).providers.length).toBeGreaterThan(0);
+    });
+    expect(await list(999)).toEqual({ providers: [] });
   });
 
   it("rejects get and resolve until the Safari approval tabId is bound", async () => {
