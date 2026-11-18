@@ -19,7 +19,7 @@ import {
   ensureOperationPermission,
   resolveApproval,
   getPendingApproval,
-  approvalPageUrl,
+  isApprovalDocumentUrl,
   handleApprovalTabClosed,
   handleApprovalTabNavigated,
   handleApprovalWindowClosed,
@@ -264,15 +264,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "get-approval") {
     // Only the extension approval document for this request can read its
-    // preview or send a decision. The browser provides the sender URL.
+    // preview or send a decision. Match document identity (not byte-identical
+    // URL) so interim WebKit sender URLs without ?requestId= still work.
     const { requestId } = message;
-    const trusted = typeof requestId === "string" && _sender.url === approvalPageUrl(requestId);
+    const trusted =
+      typeof requestId === "string" &&
+      typeof _sender.url === "string" &&
+      isApprovalDocumentUrl(_sender.url, requestId);
     sendResponse({ request: trusted ? getPendingApproval(requestId) : null });
     return false;
   }
 
   if (message?.type === "resolve-approval") {
-    if (typeof message.requestId !== "string" || _sender.url !== approvalPageUrl(message.requestId)) {
+    if (
+      typeof message.requestId !== "string" ||
+      typeof _sender.url !== "string" ||
+      !isApprovalDocumentUrl(_sender.url, message.requestId)
+    ) {
       sendResponse({ ok: false });
       return false;
     }

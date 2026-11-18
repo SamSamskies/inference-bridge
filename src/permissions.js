@@ -1263,10 +1263,11 @@ export function handleApprovalTabClosed(tabId) {
  * host + pathname + optional requestId so interim WebKit URLs (missing query)
  * and reloads do not false-deny. Prefer host over origin: chrome-extension
  * URLs are opaque (`origin === "null"`) in some runtimes including Node tests.
+ * Also used to trust get-approval / resolve-approval senders.
  * @param {string} urlString
  * @param {string} requestId
  */
-function isApprovalDocumentUrl(urlString, requestId) {
+export function isApprovalDocumentUrl(urlString, requestId) {
   let url;
   try {
     url = new URL(urlString);

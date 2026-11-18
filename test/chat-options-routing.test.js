@@ -190,6 +190,20 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("trusts get-approval and resolve-approval from an interim approval document URL", async () => {
+    const port = start();
+    await pending(port);
+    const approvalUrl = permissions.approvalPageUrl(port.streamId);
+    const withoutQuery = approvalUrl.replace(/\?.*$/, "");
+    expect(await sendApprovalMessage(port, { type: "get-approval" }, withoutQuery))
+      .toMatchObject({ request: { origin, ...route } });
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision: "allow_once", ...route,
+    }, withoutQuery)).toEqual({ ok: true });
+    await outcome(port);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("closes the approval tab if it opens after the originating tab navigated", async () => {
     let opened;
     chrome.tabs.create.mockReturnValueOnce(new Promise((resolve) => { opened = resolve; }));
