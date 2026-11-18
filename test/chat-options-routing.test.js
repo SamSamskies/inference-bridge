@@ -234,6 +234,10 @@ describe("Safari website approval", () => {
     expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
     chrome.tabs.onUpdated.emit(201, { url: approvalUrl, status: "loading" });
     expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    // Stale/wrong ?requestId= on the approval path must not false-deny.
+    const wrongQuery = permissions.approvalPageUrl("stream_other");
+    chrome.tabs.onUpdated.emit(201, { url: wrongQuery, status: "loading" });
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
     expect(await sendApprovalMessage(port, {
       type: "resolve-approval", decision: "allow_once", ...route,
     })).toEqual({ ok: true });

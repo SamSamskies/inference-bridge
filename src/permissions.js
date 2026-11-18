@@ -1284,28 +1284,43 @@ export function handleApprovalTabClosed(tabId) {
 }
 
 /**
- * True when url is still this request's approval document. Uses protocol +
- * host + pathname + optional requestId so interim WebKit URLs (missing query)
- * and reloads do not false-deny. Prefer host over origin: chrome-extension
- * URLs are opaque (`origin === "null"`) in some runtimes including Node tests.
- * Also used to trust get-approval / resolve-approval senders.
+ * True when url is the approval page path (any or no requestId). Used for
+ * navigate-away so a stale/wrong ?requestId= from WebKit does not false-deny.
+ * Prefer host over origin: chrome-extension URLs are opaque (`origin === "null"`)
+ * in some runtimes including Node tests.
  * @param {string} urlString
- * @param {string} requestId
  */
-export function isApprovalDocumentUrl(urlString, requestId) {
+export function isApprovalPagePath(urlString) {
   let url;
   try {
     url = new URL(urlString);
   } catch {
     return false;
   }
-  const expected = new URL(approvalPageUrl(requestId));
+  const expected = new URL(chrome.runtime.getURL("ui/approval.html"));
   if (url.protocol !== expected.protocol || url.host !== expected.host) {
     return false;
   }
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const expectedPath = expected.pathname.replace(/\/+$/, "") || "/";
-  if (path !== expectedPath) return false;
+  return path === expectedPath;
+}
+
+/**
+ * True when url is still this request's approval document (path + optional
+ * matching requestId). Interim WebKit URLs missing the query still match.
+ * Used to trust get-approval / resolve-approval senders.
+ * @param {string} urlString
+ * @param {string} requestId
+ */
+export function isApprovalDocumentUrl(urlString, requestId) {
+  if (!isApprovalPagePath(urlString)) return false;
+  let url;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return false;
+  }
   const reportedId = url.searchParams.get("requestId");
   if (reportedId != null && reportedId !== "" && reportedId !== requestId) {
     return false;
@@ -1364,7 +1379,9 @@ function denyApprovalTabsLeavingDocument(tabId, url) {
   if (!url || url === "about:blank" || url.startsWith("about:")) return;
   for (const [requestId, entry] of pendingApprovals.entries()) {
     if (entry.tabId !== tabId) continue;
-    if (isApprovalDocumentUrl(url, requestId)) continue;
+    // Path-only: a stale/wrong ?requestId= is still the approval document.
+    // Strict requestId matching stays on get-approval / resolve-approval trust.
+    if (isApprovalPagePath(url)) continue;
     // Match Deny UX: settle permission_denied and close the approval tab.
     cancelApproval(requestId);
   }
