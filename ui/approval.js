@@ -204,6 +204,19 @@ function showError(message) {
   rememberInput.disabled = true;
 }
 
+/**
+ * Terminal failure: show copy, then close a Safari approval tab so it does
+ * not linger after the pending request is gone or unusable. Chrome/Firefox
+ * popups stay open so the user can read the message and dismiss the window.
+ * @param {string} message
+ */
+async function showTerminalError(message) {
+  showError(message);
+  if (!safari) return;
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await closeApproval().catch(() => {});
+}
+
 function setModelHint(message) {
   message = decisionLimitWarning() || decisionMediaWarning() || message;
   if (!message) {
@@ -1131,7 +1144,7 @@ async function decide(action) {
         : {}),
     });
     if (!response?.ok) {
-      showError(response?.error
+      await showTerminalError(response?.error
         ? `${response.error} Close this ${safari ? "tab" : "dialog"} and retry the request from the site.`
         : "This permission request is no longer active.");
       return;
@@ -1140,7 +1153,9 @@ async function decide(action) {
       showError("The decision was recorded. Return to the requesting website.");
     });
   } catch (err) {
-    showError(err instanceof Error ? err.message : "Failed to send decision");
+    await showTerminalError(
+      err instanceof Error ? err.message : "Failed to send decision",
+    );
   }
 }
 
@@ -1165,7 +1180,7 @@ async function refreshProviders() {
 
 async function load() {
   if (!requestId) {
-    showError("Missing request id.");
+    await showTerminalError("Missing request id.");
     return;
   }
 
@@ -1176,7 +1191,7 @@ async function load() {
     (message) => chrome.runtime.sendMessage(message),
   );
   if (!request) {
-    showError(
+    await showTerminalError(
       "This permission request expired or was cancelled. If the tab just opened, wait a moment and reload."
     );
     return;
@@ -1207,7 +1222,7 @@ async function load() {
   }
 
   if (!(await refreshProviders())) {
-    showError(
+    await showTerminalError(
       requestMethod === "chat"
         ? "No inference providers are available."
         : `No provider can ${requestMethod} this request.`
@@ -1382,5 +1397,7 @@ allowBtn.addEventListener("click", () => decide("allow"));
 denyBtn.addEventListener("click", () => decide("deny"));
 
 void load().catch((error) => {
-  showError(error instanceof Error ? error.message : "Permission request unavailable.");
+  void showTerminalError(
+    error instanceof Error ? error.message : "Permission request unavailable.",
+  );
 });
