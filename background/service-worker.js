@@ -96,6 +96,8 @@ chrome.permissions.onRemoved.addListener((removed) => {
   // waiting for approval or streaming. Abort only when origins were removed —
   // unrelated permission removals must not cancel in-flight work. Chrome keeps
   // install-time hosts and is left alone.
+  // Any host-origin revocation aborts every in-flight stream (not filtered by
+  // which provider the removed pattern affects) — safer for multi-tab use.
   if (!isFirefoxBuild() && !isSafariBuild()) return;
   if (!Array.isArray(removed?.origins) || removed.origins.length === 0) return;
   for (const id of activeStreams.keys()) {
