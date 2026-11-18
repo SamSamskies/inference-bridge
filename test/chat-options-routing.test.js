@@ -169,7 +169,8 @@ describe("Safari website approval", () => {
     expect(await sendApprovalMessage(port, {
       type: "resolve-approval", decision: "allow_once", ...route,
     })).toEqual({ ok: true });
-    expect(chrome.tabs.remove).toHaveBeenCalledWith(201);
+    // Worker defers tabs.remove so sendResponse can complete first.
+    await vi.waitFor(() => expect(chrome.tabs.remove).toHaveBeenCalledWith(201));
     await outcome(port);
     expect(fetch).toHaveBeenCalledOnce();
   });

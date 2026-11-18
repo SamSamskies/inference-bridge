@@ -1244,11 +1244,12 @@ export async function resolveApproval(requestId, result) {
 
   // Wait for persistence before responding so the approval page can show save
   // errors. Chrome/Firefox popups still close themselves (closing the popup
-  // window from here can race sendResponse). Safari also closes the approval
-  // tab here after ok so a missing tabs.getCurrent() cannot leave an orphan.
+  // window from here can race sendResponse). Safari closes the approval tab
+  // after ok on a macrotask so sendResponse can reach the page first; a sync
+  // remove can make sendMessage reject and flash a false terminal error.
   const response = await completion;
   if (isSafariBuild() && response?.ok && approvalTabId != null) {
-    closeApprovalTab(approvalTabId);
+    setTimeout(() => closeApprovalTab(approvalTabId), 0);
   }
   return response;
 }
