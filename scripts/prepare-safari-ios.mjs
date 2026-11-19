@@ -7,6 +7,7 @@ import {
   cpSync,
   existsSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +70,8 @@ function syncEmbeddedExtensionResources() {
     (dir) => resolve(dir) !== packaged,
   );
   for (const dest of targets) {
+    // cpSync never deletes, so clear first or files dropped from the package linger.
+    rmSync(dest, { recursive: true, force: true });
     cpSync(safariPackage, dest, { recursive: true });
   }
   return targets.length;

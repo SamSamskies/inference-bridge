@@ -24,7 +24,7 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
     copyFileSync(new URL("../safari/ios-app/Icon.png", import.meta.url), join(source, "Icon.png"));
     writeFileSync(join(scripts, "package.mjs"), `
       import assert from "node:assert/strict";
-      import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+      import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
       assert.equal(process.argv[2], "safari");
       mkdirSync("build/safari", { recursive: true });
       let n = 0;
@@ -33,6 +33,9 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
       writeFileSync("build/package-count", String(n));
       writeFileSync("build/safari/manifest.json", JSON.stringify({ package: n }));
       writeFileSync("build/safari/background.js", "bg-" + n);
+      // Only the first package ships old.js, simulating a file dropped later.
+      if (n === 1) writeFileSync("build/safari/old.js", "old");
+      else rmSync("build/safari/old.js", { force: true });
       appendFileSync("build/stages", "safari\\n");
     `);
     writeFileSync(join(bin, "xcrun"), `#!/usr/bin/env node
@@ -83,6 +86,8 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
       package: 1,
     });
 
+    expect(existsSync(join(extensionResources, "old.js"))).toBe(true);
+
     writeFileSync(project, "configured signing");
     writeFileSync(join(source, "Main.html"), "updated setup screen");
     run();
@@ -95,6 +100,8 @@ it("generates the iOS wrapper once and refreshes the setup screen without replac
       package: 2,
     });
     expect(readFileSync(join(extensionResources, "background.js"), "utf8")).toBe("bg-2");
+    // Files dropped from the package must not linger in the embedded copy.
+    expect(existsSync(join(extensionResources, "old.js"))).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
