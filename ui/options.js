@@ -20,6 +20,8 @@ import {
   normalizeCompatBaseUrl,
   originPatternFromBaseUrl,
   requestHostPermissionForBaseUrl,
+  revokedHostAccessMessage,
+  revokedHostAccessRestoreHint,
 } from "../src/host-permissions.js";
 import { ensureLoopbackOriginBypassForBaseUrl } from "../src/loopback-origin-bypass.js";
 import { summarizeToolFingerprintLabels } from "../src/tool-approval.js";
@@ -36,26 +38,30 @@ import {
   probeLanguageModelAvailability,
 } from "../src/prompt-api-core.js";
 import { installDecisionModel } from "../src/decision-api-core.js";
-import { isFirefoxBuild } from "../src/runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
 import { geminiModelNote } from "../src/providers/gemini-capabilities.js";
 import { groupAllowedSites } from "./allowed-sites.js";
 import { isPPQCompatEndpoint, ppqTransferPreview } from "../src/ppq-transfer.js";
 import { openChat } from "../src/open-chat.js";
 
 const openChatButton = document.getElementById("openChat");
+const openChatStatus = document.getElementById("openChatStatus");
 let chatWindowId;
 // Resolve before the user clicks so sidePanel.open runs synchronously within
 // the gesture, with an actual window id rather than the windows API sentinel.
-openChatButton.disabled = true;
-void chrome.windows.getCurrent().then((window) => {
-  chatWindowId = window.id;
-  openChatButton.disabled = false;
-}).catch(() => {
-  document.getElementById("openChatStatus").textContent = "Could not find this browser window. Reopen settings to try again.";
-});
+if (!isSafariBuild()) {
+  openChatButton.disabled = true;
+  void chrome.windows.getCurrent().then((window) => {
+    chatWindowId = window.id;
+    openChatButton.disabled = false;
+  }).catch(() => {
+    openChatStatus.textContent = "Could not find this browser window. Reopen settings to try again.";
+  });
+}
 openChatButton.addEventListener("click", () => {
+  openChatStatus.textContent = "";
   void openChat(chatWindowId).catch((error) => {
-    document.getElementById("openChatStatus").textContent = error.message;
+    openChatStatus.textContent = error.message;
   });
 });
 
@@ -113,12 +119,36 @@ const blockedEl = document.getElementById("blocked");
 const blockedEmpty = document.getElementById("blockedEmpty");
 const compatEndpointsEl = document.getElementById("compatEndpoints");
 const compatEndpointsEmpty = document.getElementById("compatEndpointsEmpty");
+const compatServersHint = document.getElementById("compatServersHint");
 const compatNameInput = document.getElementById("compatName");
 const compatBaseUrlInput = document.getElementById("compatBaseUrl");
 const compatApiKeyInput = document.getElementById("compatApiKey");
 const compatSaveButton = document.getElementById("compatSave");
 const compatCancelButton = document.getElementById("compatCancel");
 const compatStatusEl = document.getElementById("compatStatus");
+
+if (isSafariBuild() && compatServersHint && compatBaseUrlInput) {
+  compatServersHint.replaceChildren(
+    document.createTextNode(
+      "Add remote OpenAI-compatible servers over HTTPS. Safari only grants optional host access for ",
+    ),
+    Object.assign(document.createElement("code"), { textContent: "https://*/*" }),
+    document.createTextNode(
+      " — HTTP and loopback URLs cannot be saved. Enter the host (e.g. ",
+    ),
+    Object.assign(document.createElement("code"), {
+      textContent: "https://llm.example.com",
+    }),
+    document.createTextNode(
+      ") — ",
+    ),
+    Object.assign(document.createElement("code"), { textContent: "/v1" }),
+    document.createTextNode(
+      " is added automatically if omitted. Safari asks for host access when you save each server (that origin only).",
+    ),
+  );
+  compatBaseUrlInput.placeholder = "https://llm.example.com";
+}
 const ppqTransferDialog = document.getElementById("ppqTransferDialog");
 const ppqTransferForm = document.getElementById("ppqTransferForm");
 const ppqTransferSummary = document.getElementById("ppqTransferSummary");
@@ -362,6 +392,19 @@ function normalizeModels(models) {
  * Probe local Ollama. Unavailable or empty installs keep the option disabled.
  */
 async function refreshOllamaStatus() {
+  // Safari packaging omits localhost host grants and DNR; local Ollama cannot
+  // be used. Avoid probing localhost and pointing users at http://localhost.
+  if (isSafariBuild()) {
+    ollamaStatus = {
+      available: false,
+      models: [],
+      message:
+        "Local Ollama is not available in Safari. Choose Ollama Cloud or another hosted provider.",
+    };
+    modelCache.delete("ollama");
+    return ollamaStatus;
+  }
+
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
     providerId: "ollama",
@@ -405,7 +448,7 @@ async function refreshOllamaStatus() {
  * @returns {boolean}
  */
 function isOnDeviceOffered() {
-  if (isFirefoxBuild()) return false;
+  if (isFirefoxBuild() || isSafariBuild()) return false;
   return (
     onDeviceStatus.availability !== "missing" &&
     onDeviceStatus.availability !== "unavailable"
@@ -426,7 +469,7 @@ function isOnDeviceReady() {
  * (downloadable / downloading) because create() needs a user gesture here.
  */
 async function refreshOnDeviceStatus() {
-  if (isFirefoxBuild()) {
+  if (isFirefoxBuild() || isSafariBuild()) {
     onDeviceStatus = { availability: "missing", message: "" };
     return onDeviceStatus;
   }
@@ -751,7 +794,7 @@ function providerAccessError(providerId) {
   if (!providersWithRevokedHostAccess.has(providerId)) return "";
   const provider = providers.find((candidate) => candidate.id === providerId);
   const label = provider?.label || providerId;
-  return `Host access for ${label} was revoked. Restore it in Firefox add-on settings.`;
+  return revokedHostAccessMessage(label);
 }
 
 /**
@@ -2250,7 +2293,7 @@ ppqTransferForm.addEventListener("submit", async (event) => {
   let transferred = false;
   try {
     if (!(await hasBuiltInHostPermission("ppq"))) {
-      throw new Error("Host access for PayPerQ was revoked. Restore it in Firefox add-on settings before transferring.");
+      throw new Error(`Host access for PayPerQ was revoked. Restore it in ${revokedHostAccessRestoreHint()} before transferring.`);
     }
     await transferPPQCompatEndpoint(review.source.id, {
       expected: review, replaceExisting: ppqTransferReplace.checked,
@@ -2409,6 +2452,13 @@ compatSaveButton.addEventListener("click", async () => {
     if (!baseUrl) {
       setCompatStatus(
         "Enter a valid http(s) URL (e.g. http://127.0.0.1:1234).",
+        "err",
+      );
+      return;
+    }
+    if (isSafariBuild() && new URL(baseUrl).protocol === "http:") {
+      setCompatStatus(
+        "Safari requires HTTPS for custom servers. HTTP and loopback URLs are not available in this build.",
         "err",
       );
       return;

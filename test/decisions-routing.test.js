@@ -33,7 +33,11 @@ async function setup(firefox) {
     onRemoved: event(),
   };
   chrome.windows.onRemoved = event();
-  chrome.tabs = { onRemoved: event(), onUpdated: event() };
+  chrome.tabs = {
+    onRemoved: event(),
+    onUpdated: event(),
+    remove: vi.fn(async () => {}),
+  };
   chrome.action = { onClicked: event() };
   ports = [];
   storage = await import("../src/storage.js");
@@ -133,9 +137,12 @@ async function approve(port, route = cloud, decision = "allow_once") {
   );
   permissions.resolveApproval(port.streamId, { decision, ...route });
 }
-async function message(payload) {
+async function message(payload, sender = {
+  id: chrome.runtime.id,
+  url: chrome.runtime.getURL("ui/options.html"),
+}) {
   return new Promise((resolve) =>
-    chrome.runtime.onMessage.emit(payload, {}, resolve)
+    chrome.runtime.onMessage.emit(payload, sender, resolve)
   );
 }
 
@@ -465,7 +472,21 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     expect(port.messages.some((item) => item.chunk)).toBe(false);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it.each(["anthropic", ...(firefox ? ["on-device"] : []), "compat:unsupported"])(
+  if (firefox) {
+    it("scrubs a stale on-device decisions grant and prompts instead of routing to it", async () => {
+      await storage.grantOriginOperationAlways(origin, "decide", {
+        providerId: "on-device",
+        model: "chat-model",
+      });
+      const port = start();
+      await vi.waitFor(() =>
+        expect(permissions.getPendingApproval(port.streamId)?.method).toBe("decide")
+      );
+      expect(permissions.getPendingApproval(port.streamId).providerId).not.toBe("on-device");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  }
+  it.each(["anthropic", "compat:unsupported"])(
     "rejects a saved unsupported provider %s",
     async (providerId) => {
       if (providerId.startsWith("compat:"))

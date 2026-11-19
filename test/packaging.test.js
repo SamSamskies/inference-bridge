@@ -21,12 +21,14 @@ function hash(path) {
 }
 
 describe("browser packages", () => {
-  it("stages distinct, allowlisted, deterministic Chrome and Firefox ZIP roots", () => {
+  it("stages distinct, allowlisted, deterministic browser ZIP roots", () => {
     const chromeZip = join(root, `dist/inference-bridge-${packageJson.version}.zip`);
     const firefoxZip = join(root, `dist/inference-bridge-firefox-${packageJson.version}.zip`);
+    const safariZip = join(root, `dist/inference-bridge-safari-${packageJson.version}.zip`);
+    const packages = [["chrome", chromeZip], ["firefox", firefoxZip], ["safari", safariZip]];
     command(process.execPath, ["scripts/package.mjs", "all"]);
 
-    for (const [browser, zip] of [["chrome", chromeZip], ["firefox", firefoxZip]]) {
+    for (const [browser, zip] of packages) {
       const files = command("unzip", ["-Z1", zip]).trim().split("\n");
       expect(files).toContain("manifest.json");
       expect(files).toContain("background/service-worker.js");
@@ -69,16 +71,35 @@ describe("browser packages", () => {
         expect(manifest.incognito).toBe("not_allowed");
         expect(manifest.content_security_policy.extension_pages).not.toContain("upgrade-insecure-requests");
         expect(command("unzip", ["-p", zip, "src/prompt-api-offscreen.js"])).not.toContain("chrome.offscreen");
-      } else {
+      } else if (browser === "chrome") {
         expect(manifest.side_panel.default_path).toBe("ui/chat.html");
         expect(manifest.permissions).toContain("sidePanel");
         expect(manifest.permissions).toContain("offscreen");
         expect(manifest.background.service_worker).toBe("background/service-worker.js");
+      } else {
+        expect(manifest.manifest_version).toBe(3);
+        expect(manifest.permissions).toEqual(["storage"]);
+        expect(manifest.host_permissions.every((pattern) => pattern.startsWith("https://"))).toBe(true);
+        expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
+        expect(manifest.side_panel).toBeUndefined();
+        expect(manifest.sidebar_action).toBeUndefined();
+        expect(manifest.browser_specific_settings).toEqual({ safari: { strict_min_version: "18.0" } });
+        expect(manifest.background).toEqual({ service_worker: "background/service-worker.js", type: "module" });
+        expect(manifest.content_scripts.map(({ js, world = "ISOLATED", run_at, all_frames }) =>
+          ({ js, world, run_at, all_frames })
+        )).toEqual([
+          { js: ["content/inject.js"], world: "MAIN", run_at: "document_start", all_frames: false },
+          { js: ["content/content-script.js"], world: "ISOLATED", run_at: "document_start", all_frames: false },
+        ]);
+        expect(files.some((file) => file.startsWith("offscreen/"))).toBe(false);
+        for (const file of ["content/inject.js", "content/content-script.js", "background/service-worker.js"]) {
+          expect(command("unzip", ["-p", zip, file])).toBe(readFileSync(join(root, file), "utf8"));
+        }
       }
     }
 
-    const first = [hash(chromeZip), hash(firefoxZip)];
+    const first = packages.map(([, zip]) => hash(zip));
     command(process.execPath, ["scripts/package.mjs", "all"]);
-    expect([hash(chromeZip), hash(firefoxZip)]).toEqual(first);
+    expect(packages.map(([, zip]) => hash(zip))).toEqual(first);
   });
 });

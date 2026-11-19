@@ -31,8 +31,9 @@ if (
 }
 
 const mode = process.argv[2] || "chrome";
-if (!["chrome", "firefox", "all"].includes(mode)) {
-  throw new Error("Usage: node scripts/package.mjs [chrome|firefox|all]");
+const browserManifests = { chrome: () => chromeManifest, firefox: firefoxManifest, safari: safariManifest };
+if (mode !== "all" && !Object.hasOwn(browserManifests, mode)) {
+  throw new Error("Usage: node scripts/package.mjs [chrome|firefox|safari|all]");
 }
 
 const RUNTIME_DIRS = ["background", "content", "src", "ui", "icons"];
@@ -82,6 +83,24 @@ function firefoxManifest() {
   return manifest;
 }
 
+function safariManifest() {
+  const manifest = structuredClone(chromeManifest);
+  // Start with hosted providers. Safari on iOS has no Chrome side panel or
+  // context menu, and this target does not install the Ollama header rules.
+  manifest.permissions = ["storage"];
+  delete manifest.side_panel;
+  manifest.host_permissions = manifest.host_permissions.filter((pattern) => pattern.startsWith("https:"));
+  manifest.optional_host_permissions = ["https://*/*"];
+  manifest.browser_specific_settings = {
+    safari: {
+      // Minimum for static MAIN-world content scripts. Runtime support is
+      // verified separately on the devices listed in docs/safari.md.
+      strict_min_version: "18.0",
+    },
+  };
+  return manifest;
+}
+
 function walkFiles(directory) {
   const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -104,16 +123,17 @@ function build(browser) {
     cpSync(join(root, "offscreen"), join(stage, "offscreen"), {
       recursive: true,
     });
-  } else {
+  } else if (browser === "firefox") {
     cpSync(
       join(root, "firefox", "prompt-api-offscreen.js"),
       join(stage, "src", "prompt-api-offscreen.js")
     );
     cpSync(join(root, "firefox", "open-chat.js"), join(stage, "src", "open-chat.js"));
   }
+  const manifest = browserManifests[browser]();
   writeFileSync(
     join(stage, "manifest.json"),
-    `${JSON.stringify(browser === "chrome" ? chromeManifest : firefoxManifest(), null, 2)}\n`
+    `${JSON.stringify(manifest, null, 2)}\n`
   );
 
   const files = walkFiles(stage);
@@ -121,7 +141,7 @@ function build(browser) {
   const zipName =
     browser === "chrome"
       ? `inference-bridge-${chromeManifest.version}.zip`
-      : `inference-bridge-firefox-${chromeManifest.version}.zip`;
+      : `inference-bridge-${browser}-${chromeManifest.version}.zip`;
   const zipPath = join(outDir, zipName);
   if (existsSync(zipPath)) rmSync(zipPath);
   const result = spawnSync(
@@ -135,9 +155,6 @@ function build(browser) {
   console.log(`Created ${zipPath}`);
 }
 
-if (mode === "all") {
-  build("chrome");
-  build("firefox");
-} else {
-  build(mode);
+for (const browser of mode === "all" ? Object.keys(browserManifests) : [mode]) {
+  build(browser);
 }

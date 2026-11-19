@@ -90,14 +90,14 @@ describe("approvalProviderSetupHint", () => {
           ollamaMessage: "Ollama is unavailable at http://localhost:11434.",
         }
       )
-    ).toBe("Ollama is unavailable at http://localhost:11434.");
+    ).toEqual({ message: "Ollama is unavailable at http://localhost:11434." });
 
     expect(
       approvalProviderSetupHint(
         { id: "on-device", label: "On-device" },
         { onDeviceAvailable: false }
       )
-    ).toBe("Install the on-device model in Options before allowing this site.");
+    ).toEqual({ message: "Install the on-device model in Options before allowing this site." });
 
     expect(
       approvalProviderSetupHint({
@@ -106,9 +106,7 @@ describe("approvalProviderSetupHint", () => {
         requiresApiKey: true,
         hasApiKey: false,
       })
-    ).toBe(
-      "Anthropic needs an API key — add one in Options to enable it."
-    );
+    ).toEqual({ message: "Anthropic needs an API key.", needsApiKey: true });
 
     expect(
       approvalProviderSetupHint({
@@ -117,7 +115,7 @@ describe("approvalProviderSetupHint", () => {
         requiresApiKey: true,
         hasApiKey: true,
       })
-    ).toBe("");
+    ).toBeNull();
 
     expect(
       approvalProviderSetupHint({
@@ -126,7 +124,7 @@ describe("approvalProviderSetupHint", () => {
         requiresApiKey: true,
         hasApiKey: true,
       })
-    ).toBe("");
+    ).toBeNull();
 
     expect(
       approvalProviderSetupHint({
@@ -134,6 +132,6 @@ describe("approvalProviderSetupHint", () => {
         label: "Anthropic",
         requiresApiKey: true,
       })
-    ).toBe("");
+    ).toBeNull();
   });
 });

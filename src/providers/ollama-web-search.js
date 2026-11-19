@@ -7,7 +7,10 @@
  */
 
 import { hasHostedWebSearch } from "./hosted-tools.js";
-import { hasBuiltInHostPermission } from "../host-permissions.js";
+import {
+  hasBuiltInHostPermission,
+  revokedHostAccessMessage,
+} from "../host-permissions.js";
 
 /** @typedef {import("./types.js").Tool} Tool */
 /** @typedef {import("./types.js").ToolCall} ToolCall */
@@ -279,7 +282,7 @@ async function postOllamaCloud(url, apiKey, body, signal, label) {
   if (!(await hasBuiltInHostPermission("ollama-web-search"))) {
     throwInference(
       "unavailable",
-      "Host access for ollama.com was revoked. Restore it in Firefox add-on settings."
+      revokedHostAccessMessage("ollama.com")
     );
   }
   let response;

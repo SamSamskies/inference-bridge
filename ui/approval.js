@@ -37,9 +37,32 @@ import { isPlausibleModelForProvider } from "../src/storage-local.js";
 import { assertDecisionMediaSupported } from "../src/decision-media.js";
 import { decisionQuestionLimitMessage } from "../src/providers/decision-limits.js";
 import { createThinkingGuidance } from "./ollama-thinking-guidance.js";
+import {
+  fetchPendingApprovalRequest,
+  resolveApprovalRequestId,
+} from "../src/approval-session.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
 
-const params = new URLSearchParams(location.search);
-const requestId = params.get("requestId");
+// Persist across reloads that drop ?requestId= so Safari tabs stay usable.
+const requestId = resolveApprovalRequestId(location.search);
+const safari = isSafariBuild();
+const firefox = isFirefoxBuild();
+/** Set once the decision finished or a terminal error is shown, so keep-alive
+ * disconnect from a worker tab close does not flash a false “expired” error. */
+let approvalSettled = false;
+/** True after a non-retryable failure; blocks re-enabling Allow/Deny. */
+let terminalError = false;
+
+async function closeApproval() {
+  if (safari) {
+    const tab = await chrome.tabs.getCurrent();
+    if (tab?.id != null) {
+      await chrome.tabs.remove(tab.id);
+      return;
+    }
+  }
+  window.close();
+}
 
 // Keep the MV3 service worker alive while this popup is open. Opening a port
 // alone no longer resets Chrome's idle timer — periodic messages do.
@@ -47,10 +70,13 @@ const APPROVAL_KEEPALIVE_MS = 20_000;
 try {
   const keepAlivePort = chrome.runtime.connect({ name: "ipa-approval" });
   keepAlivePort.onDisconnect.addListener(() => {
+    if (approvalSettled) return;
     // Firefox event pages can unload while an approval is open. Their
     // in-memory request is then gone; close this orphaned popup. The page
     // relay rebinds and settles its iterator as aborted/unavailable.
-    window.close();
+    void closeApproval().catch(() => {
+      showError("This permission request expired. Close the tab and retry from the website.");
+    });
   });
   const ping = () => {
     try {
@@ -69,6 +95,8 @@ const originEl = document.getElementById("origin");
 const requestDescription = document.getElementById("requestDescription");
 const providerSelect = document.getElementById("provider");
 const providerHint = document.getElementById("providerHint");
+const providerHintMessage = document.getElementById("providerHintMessage");
+const providerApiKeyLink = document.getElementById("providerApiKeyLink");
 const modelField = document.getElementById("modelField");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
@@ -185,6 +213,36 @@ function showError(message) {
   rememberInput.disabled = true;
 }
 
+/**
+ * Persist/save failed but the pending request is still live — keep controls
+ * usable so the user can retry without restarting from the site.
+ * @param {string} message
+ */
+function showRetryableError(message) {
+  terminalError = false;
+  errorEl.hidden = false;
+  errorEl.textContent = message;
+  rememberInput.disabled = false;
+  denyBtn.disabled = false;
+  chatReasoningEffortSelect.disabled = false;
+  updateAllowEnabled();
+}
+
+/**
+ * Terminal failure: show copy, then close a Safari approval tab so it does
+ * not linger after the pending request is gone or unusable. Chrome/Firefox
+ * popups stay open so the user can read the message and dismiss the window.
+ * @param {string} message
+ */
+async function showTerminalError(message) {
+  terminalError = true;
+  showError(message);
+  if (!safari) return;
+  approvalSettled = true;
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await closeApproval().catch(() => {});
+}
+
 function setModelHint(message) {
   message = decisionLimitWarning() || decisionMediaWarning() || message;
   if (!message) {
@@ -205,14 +263,10 @@ function updateProviderHint(providerId = providerSelect.value) {
         onDeviceAvailable: onDeviceStatus.available,
         onDeviceMessage: onDeviceStatus.message,
       })
-    : "";
-  if (!hint) {
-    providerHint.hidden = true;
-    providerHint.textContent = "";
-    return;
-  }
-  providerHint.hidden = false;
-  providerHint.textContent = hint;
+    : null;
+  providerHint.hidden = !hint;
+  providerHintMessage.textContent = hint?.message ?? "";
+  providerApiKeyLink.hidden = !hint?.needsApiKey;
 }
 
 function updateCapabilityWarning(providerId = providerSelect.value) {
@@ -465,7 +519,7 @@ function decisionLimitWarning() {
 }
 
 function updateAllowEnabled() {
-  if (errorEl.hidden === false && errorEl.textContent) {
+  if (terminalError) {
     // Hard page error already disables controls.
     return;
   }
@@ -543,6 +597,18 @@ function normalizeModels(models) {
 }
 
 async function refreshOllamaStatus() {
+  // Safari packaging omits localhost host grants and DNR; local Ollama cannot
+  // be used. Avoid probing localhost and pointing users at http://localhost.
+  if (safari) {
+    ollamaStatus = {
+      available: false,
+      models: [],
+      message:
+        "Local Ollama is not available in Safari. Choose Ollama Cloud or another hosted provider.",
+    };
+    return ollamaStatus;
+  }
+
   const response = await chrome.runtime.sendMessage({
     type: "list-models",
     providerId: "ollama",
@@ -581,6 +647,17 @@ async function refreshOllamaStatus() {
 }
 
 async function refreshOnDeviceStatus() {
+  // On-device is omitted from Safari/Firefox provider lists; skip Chrome-only
+  // Decisions/Prompt API copy and the unused status probe.
+  if (safari || firefox) {
+    onDeviceStatus = {
+      availability: "missing",
+      available: false,
+      message: "On-device AI is not available in this browser.",
+    };
+    return onDeviceStatus;
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: "on-device-status",
@@ -1076,6 +1153,11 @@ async function decide(action) {
   denyBtn.disabled = true;
   rememberInput.disabled = true;
   chatReasoningEffortSelect.disabled = true;
+  // Clear a prior retryable save error once the user submits again.
+  if (!terminalError) {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
 
   /** @type {"allow_once" | "always" | "deny" | "never"} */
   const decision =
@@ -1100,14 +1182,26 @@ async function decide(action) {
         : {}),
     });
     if (!response?.ok) {
-      showError(response?.error
-        ? `${response.error} Close this dialog and retry the request from the site.`
-        : "This permission request is no longer active.");
+      if (response?.error) {
+        // Storage/save failed; pending approval remains — retry in this UI.
+        showRetryableError(response.error);
+        return;
+      }
+      await showTerminalError("This permission request is no longer active.");
       return;
     }
-    window.close();
+    approvalSettled = true;
+    // Safari: the worker already closes the approval tab after a successful
+    // resolve. Calling tabs.remove here races that close and can flash
+    // “decision was recorded” when getCurrent/remove fails on a gone tab.
+    if (safari) return;
+    await closeApproval().catch(() => {
+      showError("The decision was recorded. Return to the requesting website.");
+    });
   } catch (err) {
-    showError(err instanceof Error ? err.message : "Failed to send decision");
+    await showTerminalError(
+      err instanceof Error ? err.message : "Failed to send decision",
+    );
   }
 }
 
@@ -1132,17 +1226,20 @@ async function refreshProviders() {
 
 async function load() {
   if (!requestId) {
-    showError("Missing request id.");
+    await showTerminalError("Missing request id.");
     return;
   }
 
-  const response = await chrome.runtime.sendMessage({
-    type: "get-approval",
+  // Safari may open this document before tabs.create assigns entry.tabId;
+  // poll for the full approval prompt window so a slow bind is not “expired”.
+  const request = await fetchPendingApprovalRequest(
     requestId,
-  });
-  const request = response?.request;
+    (message) => chrome.runtime.sendMessage(message),
+  );
   if (!request) {
-    showError("This permission request expired or was cancelled.");
+    await showTerminalError(
+      "This permission request expired or was cancelled. If the tab just opened, wait a moment and reload."
+    );
     return;
   }
 
@@ -1171,7 +1268,7 @@ async function load() {
   }
 
   if (!(await refreshProviders())) {
-    showError(
+    await showTerminalError(
       requestMethod === "chat"
         ? "No inference providers are available."
         : `No provider can ${requestMethod} this request.`
@@ -1346,5 +1443,7 @@ allowBtn.addEventListener("click", () => decide("allow"));
 denyBtn.addEventListener("click", () => decide("deny"));
 
 void load().catch((error) => {
-  showError(error instanceof Error ? error.message : "Permission request unavailable.");
+  void showTerminalError(
+    error instanceof Error ? error.message : "Permission request unavailable.",
+  );
 });

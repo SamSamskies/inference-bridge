@@ -1127,13 +1127,18 @@ report both `audio` and `completion`. Synthesis skips when `/api/show` does not
 report `speech`.
 Once a capability is advertised, endpoint or payload failures fail the test.
 
-Build runtime-only packages:
+### Browser builds
 
 ```bash
-npm run package          # Chrome ZIP and build/chrome/
-npm run package:firefox  # Firefox ZIP and build/firefox/
-npm run lint:firefox     # Rebuild Firefox and lint with warnings treated as errors
+npm run package           # Chrome ZIP and build/chrome/
+npm run package:firefox   # Firefox ZIP and build/firefox/
+npm run package:safari    # Safari development ZIP and build/safari/
+npm run prepare:safari:ios # Refresh Safari files and prepare the local iOS Xcode project
+npm run package:all       # Stage all three browsers
+npm run lint:firefox      # Rebuild Firefox and lint with warnings treated as errors
 ```
+
+See the [Safari development guide](docs/safari.md) for local installation and the page-injection smoke test.
 
 ### Manual checks
 

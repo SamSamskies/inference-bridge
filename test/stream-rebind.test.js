@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { APPROVAL_PROMPT_TIMEOUT_MS } from "../src/approval-session.js";
 import {
+  BOUNDED_REBIND_TIMEOUT_MS,
   canAcceptRebind,
   canAcceptStartedAck,
   decidePortDisconnect,
@@ -110,5 +113,18 @@ describe("canAcceptStartedAck", () => {
   it("rejects started-ack when the stream entry is missing", () => {
     expect(canAcceptStartedAck(undefined, { id: "port-a" })).toBe(false);
     expect(canAcceptStartedAck(null, { id: "port-a" })).toBe(false);
+  });
+});
+
+describe("bounded rebind budget", () => {
+  it("covers the full approval prompt timeout and stays in sync with content-script.js", () => {
+    expect(BOUNDED_REBIND_TIMEOUT_MS).toBeGreaterThanOrEqual(APPROVAL_PROMPT_TIMEOUT_MS);
+    const contentScript = readFileSync(
+      new URL("../content/content-script.js", import.meta.url),
+      "utf8",
+    );
+    const match = contentScript.match(/const REBIND_LIMIT_MS = ([\d_]+);/);
+    expect(match).not.toBeNull();
+    expect(Number(match[1].replaceAll("_", ""))).toBe(BOUNDED_REBIND_TIMEOUT_MS);
   });
 });

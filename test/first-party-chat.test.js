@@ -3,7 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { createWebLocksMock } from "./helpers/web-locks-mock.js";
 
 vi.mock("../src/chat-service.js", () => ({ streamConfiguredChat: vi.fn() }));
-let history, connectChat, service;
+let history, connectChat, isTrustedProviderCatalogSender, service;
 const event = () => { const listeners = new Set(); return { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn), emit: (...args) => listeners.forEach((fn) => fn(...args)) }; };
 function port(sender = { id: "test", url: "chrome-extension://test/ui/chat.html" }) {
   const p = { sender, messages: [], onMessage: event(), onDisconnect: event(), disconnect: vi.fn(), postMessage(m) { this.messages.push(m); } };
@@ -20,7 +20,7 @@ beforeEach(async () => {
   vi.stubGlobal("navigator", { locks: createWebLocksMock() });
   vi.stubGlobal("chrome", { runtime: { id: "test", getURL: (path) => `chrome-extension://test/${path}` }, permissions: { onRemoved: event() } });
   history = await import("../src/chat-history.js");
-  ({ connectChat } = await import("../background/chat.js"));
+  ({ connectChat, isTrustedProviderCatalogSender } = await import("../background/chat.js"));
   ({ streamConfiguredChat: service } = await import("../src/chat-service.js"));
   service.mockReset().mockImplementation(async ({ onDelta }) => { onDelta("Hello"); return { model: "vision-model", message: { role: "assistant", content: "Hello" } }; });
 });
@@ -34,6 +34,21 @@ describe("first-party chat channel", () => {
     {},
   ])("rejects untrusted senders %j", (sender) => {
     expect(port(sender).disconnect).toHaveBeenCalledOnce(); expect(service).not.toHaveBeenCalled();
+  });
+  it.each([
+    { id: "test", url: "chrome-extension://test/ui/options.html" },
+    { id: "test", url: "chrome-extension://test/ui/approval.html?requestId=stream_1" },
+    { id: "test", url: "chrome-extension://test/ui/chat.html" },
+  ])("allows catalog metadata reads from extension UI %j", (sender) => {
+    expect(isTrustedProviderCatalogSender(sender)).toBe(true);
+  });
+  it.each([
+    { id: "test", url: "https://app.example/" },
+    { id: "other", url: "chrome-extension://test/ui/options.html" },
+    { id: "test", url: "chrome-extension://test/ui/popup.html" },
+    {},
+  ])("rejects catalog metadata reads from untrusted senders %j", (sender) => {
+    expect(isTrustedProviderCatalogSender(sender)).toBe(false);
   });
   it("streams with the saved route/search choice and durably saves the answer", async () => {
     const p = port(); const chat = await start(p);

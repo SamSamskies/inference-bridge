@@ -33,7 +33,7 @@ export function isApprovalProviderReady(provider, status = {}) {
 export const isApprovalProviderChoosable = isApprovalProviderReady;
 
 /**
- * Setup hint for the currently selected provider, or "" when ready.
+ * Setup hint for the currently selected provider, or null when ready.
  *
  * @param {{
  *   id: string,
@@ -48,27 +48,25 @@ export const isApprovalProviderChoosable = isApprovalProviderReady;
  *   onDeviceAvailable?: boolean,
  *   onDeviceMessage?: string,
  * }} [status]
- * @returns {string}
+ * @returns {{message: string, needsApiKey?: boolean} | null}
  */
 export function approvalProviderSetupHint(provider, status = {}) {
   if (provider.id === "ollama" && !status.ollamaAvailable) {
-    return (
-      status.ollamaMessage ||
-      "Ollama is unavailable at http://localhost:11434."
-    );
+    return {
+      message: status.ollamaMessage || "Ollama is unavailable at http://localhost:11434.",
+    };
   }
   if (provider.id === "on-device" && !status.onDeviceAvailable) {
-    return (
-      status.onDeviceMessage ||
-      "Install the on-device model in Options before allowing this site."
-    );
+    return {
+      message: status.onDeviceMessage || "Install the on-device model in Options before allowing this site.",
+    };
   }
   if (
     provider.requiresApiKey &&
     !provider.optionalApiKey &&
     provider.hasApiKey === false
   ) {
-    return `${provider.label} needs an API key — add one in Options to enable it.`;
+    return { message: `${provider.label} needs an API key.`, needsApiKey: true };
   }
-  return "";
+  return null;
 }

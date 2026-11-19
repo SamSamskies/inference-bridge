@@ -37,11 +37,24 @@ describe("provider registry", () => {
     expect(getProvider("missing")).toBeUndefined();
   });
 
-  it("omits the Chrome On-device provider from Firefox", async () => {
-    chromeMock.setManifest({ browser_specific_settings: { gecko: {} } });
+  it.each([
+    ["Firefox", { gecko: {} }],
+    ["Safari", { safari: {} }],
+  ])("omits the Chrome On-device provider from %s", async (_label, browserSpecific) => {
+    chromeMock.setManifest({ browser_specific_settings: browserSpecific });
     expect(listProviders().map((provider) => provider.id)).not.toContain("on-device");
     expect(getProvider("on-device")).toBeUndefined();
     expect(await getProviderAsync("on-device")).toBeUndefined();
+  });
+
+  it("omits local Ollama from Safari while keeping Ollama Cloud", async () => {
+    chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
+    const ids = listProviders().map((provider) => provider.id);
+    expect(ids).not.toContain("ollama");
+    expect(ids).toContain("ollama-cloud");
+    expect(getProvider("ollama")).toBeUndefined();
+    expect(await getProviderAsync("ollama")).toBeUndefined();
+    expect(await getProviderAsync("ollama-cloud")).toMatchObject({ id: "ollama-cloud" });
   });
 
   it("merges saved compat endpoints into listAllProviders", async () => {

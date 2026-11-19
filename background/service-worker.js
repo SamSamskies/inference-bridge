@@ -19,6 +19,10 @@ import {
   ensureOperationPermission,
   resolveApproval,
   getPendingApproval,
+  isTrustedApprovalSender,
+  isTrustedApprovalCatalogSender,
+  handleApprovalTabClosed,
+  handleApprovalTabNavigated,
   handleApprovalWindowClosed,
   cancelApproval,
   onAllowedOriginsStorageChanged,
@@ -56,15 +60,38 @@ import {
 import { ON_DEVICE_MODEL_ID } from "../src/prompt-api-core.js";
 import { getOnDeviceDecisionAvailability } from "../src/decision-api-client.js";
 import {
+  BOUNDED_REBIND_TIMEOUT_MS,
   canAcceptRebind,
   canAcceptStartedAck,
   decidePortDisconnect,
 } from "../src/stream-rebind.js";
-import { isFirefoxBuild } from "../src/runtime-browser.js";
-import { hasBuiltInHostPermission } from "../src/host-permissions.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
+import {
+  hasBuiltInHostPermission,
+  revokedHostAccessMessage,
+  revokedHostAccessRestoreHint,
+} from "../src/host-permissions.js";
 import { ensureTrustedStorageAccess } from "../src/storage-access.js";
-import { connectChat, isChatSender } from "./chat.js";
+import {
+  connectChat,
+  isChatSender,
+  isExtensionPageSender,
+  isTrustedProviderCatalogSender,
+} from "./chat.js";
 import { openChat } from "../src/open-chat.js";
+
+/**
+ * Options and chat may read the catalog by page identity. Approval documents
+ * must also match the bound approval tabId (same isolation as get-approval).
+ * @param {{ id?: string, url?: string, tab?: { id?: number } } | undefined} sender
+ */
+function mayReadProviderCatalog(sender) {
+  if (!isTrustedProviderCatalogSender(sender)) return false;
+  if (isExtensionPageSender(sender, "ui/approval.html")) {
+    return isTrustedApprovalCatalogSender(sender);
+  }
+  return true;
+}
 
 // Reapply on every worker/event-page start, including browser restart. Keep
 // event registration synchronous; settings operations await the same promise.
@@ -79,12 +106,17 @@ void ensureTrustedStorageAccess();
 void ensureOllamaOriginBypass().catch(() => {});
 
 chrome.storage.onChanged.addListener(onAllowedOriginsStorageChanged);
-chrome.permissions.onRemoved.addListener(() => {
-  // A user can revoke host access while Firefox is waiting for approval or
-  // streaming. Abort in-flight work; the next request re-checks its host.
-  if (!isFirefoxBuild()) return;
+chrome.permissions.onRemoved.addListener((removed) => {
+  // Firefox and Safari can revoke optional host access while a request is
+  // waiting for approval or streaming. Abort only when origins were removed —
+  // unrelated permission removals must not cancel in-flight work. Chrome keeps
+  // install-time hosts and is left alone.
+  // Any host-origin revocation aborts every in-flight stream (not filtered by
+  // which provider the removed pattern affects) — safer for multi-tab use.
+  if (!isFirefoxBuild() && !isSafariBuild()) return;
+  if (!Array.isArray(removed?.origins) || removed.origins.length === 0) return;
   for (const id of activeStreams.keys()) {
-    abortStream(id, "Host access was revoked. Restore it in Firefox add-on settings.");
+    abortStream(id, `Host access was revoked. Restore it in ${revokedHostAccessRestoreHint()}.`);
   }
 });
 
@@ -255,11 +287,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "get-approval") {
-    sendResponse({ request: getPendingApproval(message.requestId) });
+    // Only this request's approval document (and Safari approval tab) can read
+    // its preview. Document identity allows interim WebKit URLs without
+    // ?requestId=; tabId binding blocks concurrent cross-request access.
+    const { requestId } = message;
+    const trusted = isTrustedApprovalSender(requestId, _sender);
+    sendResponse({ request: trusted ? getPendingApproval(requestId) : null });
     return false;
   }
 
   if (message?.type === "resolve-approval") {
+    if (!isTrustedApprovalSender(message.requestId, _sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     void resolveApproval(message.requestId, {
       decision: message.decision,
       providerId: message.providerId,
@@ -274,8 +315,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-status") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, availability: "missing", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        availability: "missing",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void (message.method === "decide" ? getOnDeviceDecisionAvailability() : getOnDeviceAvailability())
@@ -293,8 +339,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-install") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        code: "unavailable",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void installOnDeviceModel({})
@@ -310,8 +361,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "on-device-cancel-install") {
-    if (isFirefoxBuild()) {
-      sendResponse({ ok: false, code: "unavailable", error: "On-device AI is unavailable in Firefox." });
+    if (isFirefoxBuild() || isSafariBuild()) {
+      const browser = isSafariBuild() ? "Safari" : "Firefox";
+      sendResponse({
+        ok: false,
+        code: "unavailable",
+        error: `On-device AI is unavailable in ${browser}.`,
+      });
       return false;
     }
     void cancelOnDeviceInstall()
@@ -321,6 +377,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-providers") {
+    // Catalog metadata (keys, models, voices, capabilities) — only Options,
+    // approval (bound tab), and first-party chat may read it.
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ providers: [] });
+      return false;
+    }
     const method =
       message.method === "decide" ||
       message.method === "transcribe" ||
@@ -406,6 +468,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-models") {
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
 
@@ -427,7 +493,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             ok: false,
             error: {
               code: "unavailable",
-              message: `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`,
+              message: revokedHostAccessMessage(provider.label),
             },
           });
           return;
@@ -485,6 +551,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "ollama-thinking") {
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const model = typeof message.model === "string" ? message.model : "";
     const providerId = message.providerId === "ollama-cloud" ? "ollama-cloud" : "ollama";
     void (async () => {
@@ -499,6 +569,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "model-capabilities") {
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId = typeof message.providerId === "string" ? message.providerId : "";
     const model = typeof message.model === "string" ? message.model : "";
     void (async () => {
@@ -511,6 +585,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "list-voices") {
+    if (!mayReadProviderCatalog(_sender)) {
+      sendResponse({ ok: false });
+      return false;
+    }
     const providerId =
       typeof message.providerId === "string" ? message.providerId : "";
     void getProviderAsync(providerId)
@@ -553,11 +631,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-chrome.windows.onRemoved.addListener((windowId) => {
+chrome.windows?.onRemoved?.addListener((windowId) => {
   handleApprovalWindowClosed(windowId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  handleApprovalTabClosed(tabId);
   for (const [id, entry] of activeStreams.entries()) {
     if (entry.tabId === tabId) {
       abortStream(id, "Tab closed");
@@ -568,7 +647,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Navigation/reload destroys the content script. Soft-disconnect during
 // approval leaves the stream waiting for rebind (or abort); without this,
 // waitForPortRebind(..., Infinity) never resolves and the stream leaks.
+// Safari approvals also open as normal tabs — navigating that tab away from
+// the approval document must deny immediately, not wait for the timeout.
+// Tradeoff: any status:"loading" on the requesting tab aborts in-flight
+// streams (including rare SPA soft navigations that report loading without
+// tearing down the content script). Prefer that over leaking streams.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  handleApprovalTabNavigated(tabId, changeInfo);
   if (changeInfo.status !== "loading") return;
   for (const [id, entry] of activeStreams.entries()) {
     if (entry.tabId === tabId) {
@@ -582,6 +667,7 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onInstalled?.addListener(() => {
+  if (!chrome.contextMenus?.removeAll) return;
   void chrome.contextMenus.removeAll().then(() => {
     // Chrome already supplies Open Side Panel. Clear our earlier duplicate on
     // update/reload; Firefox still needs an explicit sidebar menu entry.
@@ -876,6 +962,8 @@ async function handleDecideStart({
   if (controller.signal.aborted || !activeStreams.has(streamId)) return streamId;
   const permission = await ensureOperationPermission({
     requestId: streamId,
+    signal: controller.signal,
+    sourceTab: port.sender?.tab,
     origin,
     method: "decide",
     preferredProviderId: preferred.id,
@@ -886,8 +974,19 @@ async function handleDecideStart({
   let entry = activeStreams.get(streamId);
   if (!entry || controller.signal.aborted) return streamId;
   if (entry.portDisconnected) {
-    entry = await waitForPortRebind(streamId, Infinity);
-    if (!entry || controller.signal.aborted) return streamId;
+    entry = await waitForPortRebind(streamId, Infinity, {
+      abortOnTimeout: permission.allowed,
+    });
+    if (controller.signal.aborted) return streamId;
+    if (!entry) {
+      if (!permission.allowed && activeStreams.has(streamId)) {
+        throw inferenceError(
+          permission.code || "permission_denied",
+          permission.message || "Permission denied by user."
+        );
+      }
+      return streamId;
+    }
   }
   if (!permission.allowed)
     throw inferenceError(
@@ -913,7 +1012,7 @@ async function handleDecideStart({
   if (!(await hasBuiltInHostPermission(provider.id)))
     throw inferenceError(
       "unavailable",
-      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+      revokedHostAccessMessage(provider.label)
     );
   assertDecisionQuestionLimit(provider.label, provider.decisions.maxQuestions, request.questions);
   await provider.preflightDecide?.({
@@ -1011,6 +1110,8 @@ async function handleSpeechStart({
   port.postMessage({ type: "started", streamId });
   const permission = await ensureSpeechPermission({
     requestId: streamId,
+    signal: controller.signal,
+    sourceTab: port.sender?.tab,
     origin,
     method,
     preferredProviderId: preferred.id,
@@ -1027,8 +1128,20 @@ async function handleSpeechStart({
   let entry = activeStreams.get(streamId);
   if (!entry || controller.signal.aborted) return streamId;
   if (entry.portDisconnected) {
-    entry = await waitForPortRebind(streamId, Infinity);
-    if (!entry || controller.signal.aborted) {
+    entry = await waitForPortRebind(streamId, Infinity, {
+      abortOnTimeout: permission.allowed,
+    });
+    if (controller.signal.aborted) {
+      activeStreams.delete(streamId);
+      return streamId;
+    }
+    if (!entry) {
+      if (!permission.allowed && activeStreams.has(streamId)) {
+        throw inferenceError(
+          permission.code || "permission_denied",
+          permission.message || "Permission denied by user."
+        );
+      }
       activeStreams.delete(streamId);
       return streamId;
     }
@@ -1061,7 +1174,7 @@ async function handleSpeechStart({
   if (!(await hasBuiltInHostPermission(provider.id))) {
     throw inferenceError(
       "unavailable",
-      `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+      revokedHostAccessMessage(provider.label)
     );
   }
   const model = permission.model;
@@ -1333,6 +1446,7 @@ async function handleStart(port, msg, onStreamId) {
 
     const permission = await ensurePermission({
       signal: controller.signal,
+      sourceTab: port.sender?.tab,
       requestId: streamId,
       origin,
       messages: validated.value.messages,
@@ -1354,9 +1468,23 @@ async function handleStart(port, msg, onStreamId) {
     // rebind every few seconds while still awaiting an outcome — a short
     // timeout would post permission_denied (or continue after Approve) to a
     // stale port and the page would only see a generic disconnect.
+    // After a deny/timeout, do not abort as "did not reconnect" if rebind
+    // never comes — prefer permission_denied on the last known port.
     if (entry.portDisconnected) {
-      entry = await waitForPortRebind(streamId, Infinity);
-      if (controller.signal.aborted || !entry) {
+      entry = await waitForPortRebind(streamId, Infinity, {
+        abortOnTimeout: permission.allowed,
+      });
+      if (controller.signal.aborted) {
+        activeStreams.delete(streamId);
+        return streamId;
+      }
+      if (!entry) {
+        if (!permission.allowed && activeStreams.has(streamId)) {
+          throwInference(
+            permission.code || "permission_denied",
+            permission.message || "Permission denied by user."
+          );
+        }
         activeStreams.delete(streamId);
         return streamId;
       }
@@ -1394,7 +1522,7 @@ async function handleStart(port, msg, onStreamId) {
     if (!(await hasBuiltInHostPermission(provider.id))) {
       throwInference(
         "unavailable",
-        `Host access for ${provider.label} was revoked. Restore it in Firefox add-on settings.`
+        revokedHostAccessMessage(provider.label)
       );
     }
 
@@ -1548,6 +1676,11 @@ function abortStream(streamId, reason) {
  * during the approval wait, or until timeout / stream removal / abort.
  * @param {string} streamId
  * @param {number} timeoutMs Use Infinity to wait until rebind or abort.
+ *   Firefox/Safari clamp Infinity to BOUNDED_REBIND_TIMEOUT_MS so a dead
+ *   event page cannot orphan the stream forever.
+ * @param {{ abortOnTimeout?: boolean }} [options]
+ *   When abortOnTimeout is false (deny path), return null without posting
+ *   "did not reconnect" so the caller can surface permission_denied instead.
  * @returns {Promise<{
  *   port: chrome.runtime.Port,
  *   controller: AbortController,
@@ -1557,7 +1690,11 @@ function abortStream(streamId, reason) {
  *   announced?: boolean,
  * } | null>}
  */
-async function waitForPortRebind(streamId, timeoutMs) {
+async function waitForPortRebind(streamId, timeoutMs, options = {}) {
+  const abortOnTimeout = options.abortOnTimeout !== false;
+  if (isFirefoxBuild() || isSafariBuild()) {
+    timeoutMs = Math.min(timeoutMs, BOUNDED_REBIND_TIMEOUT_MS);
+  }
   const deadline = Number.isFinite(timeoutMs)
     ? Date.now() + timeoutMs
     : Infinity;
@@ -1568,7 +1705,11 @@ async function waitForPortRebind(streamId, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const entry = activeStreams.get(streamId);
-  if (!entry || entry.portDisconnected || entry.controller.signal.aborted) {
+  if (!entry || entry.controller.signal.aborted) return null;
+  if (entry.portDisconnected) {
+    if (abortOnTimeout) {
+      abortStream(streamId, "The requesting tab did not reconnect.");
+    }
     return null;
   }
   return entry;

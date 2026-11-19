@@ -82,7 +82,8 @@ export function installChromeMock() {
     },
     windows: {
       create: (opts, cb) => {
-        queueMicrotask(() => cb?.({ id: 1001 }));
+        // Include the popup tab id so approval sender trust can bind like Safari.
+        queueMicrotask(() => cb?.({ id: 1001, tabs: [{ id: 201 }] }));
       },
       update: (_id, _opts, cb) => {
         queueMicrotask(() => cb?.());

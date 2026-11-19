@@ -16,13 +16,17 @@ beforeEach(async () => {
   chrome.runtime.onConnect = event(); chrome.runtime.onMessage = event();
   chrome.permissions = { contains: vi.fn(async () => true), onRemoved: event() };
   chrome.windows.onRemoved = event();
-  chrome.tabs = { onRemoved: event(), onUpdated: event() };
+  chrome.tabs = { onRemoved: event(), onUpdated: event(), remove: vi.fn(async () => {}) };
   chrome.action = { onClicked: event() };
   storage = await import("../src/storage.js");
   permissions = await import("../src/permissions.js");
   registry = await import("../src/providers/registry.js");
   await import("../background/service-worker.js");
-  chrome.runtime.sendMessage = (message) => new Promise((resolve) => chrome.runtime.onMessage.emit(message, { url: chrome.runtime.getURL("ui/approval.html") }, resolve));
+  chrome.runtime.sendMessage = (message) => new Promise((resolve) => chrome.runtime.onMessage.emit(
+    message,
+    { id: chrome.runtime.id, url: chrome.runtime.getURL("ui/options.html") },
+    resolve,
+  ));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 

@@ -11,11 +11,13 @@
   const REBIND_TIMEOUT_MS = 3000;
   /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
   const KEEP_ALIVE_MS = 20_000;
-  /** Firefox event-page state cannot be recovered after an unload. */
-  const FIREFOX_REBIND_LIMIT_MS = 12_000;
-  const isFirefox = Boolean(
-    chrome.runtime.getManifest?.().browser_specific_settings?.gecko
-  );
+  /** A restarted Firefox or Safari background cannot recover an in-memory stream.
+   * Covers the full approval prompt window (APPROVAL_PROMPT_TIMEOUT_MS) so a
+   * backgrounded Safari tab does not give up while the approval tab is still open.
+   * Keep in sync with BOUNDED_REBIND_TIMEOUT_MS in src/stream-rebind.js. */
+  const REBIND_LIMIT_MS = 120_000;
+  const browserSettings = chrome.runtime.getManifest?.().browser_specific_settings;
+  const hasBoundedRebind = Boolean(browserSettings?.gecko || browserSettings?.safari);
 
   /** @type {Map<string, chrome.runtime.Port>} */
   const ports = new Map();
@@ -306,7 +308,7 @@
      */
     function attemptRebind() {
       if (!rebindStartedAt) rebindStartedAt = Date.now();
-      if (isFirefox && Date.now() - rebindStartedAt >= FIREFOX_REBIND_LIMIT_MS) {
+      if (hasBoundedRebind && Date.now() - rebindStartedAt >= REBIND_LIMIT_MS) {
         return false;
       }
       rebindAttempted = true;
@@ -341,9 +343,8 @@
         // ignore
       }
 
-      // Chrome keeps retrying while approval may still be open. Firefox gives
-      // up after the bounded window because an unloaded event page has lost
-      // the stream and its approval state.
+      // Firefox and Safari give up after a bounded window because an unloaded
+      // background has lost the stream and its approval state.
       rebindTimer = setTimeout(() => {
         rebindTimer = null;
         if (cleanedUp || gotOutcome || epoch !== portEpoch) return;
