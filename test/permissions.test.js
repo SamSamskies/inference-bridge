@@ -360,48 +360,59 @@ async function waitForPending(requestId) {
 }
 
 describe("ensurePermission", () => {
+  /**
+   * Stored settings for providers omitted from this browser are scrubbed on read,
+   * so a stale default or grant must neither be honored nor reach the provider:
+   * the site gets a fresh approval for an available provider instead.
+   */
+  async function expectStaleProviderIgnored(requestId, staleProviderId) {
+    globalThis.chrome.permissions = {
+      contains: vi.fn(async () => true),
+      request: vi.fn(async () => true),
+    };
+    globalThis.chrome.tabs = {
+      create: vi.fn(async () => ({ id: 201 })),
+      get: vi.fn(async (id) => ({ id })),
+      remove: vi.fn(async () => {}),
+    };
+    const pending = ensurePermission({
+      requestId,
+      origin: "https://app.example",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    await waitForPending(requestId);
+    const request = getPendingApproval(requestId);
+    expect(request.providerId).not.toBe(staleProviderId);
+    resolveApproval(requestId, {
+      decision: "deny",
+      providerId: request.providerId,
+      model: request.model,
+    });
+    await expect(pending).resolves.toMatchObject({ allowed: false });
+  }
+
   it.each([
     ["Firefox", { gecko: {} }],
     ["Safari", { safari: {} }],
-  ])("fails closed for a stale %s On-device default", async (browser, settings) => {
+  ])("ignores a stale %s On-device default and prompts for an available provider", async (browser, settings) => {
     chromeMock.setManifest({ browser_specific_settings: settings });
     await saveSettings({ defaultProviderId: "on-device", defaultModel: "on-device" });
-    const requestId = `${browser.toLowerCase()}-on-device-default`;
-    const result = await ensurePermission({
-      requestId,
-      origin: "https://app.example",
-      messages: [{ role: "user", content: "hi" }],
-    });
-    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
-    expect(getPendingApproval(requestId)).toBeNull();
+    await expectStaleProviderIgnored(`${browser.toLowerCase()}-on-device-default`, "on-device");
   });
 
   it.each([
     ["Firefox", { gecko: {} }],
     ["Safari", { safari: {} }],
-  ])("fails closed for a stale %s On-device origin grant", async (browser, settings) => {
+  ])("ignores a stale %s On-device origin grant and prompts for an available provider", async (browser, settings) => {
     chromeMock.setManifest({ browser_specific_settings: settings });
     await grantOriginAlways("https://app.example", { providerId: "on-device", model: "on-device" });
-    const requestId = `${browser.toLowerCase()}-on-device-grant`;
-    const result = await ensurePermission({
-      requestId,
-      origin: "https://app.example",
-      messages: [{ role: "user", content: "hi" }],
-    });
-    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "on-device" });
-    expect(getPendingApproval(requestId)).toBeNull();
+    await expectStaleProviderIgnored(`${browser.toLowerCase()}-on-device-grant`, "on-device");
   });
 
-  it("fails closed for a stale Safari local Ollama origin grant", async () => {
+  it("ignores a stale Safari local Ollama origin grant and prompts for an available provider", async () => {
     chromeMock.setManifest({ browser_specific_settings: { safari: {} } });
     await grantOriginAlways("https://app.example", { providerId: "ollama", model: "gemma4" });
-    const result = await ensurePermission({
-      requestId: "safari-ollama-grant",
-      origin: "https://app.example",
-      messages: [{ role: "user", content: "hi" }],
-    });
-    expect(result).toMatchObject({ allowed: false, code: "unavailable", providerId: "ollama" });
-    expect(getPendingApproval("safari-ollama-grant")).toBeNull();
+    await expectStaleProviderIgnored("safari-ollama-grant", "ollama");
   });
 
   it("denies blocked origins without prompting", async () => {

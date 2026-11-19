@@ -472,7 +472,21 @@ describe.each([false, true])("decisions routing (Firefox: %s)", (firefox) => {
     expect(port.messages.some((item) => item.chunk)).toBe(false);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it.each(["anthropic", ...(firefox ? ["on-device"] : []), "compat:unsupported"])(
+  if (firefox) {
+    it("scrubs a stale on-device decisions grant and prompts instead of routing to it", async () => {
+      await storage.grantOriginOperationAlways(origin, "decide", {
+        providerId: "on-device",
+        model: "chat-model",
+      });
+      const port = start();
+      await vi.waitFor(() =>
+        expect(permissions.getPendingApproval(port.streamId)?.method).toBe("decide")
+      );
+      expect(permissions.getPendingApproval(port.streamId).providerId).not.toBe("on-device");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  }
+  it.each(["anthropic", "compat:unsupported"])(
     "rejects a saved unsupported provider %s",
     async (providerId) => {
       if (providerId.startsWith("compat:"))
