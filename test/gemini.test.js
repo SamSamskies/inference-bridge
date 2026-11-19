@@ -14,6 +14,7 @@ import { resolveProviderModels } from "../src/providers/registry.js";
 
 const key = "private-test-gemini-key";
 const model = "gemini-3.8-flash";
+const neon = "gemini-4-neon";
 const metadata = (id = model) => ({
   name: `models/${id}`,
   displayName: id,
@@ -95,6 +96,7 @@ describe("Gemini curated models and capability boundaries", () => {
       model,
       "gemini-4-carbon",
       "gemini-4-argon",
+      neon,
       "gemini-4-hydrogen",
     ]);
     expect(models.map((entry) => entry.label)).toEqual([
@@ -104,6 +106,7 @@ describe("Gemini curated models and capability boundaries", () => {
       "Gemini 3.8 Flash",
       "Gemini 4 Carbon",
       "Gemini 4 Argon",
+      "Gemini 4 Neon",
       "Gemini 4 Hydrogen",
     ]);
     expect(models.every((entry) => entry.inputModalities.includes("image"))).toBe(true);
@@ -175,6 +178,40 @@ describe("Gemini curated models and capability boundaries", () => {
     expect(typeof geminiProvider.decide).toBe("function");
     expect(geminiProvider.synthesis.outputMediaTypes).toEqual(["audio/wav"]);
     expect(typeof geminiProvider.synthesize).toBe("function");
+  });
+  it("sends Neon image and thinking input without a temperature override", async () => {
+    const request = {
+      model: neon,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image." },
+            { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+          ],
+        },
+      ],
+      options: { reasoningEffort: "none", temperature: 0.2 },
+    };
+    await expect(geminiProvider.preflightChat(request)).resolves.toBeUndefined();
+    installStream([start(), delta("An image."), end({ model: neon })]);
+    await expect(chat(request)).resolves.toMatchObject({
+      model: neon,
+      message: { content: "An image." },
+    });
+    expect(fetch.mock.calls[0][0]).toContain(`/v1beta/models/${neon}`);
+    const body = JSON.parse(fetch.mock.calls.at(-1)[1].body);
+    expect(body).toMatchObject({
+      model: neon,
+      store: false,
+      generation_config: { thinking_level: "low" },
+    });
+    expect(body.input[0].content[1]).toEqual({
+      type: "image",
+      mime_type: "image/png",
+      data: "aW1hZ2U=",
+    });
+    expect(body.generation_config).not.toHaveProperty("temperature");
   });
   it.each([
     [undefined, undefined],
@@ -713,7 +750,7 @@ describe("Gemini native chat", () => {
       JSON.parse(fetch.mock.calls.at(-1)[1].body).generation_config.tool_choice
     ).toEqual({ allowed_tools: { mode: "any", tools: ["weather"] } });
   });
-  it.each(["gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen"])(
+  it.each(["gemini-4-carbon", "gemini-4-argon", neon, "gemini-4-hydrogen"])(
     "supports mixed native search and functions on %s",
     async (mixedModel) => {
       await chat({ model: mixedModel, tools: [search, fn] });

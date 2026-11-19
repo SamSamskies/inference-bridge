@@ -35,6 +35,7 @@ const CHAT_MODELS = new Map([
   ["gemini-3.8-flash", "Gemini 3.8 Flash"],
   ["gemini-4-carbon", "Gemini 4 Carbon"],
   ["gemini-4-argon", "Gemini 4 Argon"],
+  ["gemini-4-neon", "Gemini 4 Neon"],
   ["gemini-4-hydrogen", "Gemini 4 Hydrogen"],
 ]);
 
@@ -271,7 +272,10 @@ export const geminiProvider = {
     const mapped = await prepareMessages(messages, scope);
     const activeTools = toolChoice === "none" ? [] : tools || [];
     const generation = {};
-    if (options?.temperature !== undefined)
+    if (
+      options?.temperature !== undefined &&
+      geminiCapabilities(model).temperature !== false
+    )
       generation.temperature = options.temperature;
     const thinkingLevel = mapGeminiReasoningEffort(
       model,

@@ -39,6 +39,19 @@ const PROFILES = new Map([
     },
   ],
   [
+    "gemini-4-neon",
+    // https://aistudio.google.com/docs/whats-new-gemini-4-neon
+    // https://aistudio.google.com/docs/function-calling#native-tools
+    {
+      image: true,
+      functions: true,
+      search: true,
+      mixed: true,
+      thinking: ["low", "medium", "high", "xhigh"],
+      temperature: false,
+    },
+  ],
+  [
     "gemini-4-hydrogen",
     // https://aistudio.google.com/docs/whats-new-gemini-4-hydrogen
     // https://aistudio.google.com/docs/function-calling#native-tools
