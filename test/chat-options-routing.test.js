@@ -597,6 +597,29 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect(settings.originChatReasoningEfforts).toEqual({});
   });
 
+  it("rejects approval catalog reads from a foreign popup tabId", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(async () => {
+      expect(await sendApprovalMessage(port, { type: "get-approval" }))
+        .toMatchObject({ request: { origin } });
+    });
+    const url = permissions.approvalPageUrl(port.streamId);
+    expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 201 } })).toBe(true);
+    expect(permissions.isTrustedApprovalCatalogSender({ url, tab: { id: 999 } })).toBe(false);
+    expect(permissions.isTrustedApprovalCatalogSender({ url })).toBe(false);
+    const list = (tabId) => new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers" },
+      { id: chrome.runtime.id, url, tab: { id: tabId } },
+      resolve,
+    ));
+    await vi.waitFor(async () => {
+      expect(await list(201)).toMatchObject({ providers: expect.any(Array) });
+      expect((await list(201)).providers.length).toBeGreaterThan(0);
+    });
+    expect(await list(999)).toEqual({ providers: [] });
+  });
+
   it("isolates concurrent popup approvals when sender URLs omit requestId", async () => {
     let windowSeq = 0;
     chrome.windows.create = (opts, cb) => {
