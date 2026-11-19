@@ -19,8 +19,9 @@ const appName = "Inference Bridge";
 const wrapperLocation = join(build, "safari-xcode");
 const wrapper = join(wrapperLocation, appName);
 const project = join(wrapper, `${appName}.xcodeproj`);
-const resources = join(wrapper, appName, "Resources");
-const appIcon = join(wrapper, appName, "Assets.xcassets", "AppIcon.appiconset");
+const app = join(wrapper, appName);
+const resources = join(app, "Resources");
+const appIcon = join(app, "Assets.xcassets", "AppIcon.appiconset");
 const safariPackage = join(build, "safari");
 
 function run(command, args, env = process.env) {
@@ -96,6 +97,7 @@ if (!existsSync(project)) {
 
 const requiredGenerated = [
   project,
+  join(app, "ViewController.swift"),
   join(resources, "Base.lproj", "Main.html"),
   join(resources, "Style.css"),
   join(appIcon, "Contents.json"),
@@ -108,6 +110,7 @@ const synced = syncEmbeddedExtensionResources();
 
 // Main.html references ../Icon.png from Base.lproj — copy brand mark into Resources/.
 const setupFiles = [
+  join(app, "ViewController.swift"),
   join(resources, "Base.lproj", "Main.html"),
   join(resources, "Style.css"),
   join(resources, "Icon.png"),

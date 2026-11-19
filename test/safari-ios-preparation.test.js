@@ -22,6 +22,7 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
     const prepare = join(scripts, "prepare-safari-ios.mjs");
     copyFileSync(new URL("../scripts/prepare-safari-ios.mjs", import.meta.url), prepare);
     copyFileSync(new URL("../safari/ios-app/Icon.png", import.meta.url), join(source, "Icon.png"));
+    copyFileSync(new URL("../safari/ios-app/ViewController.swift", import.meta.url), join(source, "ViewController.swift"));
     writeFileSync(join(scripts, "package.mjs"), `
       import assert from "node:assert/strict";
       import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -65,6 +66,7 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
       ] }));
       writeFileSync(join(appIcon, "generated.png"), "template icon");
       writeFileSync(join(project, "project.pbxproj"), "generated project");
+      writeFileSync(join(wrapper, name, "ViewController.swift"), "generated controller");
       writeFileSync(join(resources, "Base.lproj", "Main.html"), "template");
       writeFileSync(join(resources, "Style.css"), "template");
       // Simulate --copy-resources: embed a snapshot of the packaged extension.
@@ -87,6 +89,7 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
     };
     const wrapper = join(root, "build", "safari-xcode", "Inference Bridge");
     const project = join(wrapper, "Inference Bridge.xcodeproj", "project.pbxproj");
+    const controller = join(wrapper, "Inference Bridge", "ViewController.swift");
     const resources = join(wrapper, "Inference Bridge", "Resources");
     const extensionResources = join(wrapper, "Inference Bridge Extension", "Resources");
     const appIcon = join(wrapper, "Inference Bridge", "Assets.xcassets", "AppIcon.appiconset", "generated.png");
@@ -100,6 +103,7 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
     run();
     expect(readFileSync(join(resources, "Base.lproj", "Main.html"), "utf8")).toBe("setup screen");
     expect(readFileSync(join(resources, "Style.css"), "utf8")).toBe("setup styles");
+    expect(readFileSync(controller)).toEqual(readFileSync(join(source, "ViewController.swift")));
     expect(existsSync(join(resources, "Icon.png"))).toBe(true);
     expect(readFileSync(appIcon)).toEqual(readFileSync(join(source, "Icon.png")));
     expect(JSON.parse(readFileSync(join(extensionResources, "manifest.json"), "utf8"))).toEqual({
@@ -109,10 +113,12 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
     expect(existsSync(join(extensionResources, "old.js"))).toBe(true);
 
     writeFileSync(project, "configured signing");
+    writeFileSync(controller, "stale controller");
     writeFileSync(appIcon, "stale icon");
     writeFileSync(join(source, "Main.html"), "updated setup screen");
     run();
     expect(readFileSync(project, "utf8")).toBe("configured signing");
+    expect(readFileSync(controller)).toEqual(readFileSync(join(source, "ViewController.swift")));
     expect(readFileSync(join(resources, "Base.lproj", "Main.html"), "utf8")).toBe("updated setup screen");
     expect(existsSync(join(resources, "Icon.png"))).toBe(true);
     expect(readFileSync(appIcon)).toEqual(readFileSync(join(source, "Icon.png")));
