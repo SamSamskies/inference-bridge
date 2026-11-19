@@ -50,6 +50,8 @@ const firefox = isFirefoxBuild();
 /** Set once the decision finished or a terminal error is shown, so keep-alive
  * disconnect from a worker tab close does not flash a false “expired” error. */
 let approvalSettled = false;
+/** True after a non-retryable failure; blocks re-enabling Allow/Deny. */
+let terminalError = false;
 
 async function closeApproval() {
   if (safari) {
@@ -212,12 +214,28 @@ function showError(message) {
 }
 
 /**
+ * Persist/save failed but the pending request is still live — keep controls
+ * usable so the user can retry without restarting from the site.
+ * @param {string} message
+ */
+function showRetryableError(message) {
+  terminalError = false;
+  errorEl.hidden = false;
+  errorEl.textContent = message;
+  rememberInput.disabled = false;
+  denyBtn.disabled = false;
+  chatReasoningEffortSelect.disabled = false;
+  updateAllowEnabled();
+}
+
+/**
  * Terminal failure: show copy, then close a Safari approval tab so it does
  * not linger after the pending request is gone or unusable. Chrome/Firefox
  * popups stay open so the user can read the message and dismiss the window.
  * @param {string} message
  */
 async function showTerminalError(message) {
+  terminalError = true;
   showError(message);
   if (!safari) return;
   approvalSettled = true;
@@ -501,7 +519,7 @@ function decisionLimitWarning() {
 }
 
 function updateAllowEnabled() {
-  if (errorEl.hidden === false && errorEl.textContent) {
+  if (terminalError) {
     // Hard page error already disables controls.
     return;
   }
@@ -1135,6 +1153,11 @@ async function decide(action) {
   denyBtn.disabled = true;
   rememberInput.disabled = true;
   chatReasoningEffortSelect.disabled = true;
+  // Clear a prior retryable save error once the user submits again.
+  if (!terminalError) {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
 
   /** @type {"allow_once" | "always" | "deny" | "never"} */
   const decision =
@@ -1159,9 +1182,12 @@ async function decide(action) {
         : {}),
     });
     if (!response?.ok) {
-      await showTerminalError(response?.error
-        ? `${response.error} Close this ${safari ? "tab" : "dialog"} and retry the request from the site.`
-        : "This permission request is no longer active.");
+      if (response?.error) {
+        // Storage/save failed; pending approval remains — retry in this UI.
+        showRetryableError(response.error);
+        return;
+      }
+      await showTerminalError("This permission request is no longer active.");
       return;
     }
     approvalSettled = true;

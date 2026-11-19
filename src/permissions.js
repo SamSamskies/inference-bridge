@@ -117,6 +117,7 @@ const MAX_TOOL_EPISODES_PER_ORIGIN = 16;
  *   windowId?: number,
  *   tabId?: number,
  *   timeout?: ReturnType<typeof setTimeout>,
+ *   settling?: boolean,
  * }>} */
 const pendingApprovals = new Map();
 
@@ -562,6 +563,7 @@ export async function ensureOperationPermission(args) {
     };
   }
 
+  for (;;) {
   const decision = await promptUser({
     requestId: args.requestId,
     origin: args.origin,
@@ -578,7 +580,8 @@ export async function ensureOperationPermission(args) {
       ? { stateSummary: args.stateSummary, questionSummaries: args.questionSummaries, ...(args.attachmentSummaries?.length ? { attachmentSummaries: args.attachmentSummaries, imageMediaTypes: args.imageMediaTypes } : {}) }
       : {}),
   }, args);
-  return finishApproval(decision, async () => {
+  try {
+  return await finishApproval(decision, async () => {
     const chosenProviderId =
       typeof decision.providerId === "string"
         ? decision.providerId.trim()
@@ -674,6 +677,12 @@ export async function ensureOperationPermission(args) {
         };
     }
   });
+  } catch (error) {
+    // Persistence failed; keep the page waiting if the approval UI can retry.
+    if (decision.acknowledge && pendingApprovals.has(args.requestId)) continue;
+    throw error;
+  }
+  }
 }
 
 // Backwards-compatible internal name for speech callers.
@@ -919,6 +928,7 @@ export async function ensurePermission(args) {
     promptModel = episode.model;
   }
 
+  for (;;) {
   const decision = await promptUser({
     requestId: args.requestId,
     origin: args.origin,
@@ -932,7 +942,8 @@ export async function ensurePermission(args) {
     ...(args.output ? { output: args.output } : {}),
   }, args);
 
-  return finishApproval(decision, async () => {
+  try {
+  return await finishApproval(decision, async () => {
     const chosenProviderId = normalizeProviderId(
       decision.providerId || promptProviderId
     );
@@ -1053,6 +1064,12 @@ export async function ensurePermission(args) {
         };
     }
   });
+  } catch (error) {
+    // Persistence failed; keep the page waiting if the approval UI can retry.
+    if (decision.acknowledge && pendingApprovals.has(args.requestId)) continue;
+    throw error;
+  }
+  }
 }
 
 /**
@@ -1097,6 +1114,14 @@ function closeApprovalTab(tabId) {
 function promptUser(request, { signal, sourceTab }) {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
+    // After a failed save, re-arm the same entry so the approval UI can submit
+    // again without opening a second tab/popup.
+    const existing = pendingApprovals.get(request.requestId);
+    if (existing) {
+      existing.resolve = resolve;
+      return;
+    }
+
     const url = approvalPageUrl(request.requestId);
     const entry = { request, resolve, tabId: undefined, windowId: undefined, timeout: undefined };
     pendingApprovals.set(request.requestId, entry);
@@ -1204,54 +1229,66 @@ function promptUser(request, { signal, sourceTab }) {
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
 export async function resolveApproval(requestId, result) {
-  const entry = takePendingApproval(requestId);
-  if (!entry) return { ok: false };
+  const entry = pendingApprovals.get(requestId);
+  // Reject double-submit while a save is in flight; leave the entry in place
+  // until persistence succeeds so a failed save can be retried in-tab.
+  if (!entry || entry.settling) return { ok: false };
+  entry.settling = true;
   const approvalTabId = entry.tabId;
 
-  let acknowledge;
-  const completion = new Promise((resolve) => { acknowledge = resolve; });
-  const decision =
-    result?.decision === "allow_once" ||
-    result?.decision === "always" ||
-    result?.decision === "deny" ||
-    result?.decision === "never"
-      ? result.decision
-      : "deny";
+  try {
+    let acknowledge;
+    const completion = new Promise((resolve) => { acknowledge = resolve; });
+    const decision =
+      result?.decision === "allow_once" ||
+      result?.decision === "always" ||
+      result?.decision === "deny" ||
+      result?.decision === "never"
+        ? result.decision
+        : "deny";
 
-  // Blank providerId (e.g. Allow clicked before the select was filled) must
-  // not go through normalizeProviderId — that maps "" to OpenAI.
-  const rawProviderId =
-    typeof result.providerId === "string" && result.providerId.trim()
-      ? result.providerId
-      : entry.request.providerId;
+    // Blank providerId (e.g. Allow clicked before the select was filled) must
+    // not go through normalizeProviderId — that maps "" to OpenAI.
+    const rawProviderId =
+      typeof result.providerId === "string" && result.providerId.trim()
+        ? result.providerId
+        : entry.request.providerId;
 
-  entry.resolve({
-    decision,
-    acknowledge,
-    providerId: normalizeProviderId(rawProviderId),
-    model: typeof result.model === "string" ? result.model : entry.request.model,
-    ...((entry.request.method === undefined || entry.request.method === "chat") &&
-      result.chatReasoningEffort !== undefined &&
-      normalizeSiteChatReasoningEffort(result.chatReasoningEffort) === result.chatReasoningEffort
-      ? { chatReasoningEffort: result.chatReasoningEffort }
-      : {}),
-    ...(typeof result.voice === "string"
-      ? { voice: result.voice }
-      : "voice" in entry.request && typeof entry.request.voice === "string"
-        ? { voice: entry.request.voice }
+    entry.resolve({
+      decision,
+      acknowledge,
+      providerId: normalizeProviderId(rawProviderId),
+      model: typeof result.model === "string" ? result.model : entry.request.model,
+      ...((entry.request.method === undefined || entry.request.method === "chat") &&
+        result.chatReasoningEffort !== undefined &&
+        normalizeSiteChatReasoningEffort(result.chatReasoningEffort) === result.chatReasoningEffort
+        ? { chatReasoningEffort: result.chatReasoningEffort }
         : {}),
-  });
+      ...(typeof result.voice === "string"
+        ? { voice: result.voice }
+        : "voice" in entry.request && typeof entry.request.voice === "string"
+          ? { voice: entry.request.voice }
+          : {}),
+    });
 
-  // Wait for persistence before responding so the approval page can show save
-  // errors. Chrome/Firefox popups still close themselves (closing the popup
-  // window from here can race sendResponse). Safari closes the approval tab
-  // after ok on a macrotask so sendResponse can reach the page first; a sync
-  // remove can make sendMessage reject and flash a false terminal error.
-  const response = await completion;
-  if (isSafariBuild() && response?.ok && approvalTabId != null) {
-    setTimeout(() => closeApprovalTab(approvalTabId), 0);
+    // Wait for persistence before responding so the approval page can show save
+    // errors. Chrome/Firefox popups still close themselves (closing the popup
+    // window from here can race sendResponse). Safari closes the approval tab
+    // after ok on a macrotask so sendResponse can reach the page first; a sync
+    // remove can make sendMessage reject and flash a false terminal error.
+    const response = await completion;
+    if (response?.ok) {
+      takePendingApproval(requestId);
+      if (isSafariBuild() && approvalTabId != null) {
+        setTimeout(() => closeApprovalTab(approvalTabId), 0);
+      }
+    }
+    return response;
+  } finally {
+    if (pendingApprovals.get(requestId) === entry) {
+      entry.settling = false;
+    }
   }
-  return response;
 }
 
 /**

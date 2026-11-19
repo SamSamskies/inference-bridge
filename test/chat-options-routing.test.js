@@ -182,7 +182,9 @@ describe("Safari website approval", () => {
     expect(await sendApprovalMessage(port, {
       type: "resolve-approval", decision, ...route,
     })).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
-    await vi.waitFor(() => expect(port.messages.at(-1)?.type).toBe("error"));
+    // Page stays waiting; approval remains so the tab can retry.
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    expect(port.messages.some((m) => m.type === "error")).toBe(false);
     // Give the deferred close a chance to (wrongly) fire.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(chrome.tabs.remove).not.toHaveBeenCalledWith(201);
@@ -639,7 +641,9 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
       ...route, chatReasoningEffort: "high",
     });
     expect(response).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
-    await vi.waitFor(() => expect(port.messages.at(-1)?.type).toBe("error"));
+    // Page stays waiting so the popup can retry; provider is never called.
+    expect(permissions.getPendingApproval(port.streamId)).not.toBeNull();
+    expect(port.messages.some((m) => m.type === "error")).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
     const settings = await storage.getSettings();
     expect(settings.allowedOrigins).toEqual({});
