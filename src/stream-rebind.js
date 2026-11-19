@@ -3,11 +3,17 @@
  * Chrome Port wiring stays in the service worker.
  */
 
+import { APPROVAL_PROMPT_TIMEOUT_MS } from "./approval-session.js";
+
 /**
- * Firefox/Safari: a restarted background cannot recover an in-memory stream.
+ * Firefox/Safari: a restarted background cannot recover an in-memory stream,
+ * but an approval prompt may stay open up to APPROVAL_PROMPT_TIMEOUT_MS while
+ * the originating tab is backgrounded. Match the approval window so an early
+ * soft-disconnect does not abort before the user finishes approving, while
+ * still bounding orphaned streams.
  * Keep content/content-script.js REBIND_LIMIT_MS in sync with this value.
  */
-export const BOUNDED_REBIND_TIMEOUT_MS = 15_000;
+export const BOUNDED_REBIND_TIMEOUT_MS = APPROVAL_PROMPT_TIMEOUT_MS;
 
 /**
  * @typedef {"awaiting_permission" | "streaming"} StreamPhase

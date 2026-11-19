@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installChromeMock } from "./helpers/chrome-mock.js";
+import { BOUNDED_REBIND_TIMEOUT_MS } from "../src/stream-rebind.js";
 
 vi.mock("../src/prompt-api-client.js", () => ({
   getOnDeviceAvailability: vi.fn(async () => "available"),
@@ -452,7 +453,7 @@ describe("Safari website approval", () => {
     port.onDisconnect.emit();
     expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "allow_once", ...route }))
       .toEqual({ ok: true });
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(BOUNDED_REBIND_TIMEOUT_MS);
 
     expect(port.messages.at(-1)?.error).toMatchObject({
       code: "aborted",
@@ -468,7 +469,7 @@ describe("Safari website approval", () => {
     port.onDisconnect.emit();
     expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "deny" }))
       .toEqual({ ok: true });
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(BOUNDED_REBIND_TIMEOUT_MS);
 
     expect(port.messages.at(-1)?.error?.code).toBe("permission_denied");
     expect(JSON.stringify(port.messages)).not.toContain("did not reconnect");

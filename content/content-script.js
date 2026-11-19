@@ -12,8 +12,10 @@
   /** Ping interval so Chrome resets the SW idle timer during approval + generation. */
   const KEEP_ALIVE_MS = 20_000;
   /** A restarted Firefox or Safari background cannot recover an in-memory stream.
+   * Covers the full approval prompt window (APPROVAL_PROMPT_TIMEOUT_MS) so a
+   * backgrounded Safari tab does not give up while the approval tab is still open.
    * Keep in sync with BOUNDED_REBIND_TIMEOUT_MS in src/stream-rebind.js. */
-  const REBIND_LIMIT_MS = 15_000;
+  const REBIND_LIMIT_MS = 120_000;
   const browserSettings = chrome.runtime.getManifest?.().browser_specific_settings;
   const hasBoundedRebind = Boolean(browserSettings?.gecko || browserSettings?.safari);
 
