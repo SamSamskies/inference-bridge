@@ -21,7 +21,7 @@ npm run package:all  # build both browser packages
 npm run lint:firefox # stage Firefox and run web-ext lint
 ```
 
-Release workflows: see `.agents/skills/ship-chrome-release/SKILL.md` and `.agents/skills/ship-firefox-release/SKILL.md`, plus the store checklists in `docs/`.
+Release workflows live in `.agents/skills/` for Chrome (`ship-chrome-release`), Firefox (`ship-firefox-release`), and iOS/iPadOS Safari (`ship-safari-ios-release`). See also the store checklists in `docs/`.
 
 ## Layout
 

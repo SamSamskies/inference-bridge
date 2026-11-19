@@ -34,6 +34,8 @@ For later builds, rerun `npm run prepare:safari:ios`. That rebuilds `build/safar
 
 With an Apple Developer Program membership, App Store Connect’s Safari Web Extension Packager can build the extension ZIP for TestFlight without local Xcode. Use `io.github.samsamskies.inferencebridge` as the bundle ID for the TestFlight and App Store app record. In **Users and Access → Xcode Cloud → Safari Web Extension Packager**, upload the ZIP to that app record with iOS enabled. The custom setup screen is part of the generated app, so a build that includes it uses the Xcode project. [App Store Connect packager guide](https://developer.apple.com/documentation/safariservices/packaging-and-distributing-safari-web-extensions-with-app-store-connect)
 
+For the Xcode archive workflow used to ship the custom setup screen through TestFlight and submit to the App Store, see [ship-safari-ios-release](../.agents/skills/ship-safari-ios-release/SKILL.md).
+
 ## Install temporarily on macOS
 
 1. In **Safari → Settings → Advanced**, enable **Show features for web developers** if needed.

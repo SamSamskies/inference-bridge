@@ -10,6 +10,7 @@ Reusable workflows live in [`.agents/skills/`](../.agents/skills/):
 | --- | --- |
 | [ship-chrome-release](../.agents/skills/ship-chrome-release/SKILL.md) | Test, package, and prepare a Chrome Web Store release |
 | [ship-firefox-release](../.agents/skills/ship-firefox-release/SKILL.md) | Package and submit a listed Firefox release through AMO |
+| [ship-safari-ios-release](../.agents/skills/ship-safari-ios-release/SKILL.md) | Archive and distribute the iOS/iPadOS Safari extension through TestFlight or the App Store |
 | [firefox-persistent-install](../.agents/skills/firefox-persistent-install/SKILL.md) | Sign, install, and verify a persistent Firefox test build |
 
 Keep shared workflows in this directory rather than maintaining copies for each agent tool.
