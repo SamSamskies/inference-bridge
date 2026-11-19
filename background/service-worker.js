@@ -649,6 +649,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // waitForPortRebind(..., Infinity) never resolves and the stream leaks.
 // Safari approvals also open as normal tabs — navigating that tab away from
 // the approval document must deny immediately, not wait for the timeout.
+// Tradeoff: any status:"loading" on the requesting tab aborts in-flight
+// streams (including rare SPA soft navigations that report loading without
+// tearing down the content script). Prefer that over leaking streams.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   handleApprovalTabNavigated(tabId, changeInfo);
   if (changeInfo.status !== "loading") return;
