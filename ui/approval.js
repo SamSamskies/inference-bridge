@@ -93,6 +93,8 @@ const originEl = document.getElementById("origin");
 const requestDescription = document.getElementById("requestDescription");
 const providerSelect = document.getElementById("provider");
 const providerHint = document.getElementById("providerHint");
+const providerHintMessage = document.getElementById("providerHintMessage");
+const providerApiKeyLink = document.getElementById("providerApiKeyLink");
 const modelField = document.getElementById("modelField");
 const modelSelect = document.getElementById("modelSelect");
 const modelInputRow = document.getElementById("modelInputRow");
@@ -243,14 +245,10 @@ function updateProviderHint(providerId = providerSelect.value) {
         onDeviceAvailable: onDeviceStatus.available,
         onDeviceMessage: onDeviceStatus.message,
       })
-    : "";
-  if (!hint) {
-    providerHint.hidden = true;
-    providerHint.textContent = "";
-    return;
-  }
-  providerHint.hidden = false;
-  providerHint.textContent = hint;
+    : null;
+  providerHint.hidden = !hint;
+  providerHintMessage.textContent = hint?.message ?? "";
+  providerApiKeyLink.hidden = !hint?.needsApiKey;
 }
 
 function updateCapabilityWarning(providerId = providerSelect.value) {

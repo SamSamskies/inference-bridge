@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-/** Prepare the local iOS wrapper and its setup screen for Xcode. */
+/** Prepare the local iOS wrapper and its assets for Xcode. */
 
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
   cpSync,
   existsSync,
+  readFileSync,
   readdirSync,
   rmSync,
 } from "node:fs";
@@ -19,6 +20,7 @@ const wrapperLocation = join(build, "safari-xcode");
 const wrapper = join(wrapperLocation, appName);
 const project = join(wrapper, `${appName}.xcodeproj`);
 const resources = join(wrapper, appName, "Resources");
+const appIcon = join(wrapper, appName, "Assets.xcassets", "AppIcon.appiconset");
 const safariPackage = join(build, "safari");
 
 function run(command, args, env = process.env) {
@@ -96,6 +98,7 @@ const requiredGenerated = [
   project,
   join(resources, "Base.lproj", "Main.html"),
   join(resources, "Style.css"),
+  join(appIcon, "Contents.json"),
 ];
 for (const path of requiredGenerated) {
   if (!existsSync(path)) throw new Error(`The generated Safari wrapper is missing ${path}`);
@@ -113,9 +116,24 @@ for (const destination of setupFiles) {
   copyFileSync(join(root, "safari", "ios-app", basename(destination)), destination);
 }
 
+// Use the full-bleed brand image for the Home Screen icon. The packager's
+// generated assets inset the extension icon on a white tile.
+const { images } = JSON.parse(readFileSync(join(appIcon, "Contents.json"), "utf8"));
+const iconFiles = new Set();
+for (const { filename, size, scale = "1x" } of images) {
+  if (!filename || iconFiles.has(filename)) continue;
+  const [width, height] = size.split("x").map(Number);
+  const density = Number.parseInt(scale, 10);
+  run("sips", [
+    "--resampleHeightWidth", String(height * density), String(width * density),
+    join(root, "safari", "ios-app", "Icon.png"), "--out", join(appIcon, filename),
+  ]);
+  iconFiles.add(filename);
+}
+
 console.log(
   synced > 0
-    ? `Refreshed ${synced} embedded extension Resource folder(s) and setup screen.`
-    : "Refreshed build/safari (Xcode references it) and the setup screen.",
+    ? `Refreshed ${synced} embedded extension Resource folder(s), setup screen, and app icon.`
+    : "Refreshed build/safari (Xcode references it), the setup screen, and the app icon.",
 );
 console.log(`Ready to build in Xcode: ${project}`);

@@ -21,7 +21,7 @@ Use full Xcode with an SDK and device support for the OS you are testing. After 
 npm run prepare:safari:ios
 ```
 
-The command builds the Safari extension, creates the local Xcode project in `build/safari-xcode/` the first time, and copies in the setup screen. Open the Xcode project at the path the command prints.
+The command builds the Safari extension, creates the local Xcode project in `build/safari-xcode/` the first time, and refreshes the setup screen and app icon. Open the Xcode project at the path the command prints.
 
 1. Select the project in Xcode’s navigator, then open **Signing & Capabilities** for each target. Set **Bundle Identifier** to `io.github.samsamskies.inferencebridge.safaritest` for **Inference Bridge** and `io.github.samsamskies.inferencebridge.safaritest.Extension` for **Inference Bridge Extension**. The packager can derive a different ID for the app, so check both fields.
 2. If **Team** shows **Add Account…**, sign in to your Apple Account. Select the same development team for both targets and keep **Automatically manage signing** enabled. Check that both deployment targets allow the device’s iOS/iPadOS version. [Apple’s device signing guide](https://developer.apple.com/documentation/xcode/building-and-running-an-app)
