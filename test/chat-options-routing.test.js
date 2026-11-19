@@ -291,6 +291,26 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("trusts approval catalog reads from an interim URL only on the bound tab", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    const interim = permissions.approvalPageUrl(port.streamId).replace(/\?.*$/, "");
+    expect(permissions.isTrustedApprovalCatalogSender({ url: interim, tab: { id: 201 } })).toBe(true);
+    expect(permissions.isTrustedApprovalCatalogSender({ url: interim, tab: { id: 999 } })).toBe(false);
+    expect(permissions.isTrustedApprovalCatalogSender({ url: interim })).toBe(false);
+    const list = (tabId) => new Promise((resolve) => chrome.runtime.onMessage.emit(
+      { type: "list-providers" },
+      { id: chrome.runtime.id, url: interim, tab: { id: tabId } },
+      resolve,
+    ));
+    await vi.waitFor(async () => {
+      expect(await list(201)).toMatchObject({ providers: expect.any(Array) });
+      expect((await list(201)).providers.length).toBeGreaterThan(0);
+    });
+    expect(await list(999)).toEqual({ providers: [] });
+  });
+
   it("isolates concurrent Safari approvals when sender URLs omit requestId", async () => {
     chrome.tabs.create
       .mockResolvedValueOnce({ id: 201 })
