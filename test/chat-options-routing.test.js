@@ -173,6 +173,25 @@ describe("Safari website approval", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each(["allow_once", "always", "never"])("keeps the approval tab open when a failed %s cannot be saved", async (decision) => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    chrome.tabs.remove.mockClear();
+    vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("Storage full"));
+    expect(await sendApprovalMessage(port, {
+      type: "resolve-approval", decision, ...route,
+    })).toEqual({ ok: false, error: expect.stringContaining("Storage may be full or unavailable") });
+    await vi.waitFor(() => expect(port.messages.at(-1)?.type).toBe("error"));
+    // Give the deferred close a chance to (wrongly) fire.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(chrome.tabs.remove).not.toHaveBeenCalledWith(201);
+    expect(fetch).not.toHaveBeenCalled();
+    const settings = await storage.getSettings();
+    expect(settings.allowedOrigins).toEqual({});
+    expect(settings.blockedOrigins).toEqual({});
+  });
+
   it("closes the approval tab from the worker after a successful Allow", async () => {
     const port = start();
     await pending(port);
