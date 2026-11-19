@@ -41,11 +41,12 @@ import {
   fetchPendingApprovalRequest,
   resolveApprovalRequestId,
 } from "../src/approval-session.js";
-import { isSafariBuild } from "../src/runtime-browser.js";
+import { isFirefoxBuild, isSafariBuild } from "../src/runtime-browser.js";
 
 // Persist across reloads that drop ?requestId= so Safari tabs stay usable.
 const requestId = resolveApprovalRequestId(location.search);
 const safari = isSafariBuild();
+const firefox = isFirefoxBuild();
 /** Set once the decision finished or a terminal error is shown, so keep-alive
  * disconnect from a worker tab close does not flash a false “expired” error. */
 let approvalSettled = false;
@@ -632,7 +633,7 @@ async function refreshOllamaStatus() {
 async function refreshOnDeviceStatus() {
   // On-device is omitted from Safari/Firefox provider lists; skip Chrome-only
   // Decisions/Prompt API copy and the unused status probe.
-  if (safari) {
+  if (safari || firefox) {
     onDeviceStatus = {
       availability: "missing",
       available: false,
