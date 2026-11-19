@@ -118,14 +118,18 @@ for (const destination of setupFiles) {
 
 // Use the full-bleed brand image for the Home Screen icon. The packager's
 // generated assets inset the extension icon on a white tile.
-const { images } = JSON.parse(readFileSync(join(appIcon, "Contents.json"), "utf8"));
+const { images = [] } = JSON.parse(readFileSync(join(appIcon, "Contents.json"), "utf8"));
 const iconFiles = new Set();
 for (const { filename, size, scale = "1x" } of images) {
   if (!filename || iconFiles.has(filename)) continue;
-  const [width, height] = size.split("x").map(Number);
-  const density = Number.parseInt(scale, 10);
+  const match = typeof size === "string" ? size.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/) : null;
+  const density = typeof scale === "string" ? Number.parseInt(scale, 10) : Number(scale);
+  if (!match || !Number.isFinite(density) || density <= 0) continue;
+  const width = Math.round(Number(match[1]) * density);
+  const height = Math.round(Number(match[2]) * density);
+  if (width <= 0 || height <= 0) continue;
   run("sips", [
-    "--resampleHeightWidth", String(height * density), String(width * density),
+    "--resampleHeightWidth", String(height), String(width),
     join(root, "safari", "ios-app", "Icon.png"), "--out", join(appIcon, filename),
   ]);
   iconFiles.add(filename);

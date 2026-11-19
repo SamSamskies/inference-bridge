@@ -60,6 +60,8 @@ it("generates the iOS wrapper once and refreshes its assets without replacing si
       writeFileSync(join(appIcon, "Contents.json"), JSON.stringify({ images: [
         { filename: "generated.png", size: "1024x1024" },
         { filename: "generated.png", size: "1024x1024", appearances: [{ appearance: "luminosity", value: "dark" }] },
+        { filename: "missing-size.png" },
+        { filename: "malformed-size.png", size: "invalid" },
       ] }));
       writeFileSync(join(appIcon, "generated.png"), "template icon");
       writeFileSync(join(project, "project.pbxproj"), "generated project");
