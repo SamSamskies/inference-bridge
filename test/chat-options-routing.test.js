@@ -161,6 +161,18 @@ describe("Safari website approval", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("closes the approval tab from the worker after a Deny", async () => {
+    const port = start();
+    await pending(port);
+    await vi.waitFor(() => expect(chrome.tabs.get).toHaveBeenCalledWith(201));
+    chrome.tabs.remove.mockClear();
+    expect(await sendApprovalMessage(port, { type: "resolve-approval", decision: "deny" }))
+      .toEqual({ ok: true });
+    await vi.waitFor(() => expect(chrome.tabs.remove).toHaveBeenCalledWith(201));
+    await vi.waitFor(() => expect(port.messages.at(-1)?.error?.code).toBe("permission_denied"));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("closes the approval tab from the worker after a successful Allow", async () => {
     const port = start();
     await pending(port);
