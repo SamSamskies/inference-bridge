@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BOUNDED_REBIND_TIMEOUT_MS } from "../src/stream-rebind.js";
 
 const script = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../content/content-script.js"),
@@ -94,7 +95,7 @@ describe("Firefox event-page loss", () => {
 
     runtimePorts[0].disconnect();
     expect(runtimePorts[1].sent).toContainEqual({ type: "rebind", streamId: "stream-1" });
-    await vi.advanceTimersByTimeAsync(15_100);
+    await vi.advanceTimersByTimeAsync(BOUNDED_REBIND_TIMEOUT_MS + 100);
     expect(pageMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         streamId: "stream-1",
