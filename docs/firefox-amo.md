@@ -92,8 +92,8 @@ To exercise without an account, start local Ollama at `http://localhost:11434`, 
 
 - [ ] Install the exact staged artifact in the current Firefox desktop release and verify `window.inference` appears at `document_start` only on eligible top-level pages. Older versions down to the declared minimum are not part of pre-release QA; address compatibility reports as they arise.
 - [ ] Test streaming, abort, errors, tools, hosted search, images, approvals, grants, Options, and toolbar action.
-- [ ] Run the README decisions checks in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
-- [ ] Run the README speech checks in Firefox: immediate speech discovery, transcription upload, MP3/WAV synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
+- [ ] Run the [decisions checks](manual-checks.md#decisions) in Firefox, including immediate discovery, separate approval/grants/catalogs, cloud/local typed answers, cancellation, and host revocation.
+- [ ] Run the [speech checks](manual-checks.md#speech) in Firefox: immediate speech discovery, transcription upload, MP3/WAV synthesis/playback, separate approvals/defaults/grants, cancellation, host revocation, and event-page loss.
 - [ ] Test OpenAI, Anthropic, Google Gemini (including revoked host access, search, file transcription, and WAV synthesis), OpenRouter, PayPerQ (including revoked host access), local Ollama, one HTTPS custom server, and one loopback HTTP custom server. Verify remote HTTP cannot be saved.
 - [ ] Revoke built-in and custom host grants in `about:addons`; affected calls fail with a clear error and never switch providers.
 - [ ] Terminate the event page during approval and streaming; the iterator settles and no approval popup remains.
