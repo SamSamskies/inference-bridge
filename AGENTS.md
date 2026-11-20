@@ -77,7 +77,7 @@ if (chunk.type === "delta") {
 ## Testing
 
 - `npm test` runs Vitest in Node against validation, storage, permissions, registry, provider adapters, and tool loops.
-- Manual MV3 checks are listed in README **Development → Manual checks**.
+- Manual MV3 checks are listed in [docs/manual-checks.md](docs/manual-checks.md).
 - Do not commit `dist/*.zip` or secrets.
 
 ## Agent config in this repo

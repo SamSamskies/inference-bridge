@@ -2,21 +2,20 @@
 
 Official reference implementation of the [Inference Provider API (IPA)](https://github.com/SamSamskies/inference-provider-api).
 
-Inference Bridge is a Chrome and Firefox extension that lets websites request AI through `window.inference`. You choose the provider and model, then approve each website. API keys stay in the extension; page scripts never see them.
+Inference Bridge is a Chrome and Firefox extension (with Safari development support) that lets websites request AI through `window.inference`. You choose the provider and model, then approve each website. API keys stay inside the extension; page scripts never see them.
 
-The [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the portable API. Typed decisions and bounded speech are optional IPA methods; Bridge also offers an experimental page-side tool-loop helper.
+The [IPA specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) defines the portable API. Bridge implements stable chat, tools, hosted web search, images, request options, typed decisions, and bounded speech, plus an experimental DevTools tool-loop helper and a built-in side-panel chat.
 
-## Features
+## Highlights
 
-- Streaming chat, function tools, hosted web search, and images through `window.inference.request()`
-- Bounded transcription and MP3/WAV speech synthesis, with separate approval for each operation
-- Typed decisions through stable `request()`, using OpenAI, Google Gemini, OpenRouter, PayPerQ, local or cloud Ollama, or Chrome On-device
-- Cloud providers with your own API keys, local Ollama, Chrome's On-device Prompt API, and named OpenAI-compatible servers
-- Per-site Allow / Deny / Remember controls, with saved grants you can review and revoke
-- Synchronous capability discovery through `window.inference.getFeatures()`
-- Local loopback servers work without extra `OLLAMA_ORIGINS` configuration in the common case
-- Available on top-level secure pages (`https:` or loopback `http:`)
-- Optional side-panel chat with local history, image attachments, and provider-hosted web search
+- **Streaming chat, tools, web search, and images** via `window.inference.request()`
+- **Typed decisions** (`method: "decide"`) with optional native image attachments
+- **Bounded speech** (`method: "transcribe"` and `method: "synthesize"` for MP3/WAV)
+- **8 built-in providers** (cloud APIs, local Ollama, Ollama Cloud, Chrome On-device) plus **named OpenAI-compatible servers**
+- **Per-site, per-capability permissions** (Allow once, Remember, Deny, and granular revocation in **Options → Site access**)
+- **Synchronous capability discovery** via `window.inference.getFeatures()`
+- **Built-in side-panel chat** with local history, image attachments, and hosted web search
+- **Top-level secure contexts only** (`https:` or loopback `http:`), with automatic `Origin`/`Referer` stripping for local loopback servers
 
 ## Installation
 
@@ -24,418 +23,165 @@ The [specification](https://github.com/SamSamskies/inference-provider-api/blob/m
 
 Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/inference-bridge/ekjldffogogadhfhgkibgkfdhhikfamd).
 
-For local development or unreleased builds, use the load-unpacked steps below.
-
 ### Firefox Add-ons (AMO)
 
-Install from [Firefox Browser Add-ons](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/). Desktop Firefox 140+.
+Install from [Firefox Browser Add-ons](https://addons.mozilla.org/en-US/firefox/addon/inference-bridge/) (Desktop Firefox 140+).
 
-The Firefox build supports the remote/local chat providers, custom OpenAI-compatible servers, and the same transcription and speech synthesis as Chrome. Chrome's On-device Prompt API provider is unavailable. Custom servers outside localhost/loopback must use HTTPS. Firefox host permissions cover a hostname across ports; requests still go only to the saved server port.
+Firefox supports all cloud providers, local Ollama, custom OpenAI-compatible servers, decisions, and speech. Chrome's On-device provider is unavailable. Custom servers outside localhost/loopback must use HTTPS; Firefox host permissions cover a hostname across ports while requests still go only to the saved port.
 
-For local development or unreleased builds:
+### Local development
 
-```bash
-npm ci
-npm run dev:firefox
-```
+- **Chrome (load unpacked):**
+  1. Clone the repo and run `npm ci` (builds bundled chat Markdown/sanitizer libraries).
+  2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the repository root.
+  3. Click the toolbar icon to open **Options**, configure a provider, and click **Save**.
+- **Firefox (temporary install):** run `npm ci && npm run dev:firefox`. For signed builds that survive restarts, see [docs/firefox-amo.md](docs/firefox-amo.md).
+- **Safari (macOS & iOS/iPadOS development):** see [docs/safari.md](docs/safari.md).
 
-This installs a temporary development build. See the [Firefox release checklist](docs/firefox-amo.md) for packaging, linting, and signed builds that survive restarts.
+## Providers
 
-### Chrome development (Load unpacked)
+Configure providers and defaults in **Options → Providers** (chat), **Options → Decisions**, and **Options → Speech**.
 
-1. Clone this repository and run `npm ci` (prepares the chat's bundled Markdown libraries)
-2. Open `chrome://extensions`
-3. Enable **Developer mode**
-4. Click **Load unpacked**
-5. Select this repository root
-6. Open the extension **Options** page (or click the toolbar icon)
-7. Choose a default provider:
-   - **OpenAI** — paste your API key and choose a default model
-   - **Anthropic** — paste your Anthropic API key and choose a Claude model
-   - **Google Gemini** — paste a Google AI Studio API key and choose a default model from the curated list
-   - **OpenRouter** — paste your OpenRouter API key; models load from the public catalog (searchable)
-   - **PayPerQ** — paste your PayPerQ API key; searchable public chat catalog and provider-hosted Auto web search
-   - **Ollama (local server)** — models from your Ollama install; optional ollama.com API key for hosted web search
-   - **Ollama Cloud** — direct access to hosted models with an Ollama account API key; no local server needed
-   - **On-device** — no API key; shown only when the browser Prompt API (`LanguageModel`) is present; **Install** downloads the UA-chosen model and sets it as default (no model list)
-   - **OpenAI-compatible** — add named servers under **OpenAI-compatible servers** (Chrome prompts for that host only on save)
-8. Click **Save** (skip if you just used On-device **Install**, which already saves)
+### Capability matrix
+
+| Provider | Auth | Chat & Vision | Function tools | Hosted `web_search` | Image output | Typed decisions (images) | Speech (transcribe / synthesize) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | API key | Curated list; vision passthrough | Responses (GPT-6) or Chat Completions | Responses API | GPT-4o / 4.1 / 5 / 6 / o3 | `gpt-6-luna` (yes) | Dedicated audio endpoints (MP3, WAV) |
+| **Anthropic** | API key | Curated Claude list; vision passthrough | Messages API | Messages server tool | — | — | — |
+| **Google Gemini** | AI Studio key | Curated list (default `gemini-3.8-flash`); verified vision | Native Interactions | Native `google_search` | — | `gemini-decision-1` (yes) | `gemini-3.5-transcribe` / `gemini-3.8-flash-tts` (WAV) |
+| **OpenRouter** | API key | Live catalog (default `openrouter/auto`); catalog vision | Chat Completions | `openrouter:web_search` | Catalog-gated models | Live catalog (catalog vision) | Dedicated audio endpoints (MP3) |
+| **PayPerQ** | API key | Live catalog (default `auto`); catalog vision | Chat Completions | Auto server tool | — | Live catalog (no) | Live audio catalogs (MP3) |
+| **Ollama (local)** | Optional key (search only) | Local `/api/tags`; `/api/show` vision | `/api/chat` | Bridge loop via `ollama.com` (requires key) | — | Local `decision` models (if `vision`) | Local `audio`+`completion` (WAV; MP3 on `gemma4:e4b`) / `speech` (WAV) |
+| **Ollama Cloud** | Ollama key | Live `/api/tags` (default `deepseek-v4.1-flash:1017`); `/api/show` vision | `/api/chat` | Bridge loop via `ollama.com` | — | Cloud `decision` models (if `vision`) | Capability-filtered WAV when advertised |
+| **Chrome On-device** | None | Prompt API (`LanguageModel`); browser-chosen model | Native tool use (behind flag) | — | — | Experimental `DecisionModel` (no) | — |
+| **OpenAI-compatible** | Optional key | `/v1/models` + `/v1/chat/completions`; vision passthrough | Chat Completions | — | — | — | — |
+
+### Provider setup notes
+
+- **OpenAI / Anthropic / Google Gemini / OpenRouter:** Paste your API key from the [OpenAI](https://platform.openai.com/), [Anthropic Console](https://platform.claude.com/settings/keys), [Google AI Studio](https://aistudio.google.com/apikey), or [OpenRouter](https://openrouter.ai/keys) and select a default model. Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages), not Chat Completions.
+- **PayPerQ:** Create a key at [ppq.ai/api-keys](https://ppq.ai/api-keys). Bridge rejects `:online` model suffixes so hosted search always stays behind the tool approval boundary. If you previously added `https://api.ppq.ai/v1` as an OpenAI-compatible server, use **Transfer settings** under **Options → Providers → OpenAI-compatible servers** to migrate your key and model cleanly.
+- **Ollama (local server):** [Install Ollama](https://ollama.com/download) (runs at `http://localhost:11434`) and pull a model such as `ollama pull gemma4`. Bridge strips extension `Origin`/`Referer` headers automatically, so `OLLAMA_ORIGINS` is usually unnecessary. Optionally add an [Ollama account API key](https://ollama.com/settings/keys) to enable hosted `web_search` via `ollama.com`.
+- **Ollama Cloud:** Uses your [Ollama account API key](https://ollama.com/settings/keys) directly against `https://ollama.com` — no local daemon needed. Local and Cloud store separate keys, models, and site grants and never fall back to each other. Use exact listed model IDs (not local `:cloud` aliases).
+- **Chrome On-device:** Appears in Chrome only when `LanguageModel` is available. Click **Install** in Options to download the browser-chosen model (status at `chrome://on-device-internals`; storage in Chrome's [on-device AI settings](https://support.google.com/chrome/answer/16961953)). Function tools require `chrome://flags/#prompt-api-tool-use` and support `toolChoice: "auto"` and `"none"`. On-device decisions use Chrome's separate `DecisionModel` API under **Options → Decisions**.
+- **OpenAI-compatible servers:** For LM Studio, llama.cpp, vLLM, LocalAI, or hosted gateways. Add a **Name**, **Base URL** (`/v1` is appended automatically when omitted), and optional API key under **OpenAI-compatible servers**. The browser prompts for host permission on save. Loopback servers get automatic `Origin`/`Referer` stripping; remote HTTPS servers do not.
 
 ## Side-panel chat
 
-Right-click the toolbar icon and choose **Open Side Panel** in Chrome or **Open Chat** in Firefox, or click **Open Chat** in Options. Left-clicking the toolbar icon continues to open Options. Chrome 116+ opens one shared panel per window; Firefox uses its native sidebar. The browser controls the panel width, and chat fills the available space when resized.
+Right-click the toolbar icon and choose **Open Side Panel** (Chrome) or **Open Chat** (Firefox), or click **Open Chat** in Options. Left-clicking the toolbar icon always opens Options.
 
-Choose a configured provider and model, then send a message. Click the extension's toolbar icon to open provider settings. Chat reuses saved credentials, model catalogs, provider adapters, and the global reasoning preference. It does not grant websites access.
+- **Local history:** Conversations, partial responses, and attached images are stored locally in IndexedDB (unencrypted, never synced, removed on uninstall). Search titles and use each row's menu to rename, pin, or delete chats.
+- **Attachments & search:** Attach, paste, or drop PNG, JPEG, WebP, or GIF images (up to 20 MiB per image) on vision-capable models. Toggle **Search** to enable provider-hosted web search where supported.
+- **Streaming controls:** Renders Markdown, tables, fenced code blocks with copy buttons, and expandable reasoning, with Stop and Retry controls.
+- **Privacy:** Side-panel chat never reads the current webpage, and using it does not grant websites access to `window.inference`.
 
-All built-in providers supported by your browser are listed, including providers without a saved API key. Select one to see its setup instructions; the model picker stays hidden, and model discovery and sending stay disabled, until its required key is saved in Provider Settings. Local Ollama and saved compatible servers can be used without a key when their server allows it.
+## Using `window.inference`
 
-- **History:** conversations, partial responses, and attached images are saved locally in IndexedDB and survive closing the panel or restarting the browser. Search conversation titles and use each row's three-dot menu to rename, pin/unpin, or delete a chat. Pinned chats appear first and keep their pin after reopening. The menu button appears on hover or keyboard focus and stays visible on touch devices. Finish the affected response before renaming, pinning, or deleting its chat. History is confined to this browser profile and is removed when the extension is uninstalled; it is not synced or encrypted by Bridge.
-- **Images:** attach, paste, or drop PNG, JPEG, WebP, or GIF images (up to 20 MiB per image). The selected provider/model must support image input; provider limits may be smaller. Images remain in the conversation and are sent as context on later turns. They are never silently resized or discarded.
-- **Search:** toggle **Search** to allow the provider to search the web. It is disabled for providers without hosted search; model-specific restrictions and the optional Ollama search key still apply. Search terms are sent to the provider's search service and may incur provider charges.
-- **Responses:** Markdown, tables, fenced code with copy buttons, expandable reasoning, streaming, Stop, and retry beside the latest interrupted/failed turn. After an error, you can retry that turn or send a new message to continue the conversation. Closing the panel stops its active response and retains the saved partial answer. Abrupt browser/worker shutdown can lose the last checkpoint of an in-progress response; reopen the chat and retry.
+All examples below are browser-first and paste-ready in DevTools on any top-level `https:` or `http://localhost` page.
 
-Chat sends only the conversation you enter and its saved context. It does not read the current webpage. Sending a message is first-party consent to use the selected provider; website IPA approvals remain separate.
+For live demo apps, see the [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) ([source](https://github.com/SamSamskies/inference-provider-api/tree/main/examples)). For TypeScript types and app-side helpers (stream draining, page-executed tool loops), see [`ipa-tools`](https://www.npmjs.com/package/ipa-tools).
 
-## Supported Providers
+### Quick start (chat & cancellation)
 
-| Provider | Auth | Notes |
-| --- | --- | --- |
-| OpenAI | API key in Options | Curated chat model list in the UI |
-| Anthropic | API key in Options | Curated Claude model list in the UI; Messages API (not Chat Completions) |
-| Google Gemini | Google AI Studio API key in Options | Curated chat model list available before entering a key; native Interactions chat/search, typed decisions, dedicated transcription, and WAV synthesis. Defaults to Gemini 3.8 Flash. |
-| OpenRouter | API key in Options | Live catalog from `GET /api/v1/models`; searchable autosuggest |
-| PayPerQ | API key in Options | Live chat catalog from `GET /v1/models`; searchable autosuggest, manual model IDs, default `auto`. Chat, hosted search, separately approved System One decisions, transcription, and MP3 synthesis. Separate live catalogs and method defaults. |
-| Ollama (local server) | Optional (ollama.com, for web search only) | Fixed at `http://localhost:11434`; models from `GET /api/tags`. Hosted `{ type: "web_search" }` is executed by Bridge against `https://ollama.com` when an Ollama account API key is saved. |
-| Ollama Cloud | Ollama account API key in Options | Direct native `/api/chat` and `/v1/systemone` at `https://ollama.com`; public `/api/tags` catalog with separate chat, decision, and speech capability filters. No local installation required. |
-| On-device | None | Browser [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`); hidden when unavailable; **Install** in Options (no model picker); UA chooses the model |
-| OpenAI-compatible | Optional API key | User-named endpoints; `<select>` for small `GET /v1/models` catalogs, searchable autosuggest when large, free-text fallback when empty; chat via `/v1/chat/completions` |
-
-For local or self-hosted OpenAI-compatible servers, use the named-endpoint UI. To implement another built-in provider, see [AGENTS.md](AGENTS.md#layout) and the provider contracts in [`src/providers/types.js`](src/providers/types.js).
-
-## Try it
-
-### OpenAI
-
-1. Set **Default provider** to OpenAI and save an API key
-2. On any top-level HTTPS page (or `http://localhost`), open DevTools and run:
-
-```js
-for await (const chunk of window.inference.request({
-  method: "chat",
-  messages: [{ role: "user", content: "Say hello in one short sentence." }],
-  options: {
-    reasoningEffort: "none",
-    temperature: 0.2,
-  },
-})) {
-  if (chunk.type === "accepted") {
-    console.log("accepted");
-  } else if (chunk.type === "reasoning_delta") {
-    console.log("reasoning", chunk.content);
-  } else if (chunk.type === "delta") {
-    console.log("delta", chunk.content);
-  } else if (chunk.type === "done") {
-    console.log("done", chunk.model, chunk.message, chunk.usage);
-  }
-}
-```
-
-### Anthropic
-
-1. Create an API key in the [Anthropic Console](https://platform.claude.com/settings/keys)
-2. In Options, paste the key under **Anthropic API key**, set **Default provider** to Anthropic (defaults to `claude-sonnet-5-5`; pick another Claude model from the list), and click **Save**
-3. Run the snippet above on an HTTPS or localhost page
-
-Anthropic uses the [Messages API](https://docs.anthropic.com/en/api/messages) (`POST /v1/messages`), not OpenAI Chat Completions.
-
-### Google Gemini
-
-1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey)
-2. In Options, set **Default provider** to Google Gemini, paste the key under **Google Gemini API key**, choose a model (defaults to Gemini 3.8 Flash), and click **Save**
-3. Run the snippet above on an HTTPS or localhost page
-
-### PayPerQ
-
-1. Create a key at [ppq.ai/api-keys](https://ppq.ai/api-keys).
-2. In **Options → Providers**, select **PayPerQ**, paste the key, choose a chat model (default `auto`), and **Save**. Type to search the live catalog, or enter a known model ID manually if discovery fails.
-3. Run the chat snippet above on an HTTPS or localhost page and approve PayPerQ in the popup. A site's existing grant can override your global default; change or revoke it in **Site access** when testing.
-
-PayPerQ uses [`POST /chat/completions`](https://ppq.ai/api-docs). Approved `{ type: "web_search" }` is sent as PayPerQ's **Auto** server tool: the model decides whether to search and PayPerQ consumes the results. Search can incur additional charges. Bridge omits search with `toolChoice: "none"` and rejects `:online` model suffixes because they enable search outside the tool approval boundary. It does not enable always-search plugins, search-engine preferences, or ZDR routing.
-
-Vision input requires explicit image support in the current chat catalog; image output is unavailable. PayPerQ typed decisions use separate controls in **Options → Decisions** and their own catalog, default, and site grants. PayPerQ transcription and MP3 synthesis have independent controls in **Options → Speech**, with live audio models and model-specific voices. Existing named PayPerQ servers stay as they are until you opt in. In **Options → Providers → OpenAI-compatible servers**, recognized `https://api.ppq.ai/v1` servers offer **Transfer settings**. Review the saved model, then choose **Transfer and remove server** to copy the key/model and remove the old server. If it was your default, PayPerQ becomes the default. Replacing existing PayPerQ settings requires an explicit checkbox. Sites using the old server must approve again, with their chat models prefilled; unrelated permissions remain unchanged. The transfer removes any `:online` suffix so search still requires approval.
-
-### OpenRouter
-
-1. Create an API key at [openrouter.ai/keys](https://openrouter.ai/keys)
-2. In Options, paste the key under **OpenRouter API key**, set **Default provider** to OpenRouter (defaults to `openrouter/auto`; type to search for others), and click **Save**
-3. Run the snippet above on an HTTPS or localhost page
-
-### Ollama (local chat; optional cloud key for web search)
-
-1. [Install Ollama](https://ollama.com/download) and start it (default: `http://localhost:11434`)
-2. Pull at least one chat model, for example:
-
-   ```bash
-   ollama pull gemma4
-   ```
-
-3. In Options, set **Default provider** to **Ollama (local server)**. If it is unavailable or has no models, the picker shows a setup hint and blocks Save.
-4. Confirm the model field populates from installed models (type to filter)
-5. Optionally paste an [Ollama account API key](https://ollama.com/settings/keys) if you want hosted `{ type: "web_search" }` (local chat does not need this key)
-6. Click **Save**
-7. Run the snippet above on an HTTPS or localhost page
-
-Inference Bridge removes extension `Origin` and `Referer` headers from local Ollama requests, so extra `OLLAMA_ORIGINS` configuration is usually unnecessary. For an unpacked Chrome build, click **Reload** on `chrome://extensions` after updating so the header rules are refreshed.
-
-### Ollama Cloud (no local server)
-
-1. Create an [Ollama account API key](https://ollama.com/settings/keys).
-2. In **Options → Providers**, choose **Ollama Cloud**, paste the key, select a cloud chat model, and **Save**. Its public catalog loads without a key. New selections default to `deepseek-v4.1-flash:1017`; saved model choices take precedence. Use the exact listed IDs rather than local `:cloud` aliases.
-3. Run the chat snippet above on an HTTPS or localhost page and approve **Ollama Cloud**. Existing site grants keep their saved provider; change or revoke them in **Site access** to test another route.
-
-Bridge calls [Ollama's hosted API](https://docs.ollama.com/cloud) directly with your extension-stored key. Streaming chat, function tools, hosted web search/fetch, vision input, and thinking controls reuse the native Ollama protocol. Model capabilities and thinking controls come from cloud metadata. The cloud route works while local Ollama is stopped, and never falls back between local and cloud providers. The two providers remember their keys and models separately. Choosing a cloud default does not rewrite existing site grants. The local-server provider can still reach cloud models through a signed-in daemon; its label describes the connection, not where every model runs.
-
-For [cloud decisions](https://docs.ollama.com/capabilities/decision), select **Ollama Cloud** under **Options → Decisions** and choose its separately discovered decision model (currently `clef:27b`). Decisions use `/v1/systemone`, need their own site approval, and require a paid Ollama plan or usage credits.
-
-Transcription and synthesis use independent capability-filtered catalogs in **Options → Speech**. The public cloud catalog checked on November 11, 2026 advertised no `audio` or `speech` models, so these pickers are empty and approval is disabled. Bridge can route WAV transcription and WAV synthesis when the hosted catalog and fresh model metadata advertise the required capabilities; cloud speech has not been live-verified. Local speech support does not imply hosted availability, and the local MP3 transcription allowlist is not applied to cloud models.
-
-### On-device (Chrome built-in AI, no API key)
-
-Uses Chrome's [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`) when available. Inference stays on-device, and Chrome manages hardware eligibility and model downloads. The browser chooses the model; check `chrome://on-device-internals` for its status.
-
-1. Open Options. If Prompt API is available, **On-device** appears in the provider list
-2. Select **On-device**. When the model is not installed yet, click **Install** — that may download a large model file, then saves On-device as your default (availability comes from the browser; Bridge does not store an “installed” flag). If it is already installed, select On-device and click **Save** like any other provider.
-3. Run the snippet above on an HTTPS or localhost page — origin Allow/Deny works as usual (no model picker)
-
-If Prompt API is missing or `unavailable`, the provider is hidden. Persistent grants that still point at On-device fail closed with `unavailable` / `provider_error` rather than silently switching providers.
-
-Function tool calling uses Chrome's native [Prompt API tool use](https://chrome.dev/web-ai-demos/prompt-api-tool-use/). Enable `chrome://flags/#prompt-api-tool-use` and relaunch Chrome. The existing `tools` / `done.message.toolCalls` / `role: "tool"` loop works with On-device, including multiple calls per turn and `experimental.runTools`. Tools still execute in the page. Bridge checks native tool support before `accepted`; missing support returns `unavailable` with flag guidance. Ordinary chat does not require this flag.
-
-On-device supports `toolChoice: "auto"` (the default) and `"none"`; `"required"` and a forced function name return `unavailable`. Function parameter schemas must have `type: "object"` (omitted parameters default to an empty object schema). Hosted `web_search` remains unsupported.
-
-Chrome manages model storage; see its [on-device AI settings help](https://support.google.com/chrome/answer/16961953) for storage controls.
-
-On-device typed decisions use Chrome's separate `DecisionModel` API. Select **On-device** in **Options → Decisions** and install the decision model there if prompted; chat installation and chat availability are independent. See [Typed decisions](#typed-decisions-system-one) for details.
-
-### OpenAI-compatible servers
-
-Use this for LM Studio, llama.cpp, vLLM, LocalAI, or another server exposing OpenAI-style `/v1/models` and `/v1/chat/completions`. Hosted gateways work the same way: enter the gateway's base URL and API key.
-
-1. Start your server and note its URL, such as `http://127.0.0.1:1234` for a local server or `https://inference.example.com` for a remote one. Firefox requires HTTPS outside loopback.
-2. In Options, under **OpenAI-compatible servers**, enter a **Name**, **Base URL**, and optional API key — `/v1` is appended automatically if you omit it (unusual paths like `/openai/v1` are kept as entered)
-3. Click **Add server** — the browser requests access to that server; denying access leaves the endpoint unsaved. Firefox grants cover the hostname across ports; requests still use the saved port.
-4. Set **Default provider** to the new named entry, pick or type a model, and click **Save**
-5. Run the snippet above on an HTTPS or localhost page
-
-Ollama remains a first-class built-in provider; you do not need to re-add it as a custom endpoint. Loopback servers get the same Origin/Referer stripping used for Ollama. Remote HTTPS endpoints do not.
-
-Abort example:
+Every `window.inference.request()` call returns a lazy `AsyncIterable`. Iteration triggers approval (if needed) and yields `accepted` → optional `reasoning_delta` / `delta` → `done`:
 
 ```js
 const controller = new AbortController();
-const iter = window.inference.request({
-  method: "chat",
-  messages: [{ role: "user", content: "Write a long poem." }],
-  signal: controller.signal,
-});
-
-setTimeout(() => controller.abort(), 500);
 
 try {
-  for await (const chunk of iter) {
-    console.log(chunk);
+  for await (const chunk of window.inference.request({
+    method: "chat",
+    messages: [{ role: "user", content: "Say hello in one short sentence." }],
+    options: { reasoningEffort: "none", temperature: 0.2 },
+    signal: controller.signal, // call controller.abort() to cancel
+  })) {
+    if (chunk.type === "accepted") {
+      console.log("[accepted]");
+    } else if (chunk.type === "reasoning_delta") {
+      console.log("[reasoning]", chunk.content);
+    } else if (chunk.type === "delta") {
+      console.log("[delta]", chunk.content);
+    } else if (chunk.type === "done") {
+      console.log("[done]", chunk.model, chunk.message, chunk.usage);
+    }
   }
 } catch (err) {
-  console.log(err.code); // "aborted"
+  console.error(err.code, err.message); // e.g. "permission_denied", "aborted", "unavailable"
 }
 ```
 
-Example apps: try the live [IPA examples gallery](https://samsamskies.github.io/inference-provider-api/) (chat, social Ask AI, and more). Source lives in the [specification repository](https://github.com/SamSamskies/inference-provider-api/tree/main/examples).
+### Feature discovery
 
-For app-side helpers (TypeScript types, drain a stream to `done`, page-executed tool loops), see [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) — optional; not required to use this extension.
-
-## Security
-
-- Injects only into top-level frames
-- Requires a secure context (`https:` or `localhost` / loopback `http:`)
-- Does not inject into `file:` pages
-- Permission is per HTTP(S) origin and records the chosen provider + model
-- Request validation happens in the extension before any provider call
-- API keys are stored in local extension storage, which Bridge does not encrypt; page scripts cannot read them
-- Where supported, Bridge restricts `storage.local` to trusted extension contexts using [`setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })`](https://developer.chrome.com/docs/extensions/reference/api/storage/StorageArea#method-StorageArea-setAccessLevel). The background applies it on every start, and settings operations await it before reading or writing. Options and approval handling retain access; the content script only relays messages and needs no storage access. If the supported API fails, Bridge keeps trusted settings usable and retries on the next call — a failed restriction still leaves content scripts with default storage access, so rejecting Options and approvals would not reduce that exposure. This is asynchronous defense in depth, so it does not guarantee isolation before startup initialization completes.
-- Browsers without `setAccessLevel` keep their default extension-storage access. [Firefox currently does not support this API](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/StorageArea/setAccessLevel#browser_compatibility), so its extension content scripts retain storage access; page scripts still cannot read extension storage.
-- **Ollama (local server)** uses port 11434 for inference. Its hosted web search sends queries and fetch URLs to `https://ollama.com` with your optional Ollama account key. **Ollama Cloud** sends approved inference inputs directly to `https://ollama.com` with its separately saved account key; no local server is contacted. Cloud model discovery also contacts ollama.com.
-- Local Ollama and other loopback OpenAI-compatible requests drop the extension `Origin` / `Referer` headers via `declarativeNetRequestWithHostAccess` (host-scoped per endpoint)
-- Chrome optional host permissions for custom OpenAI-compatible servers are requested only for the exact origin the user saves
-- Firefox match patterns cannot include ports, so its host permissions cover the saved hostname; provider requests still use the saved URL and port
-
-If you are building your own IPA extension with local providers, follow the Origin-stripping guidance in the [specification](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md) and reuse or adapt [`src/ollama-origin-bypass.js`](src/ollama-origin-bypass.js) / [`src/loopback-origin-bypass.js`](src/loopback-origin-bypass.js). Keep host permissions and DNR rules tight; do not apply header stripping to remote APIs.
-
-## Architecture
-
-The page API in [`content/inject.js`](content/inject.js) sends requests through the isolated [content script](content/content-script.js) to the [background worker](background/service-worker.js). The worker validates requests, checks permission, and calls the selected [provider adapter](src/providers/). Options and approval UI live in [`ui/`](ui/); Chrome's On-device provider runs in an [`offscreen/`](offscreen/) document. Firefox packaging adapts the background to an event page.
-
-Settings access goes through [`src/storage.js`](src/storage.js), which uses a shared [Web Lock](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) across extension pages and the background worker. Each complete read/modify/write operation, including migration and cleanup on reads, holds this lock so a stale map cannot overwrite another context's grant or revocation. The browser releases the lock when the operation finishes, fails, or its context closes. Storage failures reject the caller; a later call reads persisted state and retries any remaining migration cleanup. This coordinates access to `chrome.storage.local`; it does not make multiple storage calls a transaction. Keep imports of the unlocked implementation, `src/storage-local.js`, confined to the storage entry point.
-
-The `originLastUsed` and `operationLastUsed` prompt-prefill caches each retain at most **500 origins**. Reads prune older installations, and new choices evict the least recently used origin when needed. Operation entries are ranked by their newest operation timestamp and retain all of that origin's operation routes together. There is no time-based expiry. Pruning does not remove access grants, blocks, or explicit reasoning preferences. An evicted choice falls back to the configured default at the next approval prompt.
-
-This is a precaution against unbounded growth, not a measured real-world quota problem. For scale, synthetic JSON with 500 `https://site-N.example` origins, short provider/model ids, and timestamps occupies about 47 KB for chat and 139 KB with all three operation routes; actual size depends on saved values. Settings remain in `storage.local`, with no extra storage permission.
-
-An Allow action saves its remembered route, optional grant, and chat reasoning preference together in one storage write. Approval waits for persistence before closing or allowing the request. Failed writes show a storage recovery message in approval or Options; failed approvals do not proceed to a provider. If a multi-step settings operation fails after an earlier write, check Options for any changes already saved before retrying.
-
-See [AGENTS.md](AGENTS.md#layout) for the directory map.
-
-## Standards Compatibility
-
-| Area | Status |
-| --- | --- |
-| Spec contract (`window.inference.request`, `getFeatures`, streaming, abort, errors) | Implemented |
-| Text chat | Implemented |
-| Per-origin permission UX | Implemented (extension UX; not part of the API contract) |
-| Feature discovery | Synchronous `getFeatures()` reports tools, search, images, request options, and `methods.decide` / `methods.transcribe` / `methods.synthesize` |
-| Request options | Implemented; `options.reasoningEffort` / `options.temperature` on stable `request` (best-effort provider mapping) |
-| Tools | Implemented on stable `request` (`getFeatures().toolCalling` / `webSearch`) |
-| Images and bounded speech | Implemented on stable `request`; actual support depends on the selected provider/model |
-| Typed decisions | Implemented on stable `request`; separate decision routes and site approval |
-
-Discovery describes the API Bridge implements, independently of credentials or site approval. It does not guarantee that the selected provider/model supports every feature.
-
-## Request options
-
-Stable `request` accepts IPA `options` (`reasoningEffort`, `temperature`). Feature-detect before relying on them:
+`window.inference.getFeatures()` is synchronous and requires no permissions or network I/O. It describes the API surface Bridge implements — not whether the user's chosen provider/model supports every feature:
 
 ```js
-const features = window.inference.getFeatures?.() ?? {};
-if (features.options?.reasoningEffort) {
-  // Bridge will validate and best-effort map options.reasoningEffort
-}
-if (features.options?.temperature) {
-  // Bridge will validate and best-effort map options.temperature
-}
+console.log(window.inference.getFeatures());
+// {
+//   methods: {
+//     decide: true,
+//     transcribe: { acceptedMedia: [{ mediaType: "audio/mpeg" }, ...] },
+//     synthesize: { outputMediaTypes: ["audio/mpeg", "audio/wav"] }
+//   },
+//   decisionMedia: { imageMediaTypes: ["image/jpeg", "image/png", "image/webp"] },
+//   toolCalling: true,
+//   webSearch: true,
+//   imageInput: true,
+//   imageOutput: true,
+//   options: { reasoningEffort: true, temperature: true }
+// }
 ```
 
-### `reasoningEffort`
+### Request options
 
-| IPA `reasoningEffort` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
-| --- | --- | --- | --- |
-| omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
-| `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra/Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Fable 5.2 / Opus 5.5 | `think: false` when advertised; otherwise the lowest known supported level |
-| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | matching supported level; `true` for boolean on/off models; otherwise provider default |
-| `"xhigh"` | `reasoning_effort: "xhigh"` with the usual fallback | uses the `"high"` mapping | uses `"xhigh"` if advertised or `true` if the model only offers on/off and supports enabling it. Otherwise uses the model default. |
+Stable `request()` accepts `options.reasoningEffort` (`"auto" | "none" | "low" | "medium" | "high" | "xhigh"`) and `options.temperature` (number in `[0, 2]`). Invalid values return `invalid_request`; unknown option keys are ignored. Both are best-effort preferences — Bridge retries with a supported fallback or omits the field if a provider rejects it.
 
-`"xhigh"` requests effort above `"high"` where the model supports it. Gemini sends `thinking_level: "xhigh"` for models with that level in Bridge's capabilities profile, including Gemini 4 Neon and Hydrogen.
+#### `reasoningEffort` mapping
 
-Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
+| IPA `reasoningEffort` | OpenAI / OpenRouter / PayPerQ / OpenAI-compat | Anthropic | Google Gemini | Ollama (local & Cloud) | On-device |
+| --- | --- | --- | --- | --- | --- |
+| omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `thinking_level` | omit `think` | ignored |
+| `"none"` | `"none"` (gpt-5.1+, GPT-6.1 Terra, GPT-6 Sol/Luna); `"minimal"` (gpt-5); `"low"` (GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Astra/Sol); omit on gpt-4.x | `disabled` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5+ / Opus 5.5 | lowest verified level (e.g. `minimal` or `low`) | `think: false` when advertised, else lowest supported level | ignored |
+| `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | `adaptive` + `output_config.effort` (Claude 4.6+); `enabled` + `budget_tokens` (Claude 4.5 & earlier) | matching `thinking_level` | matching supported level, or `true` on boolean models | ignored |
+| `"xhigh"` | `"xhigh"` (with fallback) | mapped to `"high"` | `"xhigh"` where supported (e.g. Gemini 4 Neon/Hydrogen) | `"xhigh"` if advertised, else `true` on boolean models | ignored |
 
-Ollama controls come from a fresh `/api/show` probe for the selected model on each explicit-effort chat turn. Bridge reads `thinking.values` and `thinking.default`; a general `thinking` capability does not imply an off control. For example, Beam advertising Low through Max maps None to Low. Auto leaves `think` unset. Missing, malformed, unavailable, or timed-out metadata leaves the model default unchanged, so None may still produce thinking on older servers. Unrecognized model-defined level names are not assumed to be ordered. The approval popup's Advanced options explains the selected model's None mapping and advertised default, refreshing when the route changes. This applies equally to page options, global settings, and site overrides, including existing grants. See [Ollama thinking controls](https://docs.ollama.com/capabilities/thinking).
+> **User overrides:** Users can set a global override in **Options → Providers → Chat reasoning effort** or a per-site override in the chat approval popup (**Advanced options**) and **Options → Site access**. **None** does not guarantee thinking is disabled on models with mandatory reasoning. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for exact rules.
 
-In **Options → Providers → Chat reasoning effort**, users can set a global override:
+#### `temperature` mapping
 
-| Setting | Behavior |
-| --- | --- |
-| Use page preference (default) | Preserve the page's `options.reasoningEffort`; when omitted, use the provider/model default. |
-| Auto — provider/model default | Override the page's effort with `"auto"`, including when the page requests a specific effort. |
-| None / Low / Medium / High / Extra high | Override the page's effort with the selected value, even when the page omits `options`. |
+| IPA `temperature` | OpenAI / OpenRouter / PayPerQ / OpenAI-compat | Anthropic | Google Gemini | Ollama (local & Cloud) | On-device |
+| --- | --- | --- | --- | --- | --- |
+| omitted | omit | omit | omit | omit | ignored |
+| `0`–`2` | top-level `temperature` (omitted on OpenAI GPT-6.2 Astra/Sol) | clamped to `[0, 1]` on Claude 4.6 & earlier; omitted on Claude 4.7+ | `generation_config.temperature` (omitted on `gemini-4-neon`) | `options.temperature` | ignored |
 
-Changes save automatically and apply to the next chat request on sites that inherit the global setting, including requests covered by an existing Always-allow grant or waiting for approval. They do not change an in-progress generation. This applies to stable chat and its deprecated experimental alias, not decisions or speech. It does not change grants, require another prompt, or control exposure of reasoning text. Page options are still validated before applying the override; `temperature` is preserved.
+### Tools and hosted `web_search`
 
-The **chat approval popup** also offers **Reasoning effort for this site** under **Advanced options**, collapsed by default. An active site override stays visible in the summary (for example, **Advanced options · Reasoning: High**). The selector starts with **Use global setting** (showing the current global choice), or restores the site's previous selection. Choose **Use page preference** to let that app choose even when a global override is set, **Auto** to use its provider/model default, or **None / Low / Medium / High / Extra high** for a site override. The selection is saved when you allow, including **Allow once**, and applies to the current and later chat requests for that exact origin. Denying or closing the popup does not save a change. Choosing **Use global setting** removes the site override so later global changes apply. Site preferences are stored separately from access grants and never grant permission themselves; revoking access leaves the preference available for the next approval. Decisions and speech approvals do not show this control.
+`request()` accepts `tools`, `toolChoice` (`"auto"` default when `tools` is present, `"none"`, `"required"`, or `{ type: "function", function: { name } }`), assistant `toolCalls`, and `role: "tool"` messages.
 
-To edit a saved preference for an Always-allowed chat origin, open **Options → Site access → Allowed sites**, expand the site, and use its autosaving **Reasoning effort** selector under **Chat**. Choosing **Use global setting** clears the override. These edits affect the next chat request and leave provider/model, tools, images, and access permissions unchanged. Sites using Allow once, or whose access was revoked, can change their remembered preference in the next approval popup, just like their remembered provider/model choice.
+- **Function tools** are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and tool results.
+- **Hosted `{ type: "web_search" }`** is executed by the provider (or by Bridge against `https://ollama.com` for Ollama/Ollama Cloud), never by the page. Unsupported providers fail closed (Allow disabled / `unavailable`). `toolChoice: "none"` suppresses both function calls and hosted search.
+- **Approval:** Plain-chat grants do not authorize tools. Approval lists function names and hosted search explicitly; expanding a site's tool set requires fresh approval.
+- **Gemini note:** Multi-turn Gemini function calling requires replaying the returned assistant message and `toolCalls` unchanged; opaque thought signatures live in bounded extension memory (see [PRIVACY.md](PRIVACY.md)).
 
-**Allowed sites** groups persistent grants by exact origin, including sites with only speech or decisions access. Each site shows only its granted capabilities. Revoke chat, tools, images, transcription, synthesis, or decisions individually. Sites with multiple granted capabilities also offer **Revoke all access** to remove every persistent grant for that site. Future requests for revoked access require approval; remembered routes and reasoning preferences remain available in the next prompt. Blocks remain separate under **Blocked origins**.
-
-Effort is a best-effort preference for response time, cost, and reasoning. The effective value goes through the same provider mappings above; providers/models may ignore it or use a supported fallback. **None does not guarantee thinking is disabled.** On-device chat currently ignores effort. Gemini uses its model-specific thinking-level mapping when available.
-
-### `temperature`
-
-IPA scale is `[0, 2]` (OpenAI-style). Omitted means the provider/model default.
-
-| IPA `temperature` | OpenAI / OpenRouter / OpenAI-compat | Anthropic | Ollama |
-| --- | --- | --- | --- |
-| omitted | omit `temperature` | omit `temperature` | omit `options.temperature` |
-| `0`–`2` | top-level `temperature`, omitted for GPT-6.2 Astra and Sol on OpenAI | top-level `temperature`, clamped to `[0, 1]` on Claude 4.6 and earlier; omitted on Claude 4.7+ | nested `options: { temperature }` |
-
-Values outside `[0, 2]` or non-finite numbers return `invalid_request`. Bridge omits temperature for Claude 4.7+ and retries once without it when an Anthropic or OpenAI-compatible API explicitly rejects the setting. On-device ignores this option. See [`src/providers/temperature.js`](src/providers/temperature.js).
-
-## Tools
-
-Stable `window.inference.request` accepts function tools, hosted `{ type: "web_search" }`, `toolChoice`, assistant `toolCalls`, and `role: "tool"` messages:
-
-```text
-window.inference.getFeatures()              // { toolCalling, webSearch, imageInput, imageOutput, options, methods }
-window.inference.request(...)               // IPA-stable chat + tools + images + options + bounded speech
-window.inference.experimental.runTools(...) // optional page-side agent loop helper (DevTools / no-bundler)
-```
-
-Streaming still follows `accepted` → optional `reasoning_delta` / `delta` → `done`. When the model ends on tools, `done.message` may include `toolCalls`.
-
-**Security:** function tools are defined and **executed by the page**. Bridge only relays JSON schemas, `toolCalls`, and `role: "tool"` results — it never runs app code or widens host permissions for tools. Approval still lists tool names so the user can see what the site is authorizing the model to request.
-
-Hosted `{ type: "web_search" }` is **not page-executed**. On OpenAI, Anthropic, Google Gemini, OpenRouter, and PayPerQ the selected provider runs search inside the request (and may charge tool usage). On **Ollama**, Inference Bridge maps `{ type: "web_search" }` to function tools, calls [`https://ollama.com/api/web_search`](https://docs.ollama.com/capabilities/web-search) (and `web_fetch`) with your Ollama account API key, and continues the local `/api/chat` loop until the model replies in text. Bridge does not browse arbitrary sites itself; search/fetch go through Ollama cloud. OpenAI-compatible and On-device providers **fail closed**: Allow is disabled, and if the request still runs the adapter throws `unavailable` (no silent strip-and-chat). `toolChoice: "none"` suppresses hosted search as well as function calls, including the Ollama ollama.com loop.
-
-**Defaults:** if `tools` is present and `toolChoice` is omitted, Bridge treats it as `"auto"` (model may reply in text or call tools).
-
-### Hosted `web_search`
-
-| Provider | Hosted `{ type: "web_search" }` |
-| --- | --- |
-| OpenAI | Responses API (`/v1/responses`) |
-| Anthropic | Messages API server tool `{ type: "web_search_20250305", name: "web_search" }` |
-| Google Gemini | Native Interactions `{ type: "google_search" }` on verified models; source links preserved in response text. Tokens and search queries can incur charges. |
-| OpenRouter | Chat Completions `{ type: "openrouter:web_search" }` |
-| PayPerQ | Chat Completions `{ type: "web_search" }` (Auto; provider-executed) |
-| Ollama | Bridge-executed: function tools `web_search` / `web_fetch` on local `/api/chat`, then `POST https://ollama.com/api/web_search` (and `web_fetch`) with the optional Ollama account API key. Missing key → Allow disabled (not a silent strip). |
-| OpenAI-compatible | Not mapped — Allow disabled / `unavailable` (no first-class hosted search across named endpoints) |
-| On-device | Unsupported — Allow disabled / `unavailable` |
-
-Approval lists **Web search (provider-hosted)** (or **Web search (Ollama cloud)** when Ollama is selected, with a muted note that Bridge may search and fetch via ollama.com). Unsupported providers disable Allow and tell the user to pick another provider. On Ollama without an API key, a red warning disables Allow until you add a key or choose another provider.
-
-Use OpenAI, Anthropic, Google Gemini, OpenRouter, PayPerQ, or Ollama (with an ollama.com key). You will not get page-side `toolCalls` for `web_search`, and `runTools` / `execute` is not involved:
+#### Hosted `web_search` example
 
 ```js
 for await (const chunk of window.inference.request({
   method: "chat",
   messages: [
-    {
-      role: "system",
-      content:
-        "Answer with current conditions in one or two sentences. Search if needed. Do not ask follow-up questions.",
-    },
+    { role: "system", content: "Answer in one or two sentences. Search if needed." },
     { role: "user", content: "What's the weather in New York City today?" },
   ],
   tools: [{ type: "web_search" }],
 })) {
-  if (chunk.type === "accepted") {
-    console.log("[accepted]");
-  }
-  if (chunk.type === "delta") {
-    console.log("[delta]", chunk.content);
-  }
-  if (chunk.type === "done") {
-    console.log("[done]", chunk.message.content);
-  }
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") console.log("[done]", chunk.message.content);
 }
 ```
 
-You can include function tools in the same `tools` array; those still execute on the page as usual.
-
-### `request` parameters (tools)
-
-| Param | Required | Type | Notes |
-| --- | --- | --- | --- |
-| `method` | yes | `"chat"` | Tools are supported on chat requests. Speech uses separate request shapes; see [Bounded speech](#bounded-speech). |
-| `messages` | yes | `Message[]` | Non-empty. Roles: `system` / `user` / `assistant` / `tool`. User/assistant `content` may be a string or `ContentPart[]` (text + image parts when `getFeatures().imageInput`). |
-| `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
-| `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
-| `output` | no | `{ images?: boolean }` | Image generation for this turn when `getFeatures().imageOutput`. Extra keys ignored. |
-| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high" \| "xhigh", temperature?: number }` | Same as IPA `options`; unknown keys ignored. |
-| `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
-
-**`messages` shapes (stable)**
-
-| Role | Fields |
-| --- | --- |
-| `system` | `content: string` |
-| `user` | `content: string \| ContentPart[]` |
-| `assistant` | `content: string \| ContentPart[] \| null`; optional `reasoning?: string`; optional `toolCalls?: ToolCall[]` |
-| `tool` | `toolCallId: string`; `content: string` (usually JSON text) |
-
-**`tools` / `ToolCall`**
-
-| Kind | Shape |
-| --- | --- |
-| Function tool | `{ type: "function", function: { name, description?, parameters? } }` — `parameters` is JSON Schema |
-| `ToolCall` (on assistant / `done.message`) | `{ id, type: "function", function: { name, arguments } }` — `arguments` is a JSON string |
-
-Returns `AsyncIterable` of `accepted` → optional `reasoning_delta` / `delta` → `done`. On a tool turn, `done.message.toolCalls` may be set (often with empty/null `content`).
-
-### Manual multi-turn (page executes)
+#### Manual multi-turn function tool example
 
 ```js
 async function getWeather({ city }) {
-  // Page-owned — Bridge never runs this
-  return { city, tempC: 22 };
+  return { city, tempC: 22 }; // Page-owned handler — Bridge never executes this
 }
 
 const tools = [
@@ -453,17 +199,10 @@ const tools = [
   },
 ];
 
-const messages = [
-  { role: "user", content: "What's the weather in Austin?" },
-];
+const messages = [{ role: "user", content: "What's the weather in Austin?" }];
 
 let done;
-for await (const chunk of window.inference.request({
-  method: "chat",
-  messages,
-  tools,
-  // toolChoice defaults to "auto" when tools are present
-})) {
+for await (const chunk of window.inference.request({ method: "chat", messages, tools })) {
   if (chunk.type === "done") done = chunk;
 }
 
@@ -480,49 +219,23 @@ if (done.message.toolCalls?.length) {
       call.function.name === "get_weather"
         ? await getWeather(args)
         : { error: "unknown tool" };
-
-    messages.push({
-      role: "tool",
-      toolCallId: call.id,
-      content: JSON.stringify(result),
-    });
+    messages.push({ role: "tool", toolCallId: call.id, content: JSON.stringify(result) });
   }
 
-  for await (const chunk of window.inference.request({
-    method: "chat",
-    messages,
-    tools,
-  })) {
-    if (chunk.type === "delta") {
-      console.log("[delta]", chunk.content);
-    }
-    if (chunk.type === "done") {
-      console.log("[done]", chunk.message.content);
-    }
+  for await (const chunk of window.inference.request({ method: "chat", messages, tools })) {
+    if (chunk.type === "delta") console.log("[delta]", chunk.content);
+    if (chunk.type === "done") console.log("[done]", chunk.message.content);
   }
 } else {
   console.log(done.message.content);
 }
 ```
 
-### `experimental.runTools` helper
+#### `experimental.runTools` helper (DevTools / demos)
 
-`window.inference.experimental.runTools` runs the page-side loop for DevTools demos. The first call logs a warning recommending [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) for shipped apps. Define tool schemas in `tools` and page-owned handlers in `execute`; the model may call several tools per turn.
+`window.inference.experimental.runTools` wraps the multi-turn loop above for quick DevTools experiments. For shipped apps, use [`ipa-tools`](https://www.npmjs.com/package/ipa-tools) with `window.inference.request()` instead.
 
-| Param | Required | Type | Notes |
-| --- | --- | --- | --- |
-| `messages` | yes | `Message[]` | Conversation seed (mutated copy returned). |
-| `tools` | no | `Tool[]` | Forwarded on each round. |
-| `execute` | usually | `Record<string, (args) => unknown \| Promise<unknown>>` | Map of tool name → page handler. Required for any tool the model calls. |
-| `toolChoice` | no | same as `request` | Forwarded each round when set. |
-| `maxRounds` | no | `number` | Default `5`. Positive finite. |
-| `onDelta` | no | `(content: string) => void` | Text deltas from each round. |
-| `onReasoningDelta` | no | `(content: string) => void` | Reasoning deltas when present. |
-| `onToolCall` | no | `({ id, name, arguments }) => void` | Fired once per tool call after args are parsed, before `execute` runs. Useful for UI chips / logging; putting UI inside `execute` is still fine. |
-| `signal` | no | `AbortSignal` | Aborts between / during rounds. |
-| `method` | no | `"chat"` | Defaults to `"chat"`. |
-
-Returns `Promise<{ messages, final }>` where `final` is the last `done` chunk (text reply after tools, or the first turn if no `toolCalls`) and `messages` includes assistant/`tool` turns appended by the loop.
+Accepts `{ messages, tools, execute, toolChoice?, maxRounds?, onDelta?, onReasoningDelta?, onToolCall?, signal? }` (`maxRounds` defaults to `5`) and resolves to `{ messages, final }`:
 
 ```js
 const { final } = await window.inference.experimental.runTools({
@@ -542,181 +255,235 @@ const { final } = await window.inference.experimental.runTools({
     },
   ],
   execute: {
-    async get_weather(raw) {
-      if (typeof raw.city !== "string") throw new Error("city is required");
-      return { city: raw.city, tempC: 22 }; // Demo data; replace with your app's lookup.
+    async get_weather({ city }) {
+      if (typeof city !== "string") throw new Error("city is required");
+      return { city, tempC: 22 };
     },
   },
-  onDelta(content) {
-    console.log("[delta]", content);
-  },
+  onDelta: (text) => console.log("[delta]", text),
 });
 
 console.log("[final]", final.message.content);
 ```
 
-### Function-tool provider matrix
+### Images
 
-| Provider | Function tools |
-| --- | --- |
-| OpenAI | Responses API for GPT-6 models, hosted search, or image output; otherwise Chat Completions `tools` |
-| Anthropic | Messages API `tools` |
-| Google Gemini | Native Interactions function steps; mixed Google Search and functions only on verified models |
-| OpenRouter | Chat Completions `tools` |
-| PayPerQ | Chat Completions `tools`; may be mixed with hosted Auto search |
-| Ollama | `/api/chat` `tools` |
-| OpenAI-compatible | Chat Completions `tools` |
-| On-device | Not supported (Allow disabled / `unavailable`) |
+When `getFeatures().imageInput` / `imageOutput` are true, `user` and `assistant` messages can include image content parts, and requests can pass `output: { images: true }`. Plain-chat grants do not cover image input or output; approval lists them separately.
 
-Approval lists function names and **Web search (provider-hosted)** / **Web search (Ollama cloud)**. Unsupported providers disable Allow with a setup hint. A plain-chat grant does not authorize tools: Bridge prompts again unless the saved grant already covers the requested tool set. Expanding that set requires approval. An Allow-once tool loop can continue through its matching tool-result turns without another prompt.
+Image parts are resolved **in the page** before sending bytes to the extension (so local providers stay offline):
 
-Gemini function continuation requires replaying the returned assistant content
-and tool calls unchanged. Opaque native signatures stay in bounded extension
-memory, as described in [PRIVACY.md](PRIVACY.md). Cache expiry, eviction or a
-worker restart requires a fresh conversation; missing state fails before
-`accepted` with an actionable error.
+- `{ type: "image", url }` — fetched by the page under page CORS (`mediaType` inferred when possible; CORS/network errors throw `invalid_request`).
+- `{ type: "image", data: Blob }` — base64-encoded in the page (`mediaType` optional if `blob.type` is set).
+- `{ type: "image", mediaType, data }` — spec-shaped raw base64 (`image/jpeg`, `image/png`, `image/webp`, or `image/gif`).
 
-## Bounded speech
-
-Bounded transcription and speech synthesis are optional IPA methods on stable
-`request`. Speech is available by default, with separate site approval for each
-operation. Configure provider/model/voice defaults in **Options → Speech** and
-feature-detect before use:
+#### Vision input example
 
 ```js
-const methods = window.inference.getFeatures().methods ?? {};
-console.log(methods.transcribe?.acceptedMedia);
-// [{ mediaType: "audio/mpeg" }, ..., { mediaType: "video/webm" }]
-console.log(Boolean(methods.synthesize)); // true in this build
-console.log(methods.synthesize.outputMediaTypes); // ["audio/mpeg", "audio/wav"]
+for await (const chunk of window.inference.request({
+  method: "chat",
+  messages: [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What is in this photo?" },
+        // Fetched in-page under CORS; use { data: blob } when you already have the file.
+        { type: "image", url: "https://httpbin.org/image/png" },
+      ],
+    },
+  ],
+})) {
+  if (chunk.type === "delta") console.log("[delta]", chunk.content);
+  if (chunk.type === "done") console.log("[done]", chunk.message.content);
+}
 ```
 
-Both methods are lazy `AsyncIterable` requests and retain the normal approval,
-abort, and `accepted` lifecycle. Provider, model, and synthesis voice are
-user-owned choices. A page cannot supply those IDs. Persistent speech grants
-are isolated by origin and operation and can be revoked separately in Options.
+#### Image generation example (OpenAI / OpenRouter)
 
-Speech discovery reports supported API surface without exposing provider, model,
-voice, credentials, or site grants. A selected route can still be unavailable.
-The deprecated experimental alias uses the same operation grants.
-Omitted synthesis output always requests MP3. WAV requires explicit
-`output: { mediaType: "audio/wav" }`. Approval lists only matching providers;
-an incompatible saved route fails with `unavailable` before `accepted`, without
-changing encoding or providers. Legacy injectors advertising `synthesize: true`
-support MP3 only.
+Generated images arrive as `{ type: "image", mediaType, data }` parts on `done.message.content` (a text-only `done` is also valid if the model chooses not to draw):
 
-Current implementation limits (Bridge-specific, not IPA constants):
+```js
+for await (const chunk of window.inference.request({
+  method: "chat",
+  messages: [{ role: "user", content: "A red panda sticker, simple shapes" }],
+  output: { images: true },
+})) {
+  if (chunk.type === "done" && Array.isArray(chunk.message.content)) {
+    for (const part of chunk.message.content) {
+      if (part.type !== "image") continue;
+      const img = document.createElement("img");
+      img.alt = "Generated image";
+      img.src = `data:${part.mediaType};base64,${part.data}`;
+      img.style.maxWidth = "320px";
+      document.body.append(img);
+    }
+  }
+}
+```
 
-- Transcription accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64
-  string, or page-fetched URL, up to 24,000,000 bytes.
-- The transcription source is `media`. Blob and URL media types can be inferred;
-  raw base64 requires an explicit `mediaType`.
-- URL input is fetched by the page under page CORS. The privileged extension
-  never fetches an arbitrary page-supplied media URL.
-- Files are passed through unchanged. For MP4/WebM, the complete container,
-  including visual bytes, can be uploaded to the selected provider; only its
-  audio track has transcription semantics.
-- Synthesis accepts up to 4,096 Unicode code points and returns MP3
-  (`audio/mpeg`) or explicit WAV (`audio/wav`), capped at 32,000,000 bytes.
-- Language hints must be structurally valid BCP 47 tags. OpenRouter accepts
-  two-letter language hints; richer hints fail with `unavailable` before upload
-  instead of being reduced silently. Omit the hint for detection.
-- PayPerQ uses dedicated `/v1/audio/transcriptions` multipart uploads and
-  `/v1/audio/speech` MP3 synthesis, with the same saved key as chat/decisions.
-  Model discovery uses `/v1/audio/models`; voices use `/v1/audio/voices` and are
-  filtered by exact model ID, with language labels and declared language checks.
-  Speech-to-speech models are excluded from text synthesis. The starter routes
-  are `nova-3` for transcription and `deepgram_aura_2` / `aura-2-arcas-en` for
-  synthesis. Transcription accepts two-letter language hints or `multi`;
-  `en-US` and other richer hints fail instead of being silently reduced.
-  Deepgram synthesis is capped at 2,000 characters; Tinfoil Voxtral is capped at
-  1,200; ElevenLabs and all other models remain within Bridge's 4,096-code-point
-  bound, with smaller catalog limits enforced (for example Eleven v3: 3,000).
-  PayPerQ synthesis currently supports MP3 only; mismatched MIME or encoded audio
-  fails instead of being relabeled. No synthesis language parameter is added
-  to IPA; select a compatible voice in Options or approval.
-- OpenAI and OpenRouter are supported through their dedicated transcription
-  and speech endpoints. OpenAI synthesis supports native MP3 and WAV output;
-  OpenRouter synthesis currently supports MP3 output. Ollama transcription is
-  opportunistically available for installed models whose `/api/show` response reports both `audio` and
-  `completion`. Audio embedding models such as EmbeddingGemma 2 cannot produce
-  transcripts and are excluded from the transcription picker. The default is
-  `lfm3-audio:latest` when installed. WAV is the
-  most compatible Ollama input; MP3 is currently offered only for the verified
-  `gemma4:e4b` model because other model/runtime combinations may reject it.
-  Ollama synthesis is opportunistically available for installed models whose
-  `/api/show` response reports `speech` (Phonon on Ollama 0.40.9+). It returns
-  native WAV only; omitted/MP3 synthesis does not list Ollama. Speech models
-  are excluded from chat. Anthropic, On-device, and generic OpenAI-compatible
-  endpoints remain unavailable for speech rather than emulated through chat.
-- Google Gemini uses dedicated `gemini-3.5-transcribe` with a Files API upload
-  and verbatim transcription. MP3, M4A, WAV, and audio WebM are offered within
-  Bridge's 24 MB limit. Remote file deletion is attempted after success,
-  failure, or cancellation; if cleanup fails, files may remain until Google's
-  48-hour expiry. See [PRIVACY.md](PRIVACY.md) for retention details.
-  Dedicated `gemini-3.8-flash-tts` and
-  `gemini-3.8-flash-lite-tts` return a single native WAV file with 24 kHz mono
-  16-bit PCM, split into bounded transport fragments without changing bytes.
-  Kore is the default voice; only prebuilt voices are offered.
+### Typed decisions (System One)
 
-Paste-ready synthesis example:
+Implements the optional [IPA typed decisions contract](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md#typed-decisions-system-one) via `method: "decide"`. Decisions have their own defaults (**Options → Decisions**), catalogs, and site approvals — there is no fallback to chat.
+
+- **Stream shape:** yields `accepted` → `done` with `{ model, answers, usage? }` (no deltas).
+- **Primitives:**
+  - `noul` — probability of yes in `[0, 1]` (optional `{ true, false }` criteria descriptions).
+  - `choice` — picks a key from 2–26 named criteria, returning `{ choice, probabilities, confidence }`.
+  - `score` — probability-weighted index over 2–10 ordered criteria, returning `{ score, legend, probabilities, confidence }`.
+  - Individual questions may return `{ type: "refusal" }`; always check `answer.type` before reading fields.
+- **Bridge limits:** up to **1,000 questions** and **1 MiB** UTF-8 JSON for `{ state, questions }` (max 64 nesting levels). Providers enforce stricter limits where applicable:
+
+| Provider | Max questions | Text body limit | Native decision images (`attachments`) |
+| --- | --- | --- | --- |
+| **Google Gemini** (`gemini-decision-1`) | 1,000 | 1 MiB | Yes (inline image blocks) |
+| **OpenAI** (`gpt-6-luna`) | 400 | 1 MiB | Yes (`input_image` parts; boolean choice values unsupported) |
+| **Ollama (local)** (`nimble`, `tev1:0.8b`, `clef`, …; Ollama 0.35+) | 64 | 64 KiB | Yes, if `/api/show` advertises `vision` (32 MiB encoded body) |
+| **Ollama Cloud** | 64 | 1 MiB | Yes, if `/api/show` advertises `vision` (4 MiB / 16 MP per image, 8 MiB total, 13 MiB body) |
+| **OpenRouter** (`/api/alpha/decisions`, e.g. `typesafe/jev-1.13`) | 1,000 | 1 MiB | Yes, if decision catalog advertises image input |
+| **PayPerQ** (`/v1/decisions`, e.g. `typesafe/jev-1.13`) | 1,000 | 1 MiB | No |
+| **Chrome On-device** (`DecisionModel`) | 16 | 1 MiB | No |
+
+#### Typed decisions example
+
+```js
+if (!window.inference?.getFeatures?.().methods?.decide) {
+  throw new Error("Typed decisions are not supported.");
+}
+
+for await (const chunk of window.inference.request({
+  method: "decide",
+  state: { ticket: "My checkout page is blank after clicking Pay." },
+  questions: {
+    is_bug: { type: "noul", instructions: "Is this a software defect?" },
+    team: {
+      type: "choice",
+      instructions: "Which team should handle this ticket?",
+      criteria: {
+        billing: "Payments and refunds",
+        technical: "Bugs and integrations",
+        other: null,
+      },
+    },
+    urgency: {
+      type: "score",
+      instructions: "How urgent is the customer's problem?",
+      criteria: ["Routine", "Should be fixed soon", "Blocking revenue right now"],
+    },
+  },
+})) {
+  if (chunk.type === "done") console.log(chunk.answers);
+}
+```
+
+#### Native decision images
+
+Feature-detect `getFeatures().decisionMedia?.imageMediaTypes` (`["image/jpeg", "image/png", "image/webp"]`). Pass static images via `attachments: [{ type: "image", mediaType, data }]` (`Blob`/`File` or raw base64 — URLs are rejected). Instructions can reference them by index (`attachment 0`, `attachment 1`, …).
+
+Bridge enforces up to **4 attachments**, **20 MB per image**, **32 MB total decoded**, and **48 MB encoded body** (plus tighter provider caps such as Ollama Cloud above). Decision images require a separate MIME-scoped approval independent of text decisions and chat images.
+
+```js
+const imageTypes = window.inference?.getFeatures?.().decisionMedia?.imageMediaTypes ?? [];
+const picker = document.createElement("input");
+picker.type = "file";
+picker.accept = imageTypes.join(",");
+document.body.append(picker);
+
+const image = await new Promise((resolve) => {
+  picker.addEventListener("change", () => resolve(picker.files?.[0]), { once: true });
+});
+picker.remove();
+
+if (image && imageTypes.includes(image.type)) {
+  for await (const chunk of window.inference.request({
+    method: "decide",
+    state: { task: "Inspect the attached photo." },
+    attachments: [{ type: "image", mediaType: image.type, data: image }],
+    questions: {
+      visible_damage: {
+        type: "noul",
+        instructions: "Does attachment 0 show physical damage?",
+      },
+    },
+  })) {
+    if (chunk.type === "done") console.log(chunk.answers);
+  }
+}
+```
+
+### Bounded speech (`transcribe` & `synthesize`)
+
+Configure speech defaults in **Options → Speech**. Transcription and synthesis each have independent site grants; provider, model, and voice are user-owned choices.
+
+- **Transcription (`method: "transcribe"`):** Accepts a finite MP3, MP4/M4A, WAV, or WebM `Blob`, raw base64 (with explicit `mediaType`), or page-fetched URL (fetched under page CORS), up to **24,000,000 bytes**. Files are uploaded unchanged (for MP4/WebM containers, visual bytes may be included in the upload). Optional BCP 47 `language` hint (OpenRouter accepts two-letter hints; PayPerQ accepts two-letter hints or `multi`).
+- **Synthesis (`method: "synthesize"`):** Accepts up to **4,096 Unicode code points** (some PayPerQ models enforce smaller caps, e.g. Deepgram 2,000, Tinfoil Voxtral 1,200) and streams `audio_delta` chunks up to **32,000,000 bytes**. Omitted `output` requests MP3 (`audio/mpeg`); WAV requires explicit `output: { mediaType: "audio/wav" }`.
+
+| Provider | Transcription | Synthesis |
+| --- | --- | --- |
+| **OpenAI** | Dedicated endpoint (MP3, M4A/MP4, WAV, WebM) | Native MP3 and WAV |
+| **Google Gemini** | `gemini-3.5-transcribe` via Files API (MP3, M4A, WAV, audio WebM; deletes remote file on finish) | `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` (WAV, 24 kHz mono PCM; default voice `Kore`) |
+| **OpenRouter** | Dedicated transcription models | Live `supported_voices` (MP3) |
+| **PayPerQ** | `/v1/audio/transcriptions` (default `nova-3`) | `/v1/audio/speech` (default `deepgram_aura_2` / `aura-2-arcas-en`; MP3) |
+| **Ollama (local)** | Installed models with `audio` + `completion` (default `lfm3-audio:latest`; WAV, plus MP3 on `gemma4:e4b`) | Installed models with `speech` (e.g. `phonon` on Ollama 0.40.9+; WAV only) |
+| **Ollama Cloud** | Capability-filtered WAV when advertised | Capability-filtered WAV when advertised |
+
+#### Speech synthesis example
 
 ```js
 const parts = [];
-const mediaType = "audio/mpeg"; // Use "audio/wav" for a Gemini or Ollama TTS route.
+const mediaType = "audio/mpeg"; // Use "audio/wav" for Gemini or Ollama TTS routes.
 let done;
+
 for await (const chunk of window.inference.request({
   method: "synthesize",
   text: "Hello from Inference Bridge.",
-  output: { mediaType }
+  output: { mediaType },
 })) {
-  console.log(chunk);
   if (chunk.type === "audio_delta") {
-    if (chunk.mediaType !== mediaType) throw new Error("Unexpected audio format");
     parts.push(chunk.data.slice());
+  } else if (chunk.type === "done") {
+    done = chunk;
   }
-  if (chunk.type === "done") done = chunk;
 }
+
 const blob = new Blob(parts, { type: done.audio.mediaType });
-if (done.audio.mediaType !== mediaType || blob.size !== done.audio.byteLength) {
-  throw new Error("Incomplete audio stream");
-}
 const audio = document.createElement("audio");
 audio.controls = true;
 audio.src = URL.createObjectURL(blob);
-document.body.append(audio); // Playback remains an explicit user action.
-// When removing the player: audio.pause(); URL.revokeObjectURL(audio.src); audio.remove();
+document.body.append(audio);
 ```
 
-Paste-ready transcription example:
+#### File transcription example
 
 ```js
 const picker = document.createElement("input");
 picker.type = "file";
 picker.accept = "audio/*,video/mp4,video/webm";
-document.body.append(picker); // Select a completed recording in the page.
+document.body.append(picker);
+
 const file = await new Promise((resolve) => {
-  picker.addEventListener("change", () => resolve(picker.files[0]), { once: true });
+  picker.addEventListener("change", () => resolve(picker.files?.[0]), { once: true });
 });
 picker.remove();
 
-for await (const chunk of window.inference.request({
-  method: "transcribe",
-  media: { data: file }
-})) {
-  console.log(chunk);
-  if (chunk.type === "done") console.log(chunk.transcript.text);
+if (file) {
+  for await (const chunk of window.inference.request({
+    method: "transcribe",
+    media: { data: file },
+  })) {
+    if (chunk.type === "done") console.log(chunk.transcript.text);
+  }
 }
 ```
 
-Page-owned recording also stays bounded: record first, stop the microphone,
-then submit the completed `Blob`:
+#### Bounded microphone recording example
+
+Record first, stop the microphone, then submit the completed `Blob`:
 
 ```js
-const recordingType = ["audio/webm", "audio/mp4"].find((type) =>
-  MediaRecorder.isTypeSupported(type)
+const recordingType = ["audio/webm", "audio/mp4"].find((t) =>
+  MediaRecorder.isTypeSupported(t)
 );
 if (!recordingType) throw new Error("No supported recording format available.");
+
 const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
 const recorder = new MediaRecorder(microphone, { mimeType: recordingType });
 const parts = [];
@@ -733,605 +500,73 @@ recorder.stop();
 await stopped;
 microphone.getTracks().forEach((track) => track.stop());
 
-const recording = new Blob(parts, { type: recorder.mimeType });
 for await (const chunk of window.inference.request({
   method: "transcribe",
-  media: { data: recording }
+  media: { data: new Blob(parts, { type: recorder.mimeType }) },
 })) {
-  console.log(chunk);
+  if (chunk.type === "done") console.log(chunk.transcript.text);
 }
 ```
 
-Cancellation uses the same page-owned signal:
+### Experimental compatibility
 
-```js
-const controller = new AbortController();
-const stream = window.inference.request({
-  method: "synthesize",
-  text: "Cancel this bounded request.",
-  signal: controller.signal
-});
-controller.abort();
+`window.inference.experimental.request()` and `experimental.getFeatures()` remain deprecated aliases (logging a one-time warning per page). Use stable `window.inference.request()` and `window.inference.getFeatures()` for all new code. Only [`experimental.runTools`](#experimentalruntools-helper-devtools--demos) remains experimental.
 
-try {
-  for await (const chunk of stream) console.log(chunk);
-} catch (error) {
-  console.log(error.code); // "aborted"
-}
-```
+## Security & privacy
 
-## Typed decisions (System One)
+- **Top-level secure contexts only:** Injects only into top-level `https:` or loopback `http:` frames (never `file:` or iframes).
+- **Per-origin, per-capability grants:** Sites are grouped by exact origin in **Options → Site access**. Chat, tools, images, transcription, synthesis, decisions, and decision images are authorized and revocable independently, with a **Revoke all access** shortcut for multi-grant sites.
+- **Local key storage:** API keys live in `storage.local` (unencrypted by Bridge) and are never exposed to page scripts. Where supported (Chrome), Bridge restricts `storage.local` to `TRUSTED_CONTEXTS` via `setAccessLevel()` so content scripts cannot read settings; Firefox does not yet support `setAccessLevel`, though page scripts still cannot read extension storage.
+- **Tight host permissions:** Built-in provider hosts are declared in the manifest; custom OpenAI-compatible endpoints request optional host permissions only when saved. Loopback `Origin`/`Referer` header stripping (`declarativeNetRequestWithHostAccess`) applies only to loopback endpoints, never remote APIs.
+- **Atomic settings & bounded caches:** Settings writes coordinate via Web Locks (`src/storage.js`), approval waits for persistence before calling a provider, and prompt-prefill caches retain at most 500 origins.
+- **Privacy policy:** See [PRIVACY.md](PRIVACY.md) for full data-handling and retention details.
 
-Decisions implement the optional [IPA typed decisions contract](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md#typed-decisions-system-one) through stable `window.inference.request()` and are available by default.
-Choose a decisions provider and model in **Options → Decisions** independently
-of your chat defaults. Each website needs your permission to use Decisions.
-`getFeatures()` synchronously advertises identity-free `methods.decide: true`,
-without credentials, permissions, or network I/O. An incompatible selected route
-fails with `unavailable`; discovery does not promise provider availability.
+### Current limitations
 
-- **Cloud:** save your OpenRouter key in **Options → Providers**, then choose
-  OpenRouter and `typesafe/jev-1.13` in Decisions. Requests use
-  [`POST /api/alpha/decisions`](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request),
-  an alpha API that may change. The picker loads the live decisions catalog
-  from `GET /api/v1/models?output_modalities=decisions`.
-- **PayPerQ:** reuse your PayPerQ key from **Options → Providers**, then choose PayPerQ
-  in **Options → Decisions**. The independent catalog loads from
-  `GET /v1/decisions/models`; the starter model is `typesafe/jev-1.13`, and
-  current aliases and other decision models are selectable from the live list.
-  Requests use [`POST /v1/decisions`](https://ppq.ai/api-docs). Bridge sends
-  System One JSON, validates `noul`, `choice`, and `score` answers, and emits
-  `accepted` then `done` without deltas. Decisions never use the chat endpoint
-  or enable hosted search.
-- **OpenAI:** save your OpenAI key in **Options → Providers**, then choose
-  OpenAI and `gpt-6-luna` in Decisions. Requests use
-  [`POST /v1/decisions`](https://developers.openai.com/api/reference/resources/decisions/methods/create).
-  The Bridge Decisions picker currently contains only `gpt-6-luna`.
-  String state is sent as text input; objects and arrays are serialized to JSON
-  text. `noul` maps to OpenAI's `predicate`, choices keep their string keys, and
-  scores use zero-based level indices. Optional `noul` criteria are included in
-  the predicate instructions. OpenAI's native image input and boolean choice
-  values are outside the Bridge's current JSON-state decision envelope.
-- **Google Gemini:** reuse your Google AI Studio key from **Options → Providers**,
-  then choose Google Gemini and `gemini-decision-1` in **Options → Decisions**.
-  Requests use the native [`POST /v1beta/decisions`](https://aistudio.google.com/docs/decisions-api)
-  endpoint, with separate site approval and no chat fallback. All three question
-  types are supported. String state stays text; objects and arrays become JSON
-  text, so media-shaped JSON is never interpreted as uploads or URLs. Bridge
-  supports up to 1,000 questions per request. Choice and score questions retain
-  the IPA limits of 26 options and 10 levels. Shared image attachments use native
-  image content blocks; audio, video, and PDFs remain outside this envelope.
-  Score descriptions must be non-empty. Question and choice keys are aliased on
-  the wire and restored in answers; choice labels are retained in descriptions,
-  including when an IPA description is null. Optional `noul` criteria map to
-  Google's `true_description` / `false_description`; native yes/no confidence is
-  omitted from the IPA answer. Token usage is mapped to IPA fields (zero output
-  tokens). Safety blocks fail the request with `invalid_request`.
-- **Local:** run **Ollama 0.35+**, install a model with `ollama pull nimble`
-  (or `ollama pull tev1:0.8b`), and select Ollama and its installed decision model
-  in Decisions. Requests use [`POST /v1/systemone`](https://docs.ollama.com/api/systemone).
-  The picker checks installed models' `/api/show` metadata for the `decision`
-  capability and a local GGUF or MLX/Safetensors format, including custom names.
-  MLX System One requires Ollama 0.40+. Nimble, Tev1,
-  Clef, and Clef Flash are supported; Clef models require **Ollama 0.35.1+**.
-  No local API key is needed.
-  OpenRouter works independently of whether Ollama is running.
-  After upgrading Ollama, an older model may need to be pulled again if the
-  server reports an obsolete format. A saved site grant keeps its approved
-  model: revoke that Decisions grant in Site access to choose another route.
-- **Chrome On-device:** choose On-device in **Options → Decisions**. This uses
-  Chrome's experimental [Decisions API (`DecisionModel`)](https://github.com/explainers-by-googlers/decisions-api)
-  and the browser-chosen decision model, with no API key or model selection.
-  Enable the Decisions API in Chrome and relaunch if `DecisionModel` is missing.
-  Click **Install decision model** there if a download is needed; installing chat
-  does not install decisions, and decisions work without chat being available.
-  Bridge checks native readiness and the question schema before `accepted`.
-  Chromium currently limits each request to **16 questions**; larger requests
-  return `invalid_request`. String state stays text; objects and arrays become
-  JSON text. Boolean probabilities map to `noul`, choices preserve labels, and
-  scores use zero-based labels and the native expected score. Native sessions
-  are destroyed after success, failure, or cancellation. Firefox does not offer
-  this provider. Decisions use separate defaults and site grants from chat.
-- Anthropic and OpenAI-compatible providers do not support
-  this operation. There is no chat emulation or fallback. Google Gemini, OpenRouter, PayPerQ, and Ollama
-  decision-only models are excluded from chat routing; OpenAI's `gpt-6-luna`
-  also remains available for chat.
-
-Paste into a secure page's DevTools console. The same code works with any
-backend selected in Options or approval:
-
-```js
-if (!window.inference?.getFeatures?.().methods?.decide) {
-  throw new Error("This page needs an Inference Bridge version that supports decisions.");
-}
-const controller = new AbortController();
-for await (const chunk of window.inference.request({
-  method: "decide",
-  state: { ticket: "My checkout page is blank after Pay." },
-  questions: {
-    is_bug: { type: "noul", instructions: "Is this a software defect?" },
-    team: {
-      type: "choice",
-      instructions: "Which team should handle this ticket?",
-      criteria: { billing: "Payments and refunds", technical: "Bugs and integrations", other: null }
-    },
-    urgency: {
-      type: "score",
-      instructions: "How urgent is the customer's problem?",
-      criteria: ["Routine", "Should be fixed soon", "Blocking revenue right now"]
-    }
-  },
-  signal: controller.signal
-})) {
-  console.log(chunk);
-  if (chunk.type === "done") console.log(chunk.answers);
-}
-// To cancel while awaiting approval or a provider: controller.abort().
-```
-
-The lazy iterable starts on iteration, asks for operation-specific approval,
-then yields **`accepted` → `done`** with `{ model, answers, usage? }`. It has no
-text, reasoning, audio, or partial-answer deltas and no `message.content`.
-`usage` maps to `inputTokens` / `outputTokens`. Provider and model are chosen by
-the user; pages cannot supply them or Ollama's `keep_alive`. A chat or speech
-Always-allow grant cannot authorize decisions. Review or revoke decisions grants
-in **Options → Site access**. Approval previews question ids/types and a truncated
-state summary; the selected provider receives the complete bounded state.
-Providers can refuse individual questions. Those answers have `{ type: "refusal" }`
-under the question's id; other answers are returned normally. All-refusal results
-also complete successfully. Check the answer type before reading its probability, choice, or score.
-
-The three [TypeSafe primitives](https://docs.typesafe.ai/primitives) preserve
-upstream vocabulary: `noul` is a probability of yes between 0 and 1;
-`choice` returns a selected key, `probabilities`, and `confidence`; `score`
-returns a probability-weighted level index (possibly fractional), `legend`,
-`probabilities`, and `confidence`. A Noul near 0.5 means uncertainty about yes/no,
-not medium intensity. See [confidence](https://docs.typesafe.ai/confidence) and
-[model jaggedness](https://docs.typesafe.ai/model-jaggedness/jev-1.13) for guidance;
-English is the recommended starting point.
-
-The v1 envelope accepts a nonempty string or JSON object/array as `state`, and
-one or more named questions, subject to the provider limits below. Instructions
-are nonempty strings. Noul criteria optionally contain `true`/`false` string descriptions; Choice criteria contain 2–26 named
-string/null descriptions; Score criteria contain 2–10 ordered strings.
-
-Bridge's resource limits are **1,000 questions** and **1 MiB (1,048,576 bytes)**
-for the UTF-8 encoding of `JSON.stringify({ state, questions })`, with at most
-64 JSON nesting levels. These are implementation limits; IPA does not fix
-universal question-count or payload-size maxima. Each cloud request's text/schema
-body (including the model and translated input/questions, excluding image data)
-must also fit within **1 MiB**. Local Ollama's text/schema JSON body must fit
-within **64 KiB**. Images have the separate decoded and encoded budgets below.
-
-| Provider | Maximum questions per request |
-| --- | --- |
-| [Google Gemini](https://aistudio.google.com/docs/decisions-api#limits) | 1,000 |
-| [OpenAI](https://developers.openai.com/api/docs/guides/decisions#ask-multiple-questions) | 400 |
-| [Ollama local and Cloud](https://docs.ollama.com/openapi.yaml) | 64 (`SystemOneRequest.questions.maxProperties`) |
-| [Chrome On-device](https://github.com/explainers-by-googlers/decisions-api) | 16 (current Chromium implementation) |
-| [OpenRouter](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request) | 1,000 (Bridge resource cap; no fixed provider maximum documented) |
-| [PayPerQ](https://ppq.ai/api-docs) | 1,000 (Bridge resource cap; no fixed provider maximum documented) |
-
-Model context windows and upstream limits can reject smaller requests. Approval
-disables Allow when the selected provider's known question limit is exceeded;
-saved grants and direct adapter calls enforce the same limits. Limit errors
-return `invalid_request` with a useful explanation. Bridge never truncates
-questions or state or automatically splits a request to fit a limit.
-Unknown request/question fields, cycles, binary values, and non-JSON values are
-rejected with `invalid_request` before approval. There are no tools, media, or
-URL fetching semantics inside decision state. Native images must be explicit
-`attachments`, as described below.
-
-Bridge validates the complete result before `done`. Choices must select a maximum
-probability option (ties are allowed); scores must match the normalized weighted
-level index within 0.02 and preserve the requested legend. Distributions must sum
-to 1 within 0.02. Malformed answers fail with `provider_error`, without a `done`;
-Bridge does not repair them, turn them into refusals, or fall back to chat.
-
-### Native decision images
-
-Feature-detect `getFeatures().decisionMedia?.imageMediaTypes` independently of
-chat `imageInput`. Bridge advertises **JPEG, PNG, and WebP**. Both stable and
-experimental discovery preserve boolean `methods.decide: true`; discovery is
-synchronous and independent of the selected provider, credentials, and grants.
-
-A decision request may include `attachments: [{ type: "image", mediaType, data }]`.
-`data` is a page-owned `Blob`/`File` or canonical raw base64, with an explicit
-advertised MIME type. Nonempty Blob MIME types must match exactly. Omission and
-`attachments: []` remain text-only. Attachments are shared by every question in
-array order; instructions can refer to attachment 0, attachment 1, and so on.
-URLs and provider file handles are rejected. JSON/media-shaped objects inside
-`state` remain ordinary data. Bridge never fetches decision URLs, rewrites or
-resizes images, substitutes captions/OCR, or drops images to complete a request.
-
-| Decision route | Native image input |
-| --- | --- |
-| Google Gemini (`gemini-decision-1`) | Inline native image content blocks |
-| OpenAI (`gpt-6-luna`) | Native `input_image` parts alongside complete state |
-| Ollama local / Cloud | Native `images` array; `/api/show` must advertise both decision and vision support |
-| OpenRouter | Native `image_url` content parts; the separate decision catalog must advertise image input |
-| PayPerQ / Chrome On-device | Unavailable; Bridge has no verified native decision-image protocol for these routes |
-
-Bridge accepts at most **4 attachments**, **20 MB (20,000,000 decoded bytes) per
-image**, and **32 MB (32,000,000 decoded bytes) total**. Bridge imposes no image
-dimension or megapixel cap. Each image must be static; animated PNG and WebP
-are rejected, and GIF is not advertised. These are Bridge limits. Format,
-container checksums where applicable, dimensions, and actual browser decoding
-are checked before prompting. Base64/Blob sizes are checked before decoding to
-bound allocations. Images count once per request, independently of question
-count. The complete encoded page request and provider body, including base64,
-metadata, state, questions, and envelope fields, must each fit within **48 MB
-(48,000,000 UTF-8 bytes)**. The 1 MiB JSON-state budget excludes attachments.
-These budgets bound extension memory and transport; they are not provider maxima.
-
-Smaller provider limits also apply. [Ollama Cloud](https://docs.ollama.com/api/systemone)
-allows **4 MiB and 16 megapixels per image**, **8 MiB total decoded**, and **13 MiB for the encoded
-request body** (4,194,304 / 8,388,608 / 13,631,488 bytes). Local Ollama allows a
-**32 MiB encoded body** (33,554,432 bytes), with its separate 64 KiB text/schema
-budget. Approval and errors use decimal **MB** and **kB** for readability: for
-example, Ollama Cloud's per-image limit displays as **4.2 MB**. Errors include
-both the actual size and the applicable limit; exact bytes disambiguate rounded
-values near the boundary. Other upstream model/context limits can still reject
-a request below these caps.
-
-Decision images need a separate MIME-scoped grant for the exact origin,
-provider, and model. Existing text-decision and chat-image grants do not cover
-them. Approval lists every attachment's index, MIME type, decoded size, count,
-and total size. Remembering a media approval covers future images of those
-types; adding a type requires fresh approval. **Site access → Allowed sites**
-shows the granted types and offers **Revoke decision images** independently of
-text decisions. No media bytes or previews are stored in grants.
-
-Unsupported routes are disabled in approval and fail with `unavailable` if
-invoked through a saved grant. Invalid media and exceeded limits fail with
-`invalid_request`. Known preflight failures produce no `accepted`; a later
-upstream error produces no `done`. All media is forwarded inline; Bridge creates
-no temporary provider files or handles. Cancellation stops encoding/validation
-and native requests, suppresses late results, and closes decoded bitmap buffers.
-
-Paste this into a secure page's DevTools console, then choose an image with the
-new file control. The selected decision route must support native images:
-
-```js
-const features = window.inference?.getFeatures?.();
-const imageTypes = features?.decisionMedia?.imageMediaTypes ?? [];
-if (features?.methods?.decide !== true || imageTypes.length === 0) {
-  throw new Error("This page needs native decision image support.");
-}
-const picker = document.createElement("input");
-picker.type = "file";
-picker.accept = imageTypes.join(",");
-picker.setAttribute("aria-label", "Choose an image for typed decisions");
-picker.addEventListener("change", async () => {
-  const image = picker.files?.[0];
-  if (!image) return;
-  try {
-    if (!imageTypes.includes(image.type)) throw new Error("Unsupported image type.");
-    for await (const chunk of window.inference.request({
-      method: "decide",
-      state: { task: "Inspect the attached photo." },
-      attachments: [{ type: "image", mediaType: image.type, data: image }],
-      questions: {
-        visible_damage: {
-          type: "noul",
-          instructions: "Does attachment 0 show physical damage?",
-        },
-      },
-    })) console.log(chunk);
-  } catch (error) {
-    console.error(error.code, error.message); // Includes unsupported-route failures.
-  }
-});
-document.body.append(picker);
-```
-
-## Experimental compatibility
-
-`experimental.request()` remains a deprecated alias for chat, decisions, and
-speech, with one deprecation warning per page. `experimental.getFeatures()`
-continues to expose the same optional methods, plus its legacy `chat: true`
-entry. Use stable `request()` and `getFeatures()` for new code. The
-[`runTools` helper](#experimentalruntools-helper) remains experimental.
-
-## Images
-
-Stable `window.inference.request` accepts IPA-style content parts on **user** and **assistant** messages, plus optional `output.images`, when `getFeatures().imageInput` / `imageOutput` are true.
-
-Vision **input** is mapped on OpenAI, Anthropic, OpenRouter, PayPerQ, Ollama, named OpenAI-compatible servers, and On-device (Prompt API). Image **output** is OpenAI (Responses `image_generation` tool, not a page-facing tool) and OpenRouter:
-
-- Image parts map to Chat Completions `image_url` data URLs (OpenAI, OpenRouter, PayPerQ, OpenAI-compatible), Anthropic Messages `image` source blocks, Ollama `/api/chat` `images` (raw base64), and Prompt API `{ type: "image", value: Blob }` on On-device. Mixed text + image in one turn is supported.
-- OpenRouter, PayPerQ, and Ollama still probe the selected model (catalog modalities / `/api/show` `vision`). Allow is disabled when that probe says the model cannot see images; the adapter fails closed with `unavailable`.
-- OpenAI, Anthropic, and OpenAI-compatible servers forward vision parts without a catalog probe. The selected model must actually support vision or the provider will reject the request. On-device probes Prompt API image availability and fail-closes if this browser cannot take image input. Prompt API output is still text-only.
-- OpenAI `output.images: true` uses the Responses API and internally adds `{ type: "image_generation" }` (not a page-facing IPA tool). GPT-4o / GPT-4.1 / GPT-5 / GPT-6 family models can generate; others fail closed. Images arrive on `done.message.content` as `ImagePart`s (no `image_delta`). Text-only `done` is still valid if the model does not draw.
-- OpenRouter `output.images: true` maps to Chat Completions `modalities: ["image", "text"]` when the catalog model’s `output_modalities` includes `image` (for example `google/gemini-2.5-flash-image`). Other providers (including Anthropic and On-device), and OpenRouter models without image output, fail closed.
-- A plain-chat grant does not cover image input or output. Approval lists them separately; a saved grant must explicitly include them to skip the prompt.
-
-Page-facing image parts (resolved **in the page** before the extension round-trip; providers still receive `{ mediaType, data }` bytes):
-
-- `{ type: "image", url }` — Bridge `fetch`es the URL in the page (same CORS as the site). `mediaType` is optional when `Content-Type` or the path is jpeg/png/webp/gif. Many pasteable image hosts allow this; some CDNs do not. A CORS or network failure is `invalid_request`. Prefer `{ data: Blob }` or base64 when you already have the bytes or when `fetch` fails. For remote URLs that lack CORS headers, an image proxy such as [wsrv.nl](https://wsrv.nl/) (e.g. `https://wsrv.nl/?url=…`) often works.
-- `{ type: "image", data: Blob }` — encoded to base64 in the page (`mediaType` optional when `blob.type` is set).
-- `{ type: "image", mediaType, data }` — spec-shaped base64, if you already have it.
-
-Local Ollama does not fetch remote URLs (the page does, then Bridge sends bytes).
-
-```js
-for await (const chunk of window.inference.request({
-  method: "chat",
-  messages: [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: "What is in this photo?" },
-        // Page fetch needs CORS; if the host blocks it, try a proxy e.g. https://wsrv.nl/?url=…
-        { type: "image", url: "https://httpbin.org/image/png" },
-      ],
-    },
-  ],
-})) {
-  if (chunk.type === "delta") console.log("[delta]", chunk.content);
-  if (chunk.type === "done") console.log("[done]", chunk.message.content);
-}
-```
-
-Generate an image (OpenAI GPT-4o / GPT-5 / GPT-6 family, or OpenRouter with an image-capable model). Text-only `done` is still valid if the model does not draw:
-
-```js
-for await (const chunk of window.inference.request({
-  method: "chat",
-  messages: [{ role: "user", content: "a red panda sticker, simple shapes" }],
-  output: { images: true },
-})) {
-  if (chunk.type === "delta") console.log("[delta]", chunk.content);
-  if (chunk.type === "done") {
-    const content = chunk.message.content;
-    console.log("[done]", content);
-    if (!Array.isArray(content)) continue;
-    for (const part of content) {
-      if (part.type !== "image") continue;
-      const img = document.createElement("img");
-      img.alt = "generated image";
-      img.src = `data:${part.mediaType};base64,${part.data}`;
-      img.style.maxWidth = "320px";
-      document.body.append(img);
-    }
-  }
-}
-```
+- Approval dialogs do not estimate provider token or search costs.
+- Errors crossing the page/extension boundary are reconstructed as `Error` instances with a `.code` property; provider-specific error classes are not preserved.
 
 ## Development
 
 ```bash
-npm install
-npm test
-```
-
-`npm install`/`npm ci` prepares pinned Marked and DOMPurify ESM files and licenses under ignored `ui/vendor/`; packaging also prepares them. No remote scripts are loaded. Firefox lint narrowly permits DOMPurify's internal inert-document `innerHTML` assignment only when the staged sanitizer exactly matches the installed pinned upstream source. Application HTML injection remains disallowed.
-
-Node tests cover validation, storage, permissions, provider adapters, tools, and binary transport. The [speech contract tests](test/speech-conformance.test.js) exercise the injector, content script, and worker together using browser and network mocks and the [shared IPA stream checker](test/helpers/speech-conformance.mjs). Fixture provenance is in [test/fixtures/README.md](test/fixtures/README.md).
-
-The [shared chat adapter contract](test/helpers/chat-adapter-contract.js) runs against every built-in adapter and a named OpenAI-compatible endpoint in [chat-adapter-contract.test.js](test/chat-adapter-contract.test.js). It checks streaming/results, cancellation, sanitized errors, immutable requests, and concurrent configuration isolation using native protocol fixtures. Provider-specific tests retain tool, reasoning, retry, and protocol coverage.
-
-Adapters own `getModelCapabilities({ model, apiKey, signal })`; consumers use `resolveModelCapabilities()` from the registry. Image input/output results are `true`, `false`, or `null` (unknown). Missing metadata and failed discovery stay unknown and cannot authorize catalog-gated features. OpenAI, Anthropic, and compatible endpoints retain native image-input forwarding through an explicit `imageInputPassthrough` flag; this does not assert model vision support. Request-specific tool combinations and native readiness checks still run in adapters/preflight. Chat capabilities do not select or grant decisions, transcription, or synthesis routes.
-
-These tests do not replace installed-browser checks or live provider verification. Use the manual checklist below for approvals, playback, provider behavior, and browser lifecycle checks.
-
-Optional local Ollama speech integration uses the checked-in 16 kHz
-mono WAV fixture for transcription and never pulls a model automatically.
-Synthesis skips unless an installed model reports `speech`:
-
-```bash
-OLLAMA_SPEECH_INTEGRATION=1 \
-OLLAMA_SPEECH_MODEL=lfm3-audio:latest \
-OLLAMA_TTS_MODEL=phonon \
-npx vitest run test/ollama-speech.integration.test.js
-```
-
-Transcription skips when the daemon/model is absent or `/api/show` does not
-report both `audio` and `completion`. Synthesis skips when `/api/show` does not
-report `speech`.
-Once a capability is advertised, endpoint or payload failures fail the test.
-
-### Browser builds
-
-```bash
+npm install               # install dev deps and prepare bundled chat libraries
+npm test                  # run Vitest unit & conformance suite
 npm run package           # Chrome ZIP and build/chrome/
 npm run package:firefox   # Firefox ZIP and build/firefox/
 npm run package:safari    # Safari development ZIP and build/safari/
-npm run prepare:safari:ios # Refresh Safari files and prepare the local iOS Xcode project
-npm run package:all       # Stage all three browsers
-npm run lint:firefox      # Rebuild Firefox and lint with warnings treated as errors
+npm run prepare:safari:ios # refresh Safari files and local iOS Xcode project
+npm run package:all       # stage all three browsers
+npm run lint:firefox      # rebuild Firefox and lint (warnings fail)
 ```
 
-See the [Safari development guide](docs/safari.md) for local installation and the page-injection smoke test.
+Optional integration tests against locally installed Ollama models (never pull models automatically):
+
+```bash
+OLLAMA_SPEECH_INTEGRATION=1 OLLAMA_SPEECH_MODEL=lfm3-audio:latest OLLAMA_TTS_MODEL=phonon \
+  npx vitest run test/ollama-speech.integration.test.js
+
+OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:latest,tev1:0.8b \
+  npm test -- test/ollama-decisions.integration.test.js
+```
+
+### Architecture
+
+The MAIN-world page bridge ([`content/inject.js`](content/inject.js)) communicates with the isolated [content script](content/content-script.js) over a private `MessagePort`, which relays requests to the [background worker](background/service-worker.js). The worker validates requests ([`src/validate.js`](src/validate.js)), checks per-origin grants ([`src/storage.js`](src/storage.js)), and delegates to a [provider adapter](src/providers/). Options, approval, and chat UIs live in [`ui/`](ui/); Chrome's On-device provider runs in [`offscreen/`](offscreen/). See [AGENTS.md](AGENTS.md#layout) for the full directory map and provider contract guidelines.
 
 ### Manual checks
 
-#### Side-panel chat
-
-- [ ] Chrome: left-click the toolbar icon opens Options; **Open Chat** in Options and the built-in **Open Side Panel** context-menu item open the same global panel. Reload/update from an earlier build and confirm the duplicate **Open Chat** menu item is removed. Navigate/switch tabs while the panel stays open. Firefox: **Open Chat** in Options and the action's context menu open the native sidebar; Options stays available from the toolbar.
-- [ ] Use a configured provider/model for streaming chat, hosted search, and an attached/pasted image with a vision model. Verify unsupported models/search and missing credentials/host access show useful errors. Change providers in Options and reopen chat.
-- [ ] Check native dropdowns for small model catalogs, searchable OpenRouter/PayPerQ catalogs, the 20-model compatible-server boundary, and manual entry when a compatible server's discovery is empty or fails. Verify selection survives reopening a chat and that unavailable local models cannot be sent using Enter.
-- [ ] Stop, retry, close/reopen the panel, and restart the browser. Confirm saved history, images, reasoning, and partial responses restore. New Chat and saved-chat navigation work during generation; another send waits until the active response finishes.
-- [ ] Search chat titles, rename a chat, pin/unpin it, cancel/confirm individual deletion, and delete all history. Reopen/restart to verify names and pins persist, pinned chats appear first, and renamed titles survive later responses. Use Tab, Enter/Space, arrows, Home/End, Escape, and outside clicks with row menus; confirm menus stay beside their trigger at 320px and near the bottom of a long list. During generation in another window, edits/deletion of the same chat and deletion of all history are blocked; unrelated chats remain usable.
-- [ ] Click the history drawer's shaded backdrop to close it and return focus to the history button. Clicks inside the drawer or its action menus, and drags that start inside the drawer, must keep it open. Repeat in Firefox 140 to exercise the light-dismiss fallback.
-- [ ] At 320px and wider panel widths, long URLs, Markdown tables, and code scroll within the conversation. Use Tab, Enter, Shift+Enter, Escape, and a screen reader to check composer labels, sidebar focus restoration, status/errors, and Stop. Rendered Markdown must not load remote images, execute scripts, or navigate to extension/file URLs.
-- [ ] On an HTTPS test page, request IPA inference and confirm that the normal approval is still required after using first-party chat.
-
-#### Allowed sites
-
-- [ ] In Chrome and Firefox, grant chat (including tools/images), transcription, synthesis, and decisions to one origin. Confirm **Site access → Allowed sites** shows one expandable card, all granted capabilities, saved routes/voice, and editable chat provider/model/reasoning effort.
-- [ ] Grant chat only, each speech operation only, and decisions only to other origins. Confirm each appears once with only its granted capability and no redundant Revoke all access button; different schemes, hosts, or ports remain separate.
-- [ ] Revoke tools/images, chat, or one operation. Confirm unrelated grants still work, the summary updates, and the card stays expanded. Remove the final grant and confirm the card disappears; remove all grants and confirm a single empty state.
-- [ ] Use **Revoke all access** on a mixed-capability site. Confirm subsequent chat (including tools/images), speech, and decisions requests require approval, other sites retain access, and blocked sites stay blocked.
-- [ ] At 320px width and with a long origin/model, confirm controls wrap without horizontal overflow. Use Tab and Enter/Space to expand a site and revoke access; confirm focus returns to its summary, a neighboring site, or the Allowed sites heading when the list becomes empty. Verify capability names and site-specific revoke labels with a screen reader.
-
-#### Persistence failures
-
-Use an isolated test profile with dummy credentials. In the DevTools console for **Options**, temporarily replace `chrome.storage.local.set`:
-
-```js
-const originalStorageSet = chrome.storage.local.set.bind(chrome.storage.local);
-chrome.storage.local.set = async () => { throw new Error("Simulated storage failure"); };
-// After testing:
-// chrome.storage.local.set = originalStorageSet;
-```
-
-- [ ] Save defaults, edit a site's route/effort, revoke chat/tools/images/operation access, unblock a site, and remove a server: failures show an error instead of success; persisted access stays unchanged. Restore the method and retry successfully.
-- [ ] Repeat the replacement in the **background worker's** DevTools console, then request chat, decisions, transcription, or synthesis from a test page. Allow once, Remember + Allow, and Remember + Deny show the failure in the popup and fail the page request without a provider call. Restore the method, close the failed popup, and retry from the site.
-- [ ] Repeat in Firefox's background debugging console and Options toolbox. Reload settings after each failure to confirm what was persisted.
-
-#### Local storage access
-
-Use an isolated test profile with dummy credentials. In Chrome, load the extension, open Options, and confirm saving/reloading settings and site grants works. Request chat from a test page, approve it, and confirm the chosen provider receives the request. In the page's DevTools Console, select **Inference Bridge** in the JavaScript context selector (the isolated content-script world, rather than the page's main world) and run:
-
-```js
-try {
-  await chrome.storage.local.get("defaultProviderId");
-  console.error("FAIL: content script could read local settings");
-} catch {
-  console.log("PASS: content-script storage access denied");
-}
-```
-
-- [ ] Chrome: the content-script read is denied; Options, approvals, and provider requests work
-- [ ] Repeat after extension reload, worker suspension/wake, and browser restart (refresh the test page to get the current content script)
-- [ ] Firefox: startup, Options, approvals, and provider requests work without `setAccessLevel`; the extra content-script restriction is unavailable
-
-#### Page API and permissions
-
-- [ ] `window.inference` exists on `https://example.com` after install
-- [ ] `getFeatures()` synchronously reports tools, search, image input/output, request options, decisions, and speech methods, without prompting or doing network I/O
-- [ ] `options: { reasoningEffort: "none" }` is accepted on stable `request` (no extra permission prompt)
-- [ ] Ollama approval Advanced options follows model changes: None requests off only when advertised, uses Low for Beam, and explains unknown controls on older servers; Auto retains the advertised default and reasoning output remains visible
-- [ ] Options → Providers → Chat reasoning effort saves/reloads; page preference preserves request effort, Auto overrides it with the provider default, and explicit efforts apply to new approvals and existing Always-allow grants without another prompt
-- [ ] Chat approval effort restores the site's choice, persists on Allow once/Always allow, and overrides the global setting; Use global setting resumes inheritance, and Deny/close do not save changes
-- [ ] `options: { temperature: 0.2 }` is accepted on stable `request` (no extra permission prompt)
-- [ ] Invalid `options.reasoningEffort` or `options.temperature` → `invalid_request`
-- [ ] Unsupported model/provider still succeeds (best-effort mapping / no-op)
-- [ ] Missing on an `http://` non-localhost page (or request fails with `unavailable`)
-- [ ] Missing on `file://` pages
-- [ ] First request shows the approval popup with provider + model; Deny → `permission_denied`
-- [ ] Remember + Deny blocks the origin; later requests fail with `permission_denied` without prompting
-- [ ] Unblock in Options restores the permission prompt
-- [ ] Allow once works without persisting; Remember + Allow appears under Options with provider + model
-- [ ] Streaming yields one `accepted` chunk, then optional `reasoning_delta` / `delta` chunks, then a single `done`
-- [ ] `accepted` arrives after Allow (or silent persistent grant), before the first `reasoning_delta`/`delta`/`done`
-- [ ] `done.message.content` matches concatenated deltas
-- [ ] `done.message.reasoning` matches concatenated `reasoning_delta`s when present; omitted otherwise
-- [ ] Reasoning models (e.g. OpenRouter Qwen / Ollama thinking) stream `reasoning_delta` before answer `delta`s
-- [ ] AbortSignal / tab close produces `aborted`
-
-#### Providers and models
-
-- [ ] Empty OpenAI / Anthropic / OpenRouter API key (that provider selected) yields `unavailable` with a setup hint
-- [ ] OpenRouter model list loads from `/api/v1/models` without a key; typing filters suggestions
-- [ ] OpenRouter router models (e.g. `openrouter/free`) work; `done.model` may report the underlying model
-- [ ] Ollama model list comes from `/api/tags` (not a hardcoded list)
-- [ ] Ollama unavailable / no models → “(unavailable)” label and help text; Options keeps it selectable to inspect the hint and blocks Save, while approval keeps it selectable but disables Allow
-- [ ] Firefox: revoked built-in or custom-server host access shows “(unavailable)” while remaining selectable; selecting it shows the reason, and Save is blocked until access is restored
-- [ ] Refreshing Firefox Options rechecks provider host access and Ollama availability
-- [ ] Ollama chat from an example app succeeds after approving (no HTTP 403)
-- [ ] With local Ollama stopped, **Ollama Cloud** lists hosted chat models, saves its key/model, and streams chat, reasoning, function tools, and approved hosted search/fetch
-- [ ] Ollama Cloud approval thinking guidance follows the cloud model, and vision succeeds only for cloud models advertising `vision`
-- [ ] Existing local-server site grants continue to use localhost after selecting a cloud global default; missing local Ollama fails without sending inference inputs to cloud
-- [ ] **Options → Decisions → Ollama Cloud** lists the cloud decision catalog and completes stable `method: "decide"` with separate site approval and the cloud key
-- [ ] Empty cloud speech catalogs explain hosted unavailability and disable Allow; when cloud speech is advertised, test WAV transcription and playable WAV synthesis independently
-- [ ] Missing/invalid cloud key, exhausted usage, cancellation, and revoked Firefox ollama.com host access produce a useful failure without local-server setup advice or fallback
-- [ ] Add an OpenAI-compatible endpoint in Options; Chrome prompts for that origin; deny does not save
-- [ ] Compat endpoint appears in provider picker (Options + approval); chat streams via `/v1/chat/completions`
-- [ ] Compat small `/v1/models` list uses `<select>`; large catalogs use searchable autosuggest
-- [ ] Compat `/v1/models` failure still allows typing a model id
-- [ ] Switching default provider does not rewrite existing origin grants
-- [ ] Legacy OpenAI API key (pre-`apiKeys` map) still works after upgrade
-
-#### Tools and images
-
-- [ ] `window.inference.request` accepts `tools` / `toolChoice` / tool messages (feature-detect via `getFeatures`)
-- [ ] Plain chat via stable `request` unchanged across OpenAI / Anthropic / OpenRouter / Ollama
-- [ ] Function tool round-trip via `request`: tools → `done.message.toolCalls` → `role: "tool"` follow-up → final answer
-- [ ] On-device with `#prompt-api-tool-use` enabled: function tool round-trip and `experimental.runTools` complete, including parallel calls; text deltas contain no tool objects
-- [ ] On-device with the tool flag disabled: a function-tool request fails before `accepted` with flag guidance, while ordinary chat succeeds
-- [ ] On-device `toolChoice: "none"` omits tools and accepts prior tool results; `"required"` / a forced function name return `unavailable` before `accepted`
-- [ ] `experimental.runTools` completes a page-executed loop with the same shape
-- [ ] Hosted `web_search` on OpenRouter / Anthropic / OpenAI; OpenAI also uses `/v1/responses` for image output and GPT-6 function tools
-- [ ] Ollama hosted `web_search`: optional ollama.com API key in Options; with key, chat searches; without key, Allow is disabled (no silent strip)
-- [ ] OpenAI-compatible / On-device: Allow disabled for `web_search`; if the request proceeds, `unavailable` (no silent strip)
-- [ ] `toolChoice: "none"` does not run hosted search (OpenAI / Anthropic / OpenRouter / Ollama ollama.com loop)
-- [ ] Approval lists “Web search (provider-hosted)” or “Web search (Ollama cloud)” (Ollama description mentions fetch)
-- [ ] Approval shows tool names; a plain-chat grant prompts for tools, a matching tools grant skips the prompt, and a wider tool set prompts again
-- [ ] Omitted `toolChoice` with `tools` present behaves as `"auto"`
-- [ ] `experimental.request` still works as an alias and logs a one-time deprecation `console.warn`
-- [ ] `experimental.runTools` logs a one-time `console.warn` pointing at `ipa-tools` (not the request-deprecation warn)
-- [ ] Stable `{ type: "image", url }` vision Q&A: page fetch + Ollama/OpenRouter; CORS failure is `invalid_request`
-- [ ] Stable `output.images: true` on OpenAI / OpenRouter; approval lists image input/output separately
-
-#### Decisions
-
-- [ ] In Chrome with Decisions API enabled, choose On-device in Options → Decisions; install if needed, then run the typed-decisions console example with chat unavailable and confirm separate approval plus `accepted`/`done` and all three typed answers
-- [ ] Cancel an on-device decision request; no late `done` appears. Disable Decisions API and reload: saved grants fail closed, while cloud decisions remain usable. Firefox does not list On-device decisions
-
-For opt-in checks against installed local models (separate from browser checks):
-
-```bash
-OLLAMA_DECISIONS_INTEGRATION=1 OLLAMA_DECISIONS_MODELS=clef-flash:latest,nimble:latest,tev1:0.8b npm test -- test/ollama-decisions.integration.test.js
-```
-
-- [ ] Stable discovery immediately reports `methods.decide: true`; stable `request({ method: "decide", ... })` works, and the deprecated experimental alias reports the same optional methods
-- [ ] The first decisions request prompts for separate site approval; speech grants do not authorize decisions
-- [ ] OpenRouter completes the three-primitives console example through `/api/alpha/decisions`, including when Ollama is stopped
-- [ ] Decision image requests preview ordered attachment types/sizes; chat and old decision grants prompt again, adding a MIME type prompts again, and Revoke decision images preserves text decisions
-- [ ] Native decision JPEG/PNG/WebP reaches Gemini, OpenAI, a vision-capable Ollama local/Cloud model, and a vision-capable OpenRouter decision model without fetching URLs or converting bytes; corrupt/oversized input and unsupported routes fail before accepted
-- [ ] Google Gemini offers `gemini-decision-1` in Decisions and completes the same console example using its saved AI Studio key and separate site approval; cancellation stops the request, and the model never appears in the chat picker
-- [ ] OpenAI offers `gpt-6-luna` in Decisions and completes the same console example through `/v1/decisions`, using the saved key and separate site approval; refusals remain typed answers and cancellation stops the request
-- [ ] Ollama 0.35+ with installed `nimble` or `tev1:0.8b`, or 0.35.1+ with Clef/Clef Flash, completes the same example through `/v1/systemone`; an older server returns the upgrade hint
-- [ ] Decisions model pickers list only their separate catalogs; an empty local decision catalog disables Allow and explains `ollama pull nimble`
-- [ ] Approval previews truncated state and question ids/types; chat/speech grants do not skip decide approval; revoking decide leaves those grants intact
-- [ ] Decision streams contain exactly `accepted` → typed `done.answers`; usage is camelCase; mixed/all refusals complete; abort or iterator closure during approval/fetch cancels without a `done`
-- [ ] OpenRouter lists its current decisions catalog; Ollama lists installed GGUF and MLX/Safetensors models with the `decision` capability, including Clef and custom names
-- [ ] Unknown fields, invalid JSON/question shapes, unsupported provider grants, and stale models fail closed; decision models never route through chat
-- [ ] Run the stable three-primitives example in both Chrome and Firefox with each configured supported backend; record live results separately from synthetic conformance checks, and revoke Firefox host access during a decision request
-
-#### Speech
-
-- [ ] Speech is advertised immediately in stable `getFeatures().methods` and in the deprecated experimental discovery alias, without a settings handshake
-- [ ] Discovery exposes normalized `methods.transcribe.acceptedMedia` constraints plus `methods.synthesize`, with no provider/model/voice IDs; each operation still needs its own site approval
-- [ ] OpenAI transcription accepts MP3/WAV/M4A plus MP4/WebM with an audio track; transcript matches the recording
-- [ ] OpenRouter transcription passes the same fixtures and byte/transcript invariants using an explicitly supported transcription route
-- [ ] Optional Ollama transcription lists only installed `/api/show` models with both `audio` and `completion` (excluding audio embedding models), accepts the WAV fixture through `/v1/audio/transcriptions`, and offers MP3 only for verified `gemma4:e4b`
-- [ ] Optional Ollama synthesis lists only installed `/api/show` models with `speech` (for example `phonon` on Ollama 0.40.9+), appears for explicit WAV, does not appear for omitted/MP3 output, and yields a playable 24 kHz mono WAV after rewriting streaming size fields
-- [ ] Transcription approval shows MIME/size and discloses full-container upload for video; no media preview or automatic playback
-- [ ] A page-CORS transcription URL works; a CORS failure is `invalid_request`, and DevTools confirms the request originates from the page rather than the extension
-- [ ] OpenAI synthesis yields non-empty `audio_delta` chunks for MP3 and explicit WAV; concatenated bytes equal `done.audio.byteLength` and produce playable audio in the requested format
-- [ ] OpenRouter synthesis yields a playable MP3 with a voice from the selected model’s live `supported_voices` list
-- [ ] Explicit WAV lists OpenAI, Gemini, and Ollama synthesis routes and yields a single playable RIFF/WAVE file with matching MIME and byte count; cancellation stops generation and fragment delivery
-- [ ] A saved MP3-only route rejects WAV, and a saved WAV-only route rejects omitted output, before `accepted` without switching routes
-- [ ] Synthesis approval shows the text summary, requested format, model, voice, synthetic-speech notice, and provider-cost notice
-- [ ] Allow once prompts again; Always allow is isolated between chat, transcription, and synthesis and binds the exact provider/model/voice
-- [ ] Options shows separate speech defaults and grants; revoking transcription does not revoke chat or synthesis
-- [ ] AbortSignal rejects pending iteration with `aborted`; iterator `return()` closes it; both stop upload/download and yield no `done`
-- [ ] Navigating or closing the tab during approval, upload, or synthesis aborts without a stale approval or retained transfer
-- [ ] Empty/over-24,000,000-byte transcription and over-4,096-code-point synthesis fail before provider upload
-- [ ] Unsupported MIME, missing audio track, silent/no-speech input, and malformed provider output return actionable errors
-
-### Current limitations
-
-- Approval does not estimate provider costs.
-- Errors crossing the page/extension boundary are reconstructed as `Error` objects with a `code` property; provider-specific error classes are not preserved.
+Unit and conformance tests do not replace installed-browser verification. Run the full Chrome/Firefox QA checklist in **[docs/manual-checks.md](docs/manual-checks.md)** (and [docs/safari.md](docs/safari.md) for Safari) before cutting releases.
 
 ## Contributing
 
 Issues and pull requests are welcome.
 
-- Keep the core IPA surface aligned with [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md)
-- Prefer experimental, clearly labeled features over expanding the normative API prematurely
-- Add unit tests for non-UI logic where practical
-
-### AI coding agents
-
-Shared instructions live in [AGENTS.md](AGENTS.md). See [docs/ai-agents.md](docs/ai-agents.md) for the release workflows and tool-specific configuration.
-
-See also [Chrome Web Store release checklist](./docs/chrome-web-store.md) and the [privacy policy](./PRIVACY.md).
-The [Firefox release checklist](./docs/firefox-amo.md) tracks the separate AMO build and review.
+- Keep `window.inference` aligned with [SPEC.md](https://github.com/SamSamskies/inference-provider-api/blob/main/SPEC.md).
+- Prefer experimental, clearly labeled features over expanding the normative API prematurely.
+- Add unit tests in `test/` for non-UI logic.
+- Shared AI coding agent instructions live in [AGENTS.md](AGENTS.md) and [docs/ai-agents.md](docs/ai-agents.md).
+- Release checklists: [Chrome Web Store](docs/chrome-web-store.md), [Firefox AMO](docs/firefox-amo.md), [Safari](docs/safari.md), and [Privacy Policy](PRIVACY.md).
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](LICENSE).

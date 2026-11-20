@@ -156,7 +156,7 @@ Do not fabricate screenshots in CI; capture them from a real Chrome session afte
 
 ## Manual verification before upload
 
-Run through the [README manual checklist](../README.md#manual-checks) on a clean profile:
+Run through the [manual verification checklist](manual-checks.md) on a clean profile:
 
 1. Load `build/chrome/` through **Load unpacked** on `chrome://extensions`, or extract the release ZIP and load that directory. Chrome does not install the store ZIP directly.
 2. Confirm OpenAI, Anthropic, Google Gemini, OpenRouter, PayPerQ (chat/search/decisions/speech), Ollama, and (if testing) OpenAI-compatible endpoint flows.
