@@ -1262,6 +1262,7 @@ const SITE_REASONING_CHOICES = [
   ["page", "Use page preference"],
   ["auto", "Auto — provider/model default"],
   ["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"],
+  ["xhigh", "Extra high"],
 ];
 
 /** Catch autosave/revoke failures at the UI boundary and keep them visible. */
@@ -1284,7 +1285,7 @@ async function runSiteAccessAction(action, control) {
 function globalReasoningLabel() {
   const labels = {
     page: "Page preference", auto: "Auto", none: "None",
-    low: "Low", medium: "Medium", high: "High",
+    low: "Low", medium: "Medium", high: "High", xhigh: "Extra high",
   };
   return `Use global setting (${labels[savedChatReasoningEffort] || "Page preference"})`;
 }

@@ -1089,7 +1089,7 @@ function updateRememberHint() {
 
 const CHAT_REASONING_LABELS = {
   page: "Page preference", auto: "Auto", none: "None",
-  low: "Low", medium: "Medium", high: "High",
+  low: "Low", medium: "Medium", high: "High", xhigh: "Extra high",
 };
 
 function updateGlobalReasoningEffortLabel(value) {

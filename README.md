@@ -301,6 +301,9 @@ if (features.options?.temperature) {
 | omitted / `"auto"` | omit `reasoning_effort` | omit `thinking` / `output_config` | omit `think` |
 | `"none"` | `reasoning_effort: "none"` on gpt-5.1+, GPT-6.1 Terra, and GPT-6 Sol/Luna; `"minimal"` on gpt-5 / gpt-5-mini / gpt-5-nano; `"low"` on GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra/Sol; omit on gpt-4.x | `thinking: { type: "disabled" }` where supported; `between_tools` on Sonnet 5.5; omit on Fable 5 / Fable 5.1 / Fable 5.2 / Opus 5.5 | `think: false` when advertised; otherwise the lowest known supported level |
 | `"low"` / `"medium"` / `"high"` | matching `reasoning_effort` | adaptive + `output_config.effort` on Claude 4.6+ and Opus 5.5; `enabled` + `budget_tokens` on Haiku 4.5 / Claude 4.5 | matching supported level; `true` for boolean on/off models; otherwise provider default |
+| `"xhigh"` | `reasoning_effort: "xhigh"` with the usual fallback | uses the `"high"` mapping | uses `"xhigh"` if advertised or `true` if the model only offers on/off and supports enabling it. Otherwise uses the model default. |
+
+`"xhigh"` requests effort above `"high"` where the model supports it. Gemini sends `thinking_level: "xhigh"` for models with that level in Bridge's capabilities profile, including Gemini 4 Neon and Hydrogen.
 
 Bridge maps this preference by model and retries once when a provider rejects the effort setting, using a supported value or omitting it. Models with mandatory reasoning can still reason when `"none"` is requested. See [`src/providers/reasoning-effort.js`](src/providers/reasoning-effort.js) for the mappings. Invalid enum values return `invalid_request`; unknown `options` keys are ignored. Streaming `reasoning_delta` / `message.reasoning` outputs are optional regardless of this preference.
 
@@ -312,11 +315,11 @@ In **Options → Providers → Chat reasoning effort**, users can set a global o
 | --- | --- |
 | Use page preference (default) | Preserve the page's `options.reasoningEffort`; when omitted, use the provider/model default. |
 | Auto — provider/model default | Override the page's effort with `"auto"`, including when the page requests a specific effort. |
-| None / Low / Medium / High | Override the page's effort with the selected value, even when the page omits `options`. |
+| None / Low / Medium / High / Extra high | Override the page's effort with the selected value, even when the page omits `options`. |
 
 Changes save automatically and apply to the next chat request on sites that inherit the global setting, including requests covered by an existing Always-allow grant or waiting for approval. They do not change an in-progress generation. This applies to stable chat and its deprecated experimental alias, not decisions or speech. It does not change grants, require another prompt, or control exposure of reasoning text. Page options are still validated before applying the override; `temperature` is preserved.
 
-The **chat approval popup** also offers **Reasoning effort for this site** under **Advanced options**, collapsed by default. An active site override stays visible in the summary (for example, **Advanced options · Reasoning: High**). The selector starts with **Use global setting** (showing the current global choice), or restores the site's previous selection. Choose **Use page preference** to let that app choose even when a global override is set, **Auto** to use its provider/model default, or **None / Low / Medium / High** for a site override. The selection is saved when you allow, including **Allow once**, and applies to the current and later chat requests for that exact origin. Denying or closing the popup does not save a change. Choosing **Use global setting** removes the site override so later global changes apply. Site preferences are stored separately from access grants and never grant permission themselves; revoking access leaves the preference available for the next approval. Decisions and speech approvals do not show this control.
+The **chat approval popup** also offers **Reasoning effort for this site** under **Advanced options**, collapsed by default. An active site override stays visible in the summary (for example, **Advanced options · Reasoning: High**). The selector starts with **Use global setting** (showing the current global choice), or restores the site's previous selection. Choose **Use page preference** to let that app choose even when a global override is set, **Auto** to use its provider/model default, or **None / Low / Medium / High / Extra high** for a site override. The selection is saved when you allow, including **Allow once**, and applies to the current and later chat requests for that exact origin. Denying or closing the popup does not save a change. Choosing **Use global setting** removes the site override so later global changes apply. Site preferences are stored separately from access grants and never grant permission themselves; revoking access leaves the preference available for the next approval. Decisions and speech approvals do not show this control.
 
 To edit a saved preference for an Always-allowed chat origin, open **Options → Site access → Allowed sites**, expand the site, and use its autosaving **Reasoning effort** selector under **Chat**. Choosing **Use global setting** clears the override. These edits affect the next chat request and leave provider/model, tools, images, and access permissions unchanged. Sites using Allow once, or whose access was revoked, can change their remembered preference in the next approval popup, just like their remembered provider/model choice.
 
@@ -406,7 +409,7 @@ You can include function tools in the same `tools` array; those still execute on
 | `tools` | no | `Tool[]` | Non-empty when present. Function tools and `{ type: "web_search" }`. |
 | `toolChoice` | no | `"auto"` \| `"none"` \| `"required"` \| `{ type: "function", function: { name } }` | Defaults to `"auto"` when `tools` is present. |
 | `output` | no | `{ images?: boolean }` | Image generation for this turn when `getFeatures().imageOutput`. Extra keys ignored. |
-| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high", temperature?: number }` | Same as IPA `options`; unknown keys ignored. |
+| `options` | no | `{ reasoningEffort?: "auto" \| "none" \| "low" \| "medium" \| "high" \| "xhigh", temperature?: number }` | Same as IPA `options`; unknown keys ignored. |
 | `signal` | no | `AbortSignal` | Abort is handled in the page bridge (does not cross realms). |
 
 **`messages` shapes (stable)**

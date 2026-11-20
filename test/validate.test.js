@@ -299,7 +299,7 @@ describe("validateInferenceRequest", () => {
     expect(bad.ok).toBe(false);
     expect(bad.message).toMatch(/reasoningEffort/);
 
-    for (const reasoningEffort of ["auto", "none", "low", "medium", "high"]) {
+    for (const reasoningEffort of ["auto", "none", "low", "medium", "high", "xhigh"]) {
       const ok = validateInferenceRequest({
         method: "chat",
         messages: [{ role: "user", content: "hi" }],
@@ -467,11 +467,11 @@ describe("validateExperimentalInferenceRequest", () => {
     const result = validateExperimentalInferenceRequest({
       method: "chat",
       messages: [{ role: "user", content: "hi" }],
-      options: { reasoningEffort: "low", temperature: 0.5 },
+      options: { reasoningEffort: "xhigh", temperature: 0.5 },
     });
     expect(result.ok).toBe(true);
     expect(result.value.options).toEqual({
-      reasoningEffort: "low",
+      reasoningEffort: "xhigh",
       temperature: 0.5,
     });
 

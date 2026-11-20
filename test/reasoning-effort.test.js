@@ -139,6 +139,12 @@ describe("mapReasoningEffortForAnthropic", () => {
     });
   });
 
+  it.each(["claude-sonnet-5", "claude-haiku-4-5"])("uses the high mapping for xhigh on %s", (model) => {
+    expect(mapReasoningEffortForAnthropic("xhigh", model)).toEqual(
+      mapReasoningEffortForAnthropic("high", model)
+    );
+  });
+
   it("does not read a snapshot date as the minor version", () => {
     expect(
       mapReasoningEffortForAnthropic("low", "claude-opus-4-20250514")

@@ -13,7 +13,7 @@ import { isOpenAIGpt62Model } from "./openai-capabilities.js";
 /** Max retries after a 400 that rejects temperature and/or reasoning effort. */
 export const MAX_PARAM_RETRIES = 3;
 
-/** @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort */
+/** @typedef {import("./types.js").ReasoningEffort} ReasoningEffort */
 
 /** Lowest-first order for OpenAI-compatible `reasoning_effort` / `reasoning.effort`. */
 const OPENAI_COMPAT_REASONING_EFFORTS = Object.freeze([
@@ -58,7 +58,7 @@ export function mapOpenAINoneReasoningEffort(model) {
  * `nextOpenAICompatReasoningEffortAfterError` for a 400 retry.
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]
- * @returns {"none" | "minimal" | "low" | "medium" | "high" | undefined}
+ * @returns {"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined}
  */
 export function mapReasoningEffortForOpenAICompat(effort, model) {
   if (effort == null || effort === "auto") return undefined;
@@ -241,6 +241,7 @@ function anthropicUsesBetweenToolsForNone(model) {
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
  * Claude 4.5 and earlier. Sonnet 5.5 uses `between_tools` for IPA `"none"`;
  * Fable 5+ and Opus 5.5 cannot disable thinking, so omit the field.
+ * For `"xhigh"`, use the highest effort this adapter maps (`"high"`).
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]
@@ -262,17 +263,18 @@ export function mapReasoningEffortForAnthropic(effort, model) {
     if (anthropicRejectsDisabledThinking(model)) return undefined;
     return { thinking: { type: "disabled" } };
   }
+  const mappedEffort = effort === "xhigh" ? "high" : effort;
   if (anthropicThinkingMode(model) === "extended") {
     return {
       thinking: {
         type: "enabled",
-        budget_tokens: ANTHROPIC_EXTENDED_BUDGET[effort],
+        budget_tokens: ANTHROPIC_EXTENDED_BUDGET[mappedEffort],
       },
     };
   }
   return {
     thinking: { type: "adaptive" },
-    output_config: { effort },
+    output_config: { effort: mappedEffort },
   };
 }
 
