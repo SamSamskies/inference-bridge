@@ -48,10 +48,10 @@ unzip -l "dist/inference-bridge-$(node -p 'require("./manifest.json").version').
 
 | Field | Suggested content |
 | --- | --- |
-| Name | Inference Bridge |
-| Summary | Browser bridge for `window.inference` plus optional side-panel chat — per-site permission, your providers, keys stay in the extension. |
+| Name | Inference Bridge *(pulled from `manifest.json`; add `"short_name": "Inference Bridge"` if you ever add a subtitle to `"name"`)* |
+| Summary | Bring your own AI API keys or local models to the browser — per-site `window.inference` access plus a private side-panel chat. *(pulled from `manifest.json` `description`; max 132 chars)* |
 | Description | Paste the block below |
-| Category | Developer Tools (or Productivity — choose one and keep consistent) |
+| Category | Productivity or Developer Tools (choose one and keep consistent; Productivity reaches a wider browse audience) |
 | Language | English |
 | Privacy policy URL | [PRIVACY.md on GitHub](https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md) |
 
@@ -60,24 +60,33 @@ unzip -l "dist/inference-bridge-$(node -p 'require("./manifest.json").version').
 Avoid stacked brand/product name lists in Summary and Description — Chrome Web Store may reject that as excessive keywords even if the copy was previously accepted.
 
 ```
-Inference Bridge lets websites use AI through window.inference — with your permission, on a provider you choose in Options. You can also chat yourself in the extension side panel with the same providers and keys; that chat does not grant websites access and does not read the page.
+Inference Bridge brings your own AI providers to the browser — with no middleman server and no extra subscription. Connect cloud AI APIs with your own keys (BYOK), local model servers, on-device browser AI when available, or any OpenAI-compatible endpoint.
 
-Bring your own API keys for supported cloud providers, run a local model server, use on-device browser AI when available, or point the extension at an OpenAI-compatible endpoint you configure. Keys stay in the extension; page scripts never see them.
+Use your configured models in two ways:
+1. Grant websites per-site permission to request AI through window.inference (the Inference Provider API).
+2. Open the built-in AI side-panel chat to use the same providers and keys yourself — without reading the current page or granting websites access.
 
-• Optional side-panel chat with local history, image attachments, and provider-hosted web search
-• Streaming chat via window.inference.request() for sites that implement the Inference Provider API
-• Function tools executed by the requesting website
-• Hosted web search when the selected provider supports it
-• Image input and output on window.inference.request when the selected model supports vision or image generation
-• Bounded transcription and MP3/WAV speech synthesis with separate per-site approval
-• Typed decisions on cloud or local decision models, available by default with separate per-site approval
-• Per-site Allow / Deny / Remember prompts
-• You pick the provider and model in Options
-• Optional host access is requested only for each custom server origin you save
-• Local loopback servers work without special CORS / ORIGINS setup
-• Injects only on https and localhost pages
+PRIVATE BY DESIGN
+• Your API keys stay inside the extension; websites never see them
+• Per-site Allow once, Always allow, and Deny prompts (revocable anytime in Options)
+• Separate per-site approvals for speech and typed decisions
+• No Inference Bridge backend — requests go directly to the provider you choose
+• Injects only on secure (HTTPS and localhost) pages
 
-Official reference for the experimental Inference Provider API:
+AI SIDE-PANEL CHAT (OPTIONAL)
+• Chat with your own cloud or local models beside any tab
+• Local chat history with search and pinned conversations
+• Image attachments (vision) and provider-hosted web search
+• Does not read webpage content
+
+WEB AI BRIDGE (window.inference)
+• Streaming chat, function tools, hosted web search, and image input/output
+• Speech-to-text transcription and text-to-speech (MP3/WAV) with separate site approval
+• Typed structured decisions over JSON state
+• Local loopback servers work out of the box without custom CORS setup
+• Custom OpenAI-compatible servers request host access only when saved
+
+Open-source reference implementation of the Inference Provider API:
 https://github.com/SamSamskies/inference-provider-api
 
 Privacy policy:
