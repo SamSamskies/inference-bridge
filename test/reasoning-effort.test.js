@@ -139,6 +139,12 @@ describe("mapReasoningEffortForAnthropic", () => {
     });
   });
 
+  it.each(["claude-sonnet-5", "claude-haiku-4-5"])("uses the high mapping for xhigh on %s", (model) => {
+    expect(mapReasoningEffortForAnthropic("xhigh", model)).toEqual(
+      mapReasoningEffortForAnthropic("high", model)
+    );
+  });
+
   it("does not read a snapshot date as the minor version", () => {
     expect(
       mapReasoningEffortForAnthropic("low", "claude-opus-4-20250514")
@@ -221,6 +227,25 @@ describe("OpenAI-compat reasoning-effort retry helpers", () => {
       fallbackOpenAICompatReasoningEffort(
         "none",
         "Unsupported value: 'none' is not supported"
+      )
+    ).toBeUndefined();
+  });
+
+  it("falls back from xhigh/high to the highest still-supported effort", () => {
+    const noXhigh =
+      "Unsupported value: 'xhigh' is not supported with this model. Supported values are: 'minimal', 'low', 'medium', and 'high'.";
+    expect(fallbackOpenAICompatReasoningEffort("xhigh", noXhigh)).toBe("high");
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(400, noXhigh, "xhigh")
+    ).toEqual({ retry: true, effort: "high" });
+
+    const noHigh =
+      "Unsupported value: 'high' is not supported with this model. Supported values are: 'minimal', 'low', and 'medium'.";
+    expect(fallbackOpenAICompatReasoningEffort("high", noHigh)).toBe("medium");
+    expect(
+      fallbackOpenAICompatReasoningEffort(
+        "xhigh",
+        "Unsupported value: 'xhigh' is not supported"
       )
     ).toBeUndefined();
   });

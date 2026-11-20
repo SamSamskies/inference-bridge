@@ -1,9 +1,9 @@
 /** User preferences for chat generation, independent of permission scopes. */
 
-/** @typedef {"page" | "auto" | "none" | "low" | "medium" | "high"} ChatReasoningEffort */
+/** @typedef {"page" | import("./providers/types.js").ReasoningEffort} ChatReasoningEffort */
 /** @typedef {"global" | ChatReasoningEffort} SiteChatReasoningEffort */
 const CHAT_REASONING_EFFORTS = new Set([
-  "page", "auto", "none", "low", "medium", "high",
+  "page", "auto", "none", "low", "medium", "high", "xhigh",
 ]);
 
 /** @param {unknown} value @returns {ChatReasoningEffort} */

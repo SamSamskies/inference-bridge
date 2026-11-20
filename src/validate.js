@@ -14,16 +14,12 @@ import { IMAGE_MEDIA_TYPES, isImageMediaType } from "./image-parts.js";
 
 const CHAT_ROLES = new Set(["system", "user", "assistant", "tool"]);
 const TOOL_CHOICE_STRINGS = new Set(["auto", "none", "required"]);
-const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high"]);
+const REASONING_EFFORTS = new Set(["auto", "none", "low", "medium", "high", "xhigh"]);
 const IMAGE_MEDIA_TYPE_LIST = IMAGE_MEDIA_TYPES.join('", "');
 
 /**
- * @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort
- *
- * @typedef {{
- *   reasoningEffort?: ReasoningEffort,
- *   temperature?: number,
- * }} InferenceOptions
+ * @typedef {import("./providers/types.js").ReasoningEffort} ReasoningEffort
+ * @typedef {import("./providers/types.js").InferenceOptions} InferenceOptions
  */
 
 /**
@@ -199,7 +195,7 @@ function validateOptions(options) {
       return {
         ok: false,
         message:
-          'options.reasoningEffort must be "auto", "none", "low", "medium", or "high".',
+          'options.reasoningEffort must be "auto", "none", "low", "medium", "high", or "xhigh".',
       };
     }
     value.reasoningEffort = /** @type {ReasoningEffort} */ (opts.reasoningEffort);

@@ -220,6 +220,7 @@ describe("Gemini curated models and capability boundaries", () => {
     ["low", "low"],
     ["medium", "medium"],
     ["high", "high"],
+    ["xhigh", "xhigh"],
   ])("supports Hydrogen image input and reasoning preference %s", async (reasoningEffort, thinkingLevel) => {
     const hydrogen = "gemini-4-hydrogen";
     const messages = [{ role: "user", content: [

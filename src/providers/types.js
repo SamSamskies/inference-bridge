@@ -98,9 +98,10 @@
  */
 
 /**
- * IPA generation preferences (subset Bridge currently maps).
+ * IPA generation preferences.
+ * @typedef {"auto" | "none" | "low" | "medium" | "high" | "xhigh"} ReasoningEffort
  * @typedef {{
- *   reasoningEffort?: "auto" | "none" | "low" | "medium" | "high",
+ *   reasoningEffort?: ReasoningEffort,
  *   temperature?: number,
  * }} InferenceOptions
  */

@@ -569,10 +569,10 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
       ...route, toolFingerprint: "hosted:web_search", imageInput: true, imageOutput: true,
     });
     const before = (await storage.getSettings()).allowedOrigins;
-    expect(await editPreference("low")).toEqual({ ok: true });
+    expect(await editPreference("xhigh")).toEqual({ ok: true });
     const port = start({ reasoningEffort: "high" });
     await outcome(port);
-    expect(body().reasoning_effort).toBe("low");
+    expect(body().reasoning_effort).toBe("xhigh");
     expect(permissions.getPendingApproval(port.streamId)).toBeNull();
     expect((await storage.getSettings()).allowedOrigins).toEqual(before);
     expect(await editPreference("global")).toEqual({ ok: true });
@@ -586,6 +586,7 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     ["none", "global", "high", "low"],
     ["high", "none", "high", "low"],
     ["none", "page", "medium", "medium"],
+    ["page", "global", "xhigh", "xhigh"],
     ["auto", "global", "none", undefined],
     ["none", "auto", "none", undefined],
   ])("maps Ollama metadata after page/global/site resolution (%s, %s, %s)", async (global, site, page, expected) => {
@@ -771,6 +772,7 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
   it.each([
     ["global", "low"], ["page", "high"], ["auto", undefined],
     ["none", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"],
+    ["xhigh", "xhigh"],
   ])("saves popup choice %s and applies it to current and granted requests", async (preference, expected) => {
     await storage.saveSettings({ chatReasoningEffort: "low" });
     const port = start({ reasoningEffort: "high", temperature: 0.2 });
@@ -862,7 +864,7 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
 
   it.each([
     ["auto", undefined], ["none", "minimal"], ["low", "low"],
-    ["medium", "medium"], ["high", "high"],
+    ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"],
   ])("maps the user's %s override through the adapter", async (effort, expected) => {
     await storage.grantOriginAlways(origin, route);
     const before = (await storage.getSettings()).allowedOrigins;
@@ -915,14 +917,14 @@ describe.each([false, true])("chat effort routing (Firefox: %s)", (firefox) => {
     expect(permissions.getPendingApproval(port.streamId)).toBeNull();
   });
 
-  it("uses the existing fallback when a model rejects effort", async () => {
+  it.each(["high", "xhigh"])("uses the existing fallback when a model rejects %s", async (effort) => {
     await storage.grantOriginAlways(origin, route);
-    await storage.saveSettings({ chatReasoningEffort: "high" });
+    await storage.saveSettings({ chatReasoningEffort: effort });
     fetch.mockResolvedValueOnce(Response.json({ error: {
       message: "reasoning_effort is not supported",
     } }, { status: 400 }));
     await outcome(start({ reasoningEffort: "low" }));
-    expect(JSON.parse(fetch.mock.calls[0][1].body).reasoning_effort).toBe("high");
+    expect(JSON.parse(fetch.mock.calls[0][1].body).reasoning_effort).toBe(effort);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(body()).not.toHaveProperty("reasoning_effort");
   });

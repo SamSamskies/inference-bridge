@@ -4,8 +4,9 @@
  * model cannot honor the preference. OpenAI-compatible APIs are model-dependent
  * (`none` vs `minimal`); known OpenAI model ids are mapped on the first
  * request. A 400 listing supported values is retried with the next lowest
- * effort, or with the field omitted if the list cannot be parsed (bounded by
- * `MAX_PARAM_RETRIES`).
+ * effort for low-side failures, or the highest still-supported effort below
+ * the sent value when `"high"` / `"xhigh"` / `"max"` is rejected; the field is
+ * omitted if the list cannot be parsed (bounded by `MAX_PARAM_RETRIES`).
  */
 
 import { isOpenAIGpt62Model } from "./openai-capabilities.js";
@@ -13,7 +14,7 @@ import { isOpenAIGpt62Model } from "./openai-capabilities.js";
 /** Max retries after a 400 that rejects temperature and/or reasoning effort. */
 export const MAX_PARAM_RETRIES = 3;
 
-/** @typedef {"auto" | "none" | "low" | "medium" | "high"} ReasoningEffort */
+/** @typedef {import("./types.js").ReasoningEffort} ReasoningEffort */
 
 /** Lowest-first order for OpenAI-compatible `reasoning_effort` / `reasoning.effort`. */
 const OPENAI_COMPAT_REASONING_EFFORTS = Object.freeze([
@@ -58,7 +59,7 @@ export function mapOpenAINoneReasoningEffort(model) {
  * `nextOpenAICompatReasoningEffortAfterError` for a 400 retry.
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]
- * @returns {"none" | "minimal" | "low" | "medium" | "high" | undefined}
+ * @returns {"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined}
  */
 export function mapReasoningEffortForOpenAICompat(effort, model) {
   if (effort == null || effort === "auto") return undefined;
@@ -118,7 +119,10 @@ export function parseSupportedReasoningEfforts(message) {
 
 /**
  * Next OpenAI-compatible effort after `sent` was rejected.
- * Prefers the lowest remaining supported value; `undefined` means omit the field.
+ * Low-side failures (`none` … `medium`) prefer the lowest remaining supported
+ * value. Rejected `"high"` / `"xhigh"` / `"max"` prefer the highest remaining
+ * value still below `sent`, so an Extra-high override does not collapse to
+ * `minimal`. `undefined` means omit the field.
  * @param {string} sent
  * @param {string} message
  * @returns {string | undefined}
@@ -127,6 +131,16 @@ export function fallbackOpenAICompatReasoningEffort(sent, message) {
   const remaining = parseSupportedReasoningEfforts(message).filter(
     (value) => value !== sent
   );
+  const sentIndex = OPENAI_COMPAT_REASONING_EFFORTS.indexOf(sent);
+  const highIndex = OPENAI_COMPAT_REASONING_EFFORTS.indexOf("high");
+  if (sentIndex >= highIndex) {
+    let best;
+    for (let i = 0; i < sentIndex; i++) {
+      const value = OPENAI_COMPAT_REASONING_EFFORTS[i];
+      if (remaining.includes(value)) best = value;
+    }
+    return best;
+  }
   for (const value of OPENAI_COMPAT_REASONING_EFFORTS) {
     if (remaining.includes(value)) return value;
   }
@@ -241,6 +255,7 @@ function anthropicUsesBetweenToolsForNone(model) {
  * Claude 4.6+, or extended thinking (`enabled` + `budget_tokens`) on
  * Claude 4.5 and earlier. Sonnet 5.5 uses `between_tools` for IPA `"none"`;
  * Fable 5+ and Opus 5.5 cannot disable thinking, so omit the field.
+ * For `"xhigh"`, use the highest effort this adapter maps (`"high"`).
  *
  * @param {ReasoningEffort | undefined} effort
  * @param {string | undefined} [model]
@@ -262,17 +277,18 @@ export function mapReasoningEffortForAnthropic(effort, model) {
     if (anthropicRejectsDisabledThinking(model)) return undefined;
     return { thinking: { type: "disabled" } };
   }
+  const mappedEffort = effort === "xhigh" ? "high" : effort;
   if (anthropicThinkingMode(model) === "extended") {
     return {
       thinking: {
         type: "enabled",
-        budget_tokens: ANTHROPIC_EXTENDED_BUDGET[effort],
+        budget_tokens: ANTHROPIC_EXTENDED_BUDGET[mappedEffort],
       },
     };
   }
   return {
     thinking: { type: "adaptive" },
-    output_config: { effort },
+    output_config: { effort: mappedEffort },
   };
 }
 
