@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inference Bridge",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "Bring your own AI API keys or local models to the browser — per-site window.inference access plus a private side-panel chat.",
   "permissions": [
     "storage",
