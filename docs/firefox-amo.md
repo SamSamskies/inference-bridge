@@ -47,9 +47,36 @@ Before submission, compare this declaration against the actual packaged build, F
 
 ## AMO listing copy
 
-- **Name:** Inference Bridge
-- **Summary:** Let websites request AI through `window.inference` with per-site approval — plus optional sidebar chat with your chosen provider.
-- **Description:** Inference Bridge gives websites a browser API for streaming AI chat, tools, hosted web search, and supported images. You choose a provider and model in Options, then approve each website or save a per-site grant. You can also open the add-on's sidebar chat to talk to the same providers yourself, with local history, image attachments, and provider-hosted web search; that chat does not grant websites access and does not read the page. Bring your own API key for supported cloud providers, use local Ollama, or add an OpenAI-compatible server. Keys remain inside the add-on; page scripts cannot read them. The add-on does not run an Inference Bridge backend. Remote provider services may charge separately. Typed decisions are available by default for separately approved typed questions over JSON state via cloud OpenAI, Google Gemini, OpenRouter, PayPerQ, or Ollama. Configure speech defaults in Options for separately approved transcription and MP3/WAV speech synthesis. Firefox does not offer Chrome's On-device Prompt API.
+- **Name:** Inference Bridge — BYOK AI & Web API *(or `Inference Bridge`; AMO allows up to 50 chars independently of `manifest.json`)*
+- **Summary:** Bring your own AI API keys or local Ollama models to Firefox. Grant websites per-site AI access through `window.inference`, or chat privately in the sidebar — keys stay in your browser with no middleman server.
+- **Description:**
+
+```text
+Inference Bridge connects your own AI providers to Firefox — with no middleman backend. Use your own API keys for supported cloud providers (OpenAI, Anthropic, Google Gemini, OpenRouter, PayPerQ, Ollama Cloud), run local Ollama, or add any custom OpenAI-compatible server.
+
+Use it to grant websites per-site AI access through window.inference (the Inference Provider API), or open the built-in AI sidebar chat to talk to your configured models yourself.
+
+Privacy & Control
+• API keys stay inside the add-on; page scripts never see them
+• Per-site Allow once, Always allow, and Deny prompts, revocable in Options
+• Separate per-site approvals for speech and typed decisions
+• Sidebar chat does not read the current page and does not grant websites access
+• No Inference Bridge server (remote providers may charge separately)
+
+AI Sidebar Chat
+• Chat with your cloud or local models directly in the Firefox sidebar
+• Local conversation history, image attachments, and provider-hosted web search
+
+Web AI API (window.inference)
+• Streaming chat, function tools, hosted web search, and image input/output
+• Speech-to-text transcription and MP3/WAV text-to-speech (configured in Options)
+• Typed decisions over JSON state
+• Local loopback servers work without extra CORS configuration
+• Note: Firefox does not include Chrome's On-device Prompt API
+
+Open-source (MIT) reference implementation of the Inference Provider API:
+https://github.com/SamSamskies/inference-provider-api
+```
 - **License:** MIT
 - **Privacy policy:** `https://github.com/SamSamskies/inference-bridge/blob/main/PRIVACY.md`
 - **Support site:** `https://github.com/SamSamskies/inference-bridge/issues`
