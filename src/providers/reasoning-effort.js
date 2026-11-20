@@ -4,8 +4,9 @@
  * model cannot honor the preference. OpenAI-compatible APIs are model-dependent
  * (`none` vs `minimal`); known OpenAI model ids are mapped on the first
  * request. A 400 listing supported values is retried with the next lowest
- * effort, or with the field omitted if the list cannot be parsed (bounded by
- * `MAX_PARAM_RETRIES`).
+ * effort for low-side failures, or the highest still-supported effort below
+ * the sent value when `"high"` / `"xhigh"` / `"max"` is rejected; the field is
+ * omitted if the list cannot be parsed (bounded by `MAX_PARAM_RETRIES`).
  */
 
 import { isOpenAIGpt62Model } from "./openai-capabilities.js";
@@ -118,7 +119,10 @@ export function parseSupportedReasoningEfforts(message) {
 
 /**
  * Next OpenAI-compatible effort after `sent` was rejected.
- * Prefers the lowest remaining supported value; `undefined` means omit the field.
+ * Low-side failures (`none` … `medium`) prefer the lowest remaining supported
+ * value. Rejected `"high"` / `"xhigh"` / `"max"` prefer the highest remaining
+ * value still below `sent`, so an Extra-high override does not collapse to
+ * `minimal`. `undefined` means omit the field.
  * @param {string} sent
  * @param {string} message
  * @returns {string | undefined}
@@ -127,6 +131,16 @@ export function fallbackOpenAICompatReasoningEffort(sent, message) {
   const remaining = parseSupportedReasoningEfforts(message).filter(
     (value) => value !== sent
   );
+  const sentIndex = OPENAI_COMPAT_REASONING_EFFORTS.indexOf(sent);
+  const highIndex = OPENAI_COMPAT_REASONING_EFFORTS.indexOf("high");
+  if (sentIndex >= highIndex) {
+    let best;
+    for (let i = 0; i < sentIndex; i++) {
+      const value = OPENAI_COMPAT_REASONING_EFFORTS[i];
+      if (remaining.includes(value)) best = value;
+    }
+    return best;
+  }
   for (const value of OPENAI_COMPAT_REASONING_EFFORTS) {
     if (remaining.includes(value)) return value;
   }

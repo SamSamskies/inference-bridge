@@ -231,6 +231,25 @@ describe("OpenAI-compat reasoning-effort retry helpers", () => {
     ).toBeUndefined();
   });
 
+  it("falls back from xhigh/high to the highest still-supported effort", () => {
+    const noXhigh =
+      "Unsupported value: 'xhigh' is not supported with this model. Supported values are: 'minimal', 'low', 'medium', and 'high'.";
+    expect(fallbackOpenAICompatReasoningEffort("xhigh", noXhigh)).toBe("high");
+    expect(
+      nextOpenAICompatReasoningEffortAfterError(400, noXhigh, "xhigh")
+    ).toEqual({ retry: true, effort: "high" });
+
+    const noHigh =
+      "Unsupported value: 'high' is not supported with this model. Supported values are: 'minimal', 'low', and 'medium'.";
+    expect(fallbackOpenAICompatReasoningEffort("high", noHigh)).toBe("medium");
+    expect(
+      fallbackOpenAICompatReasoningEffort(
+        "xhigh",
+        "Unsupported value: 'xhigh' is not supported"
+      )
+    ).toBeUndefined();
+  });
+
   it("retries with minimal for the nano error; does not retry unrelated 400s", () => {
     expect(
       nextOpenAICompatReasoningEffortAfterError(400, NANO_NONE_ERROR, "none")
